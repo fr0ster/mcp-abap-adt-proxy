@@ -1,0 +1,72 @@
+{
+  "name": "@mcp-abap-adt/proxy",
+  "version": "0.1.0",
+  "description": "MCP proxy server for SAP ABAP ADT - proxies local requests to cloud-llm-hub with JWT authentication",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "jest --passWithNoTests",
+    "build": "npx tsc -p tsconfig.json",
+    "start": "node ./bin/mcp-abap-adt-proxy.js",
+    "start:http": "node ./bin/mcp-abap-adt-proxy.js --transport streamable-http",
+    "start:sse": "node ./bin/mcp-abap-adt-proxy.js --transport sse",
+    "dev": "npx @modelcontextprotocol/inspector node ./dist/index.js",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "abap",
+    "sap",
+    "adt",
+    "mcp",
+    "model-context-protocol",
+    "proxy"
+  ],
+  "author": "Oleksii Kyslytsia <oleksij.kyslytsja@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fr0ster/mcp-abap-adt-proxy.git"
+  },
+  "homepage": "https://github.com/fr0ster/mcp-abap-adt-proxy#readme",
+  "bugs": {
+    "url": "https://github.com/fr0ster/mcp-abap-adt-proxy/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.17.2",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^24.2.1",
+    "commander": "^14.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.0",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@mcp-abap-adt/auth-broker": "^0.1.2",
+    "@mcp-abap-adt/header-validator": "^0.1.2",
+    "@modelcontextprotocol/sdk": "^1.23.0",
+    "axios": "^1.11.0",
+    "zod": "^3.25.76"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "bin": {
+    "mcp-abap-adt-proxy": "./bin/mcp-abap-adt-proxy.js"
+  }
+}
+
