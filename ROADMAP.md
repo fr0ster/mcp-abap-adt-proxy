@@ -55,26 +55,26 @@ The proxy intercepts MCP requests and routes them based on authentication header
 - [x] Handle responses and errors
 - [x] Add connection pooling/caching
 
-### Phase 4: Basic Auth Handling
+### Phase 4: Basic Auth Handling ✅
 
-- [ ] Implement local handling for `x-sap-auth-type: "basic"`
-- [ ] Reuse connection logic from mcp-abap-adt
-- [ ] Handle basic auth requests locally
+- [x] Implement local handling for `x-sap-auth-type: "basic"`
+- [x] Reuse connection logic from mcp-abap-adt
+- [x] Handle basic auth requests locally
 
-### Phase 5: Cloud Proxy with JWT
+### Phase 5: Cloud Proxy with JWT ✅
 
-- [ ] Implement service key detection (`x-sap-destination: "sk"`)
-- [ ] Integrate with `@mcp-abap-adt/auth-broker`:
+- [x] Implement service key detection (`x-sap-destination: "sk"`)
+- [x] Integrate with `@mcp-abap-adt/auth-broker`:
   - Get JWT token for destination
   - Handle token refresh
   - Cache tokens
-- [ ] Build proxy request to `cloud-llm-hub`:
+- [x] Build proxy request to `cloud-llm-hub`:
   - Transform MCP request format
   - Add JWT token to headers
   - Add cloud ABAP connection parameters
   - Preserve original request context
-- [ ] Forward request to cloud-llm-hub
-- [ ] Handle proxy responses:
+- [x] Forward request to cloud-llm-hub
+- [x] Handle proxy responses:
   - Transform response format
   - Handle errors
   - Preserve MCP protocol structure
