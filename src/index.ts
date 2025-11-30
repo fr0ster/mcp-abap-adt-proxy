@@ -37,9 +37,9 @@ export class McpAbapAdtProxyServer {
   private httpServer?: HttpServer;
   private cloudLlmHubProxy?: CloudLlmHubProxy;
 
-  constructor(transportConfig?: TransportConfig) {
+  constructor(transportConfig?: TransportConfig, configPath?: string) {
     this.transportConfig = transportConfig || parseTransportConfig();
-    this.config = loadConfig();
+    this.config = loadConfig(configPath);
 
     // Validate configuration
     if (this.transportConfig.type === "streamable-http" || this.transportConfig.type === "sse") {
@@ -50,6 +50,12 @@ export class McpAbapAdtProxyServer {
           errors: validation.errors,
         });
         throw new Error(`Configuration validation failed: ${validation.errors.join(", ")}`);
+      }
+      if (validation.warnings.length > 0) {
+        logger.warn("Configuration validation warnings", {
+          type: "CONFIG_VALIDATION_WARNINGS",
+          warnings: validation.warnings,
+        });
       }
     }
 
@@ -397,12 +403,19 @@ export class McpAbapAdtProxyServer {
           logger.error("Cloud LLM Hub URL not configured", {
             type: "CLOUD_LLM_HUB_URL_MISSING",
           });
-          res.writeHead(500, { "Content-Type": "text/plain" });
-          res.end("Cloud LLM Hub URL not configured");
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            jsonrpc: "2.0",
+            id: intercepted.body?.id || null,
+            error: {
+              code: -32603,
+              message: "Cloud LLM Hub URL not configured",
+            },
+          }));
           return;
         }
 
-        this.cloudLlmHubProxy = await createCloudLlmHubProxy(this.config.cloudLlmHubUrl);
+        this.cloudLlmHubProxy = await createCloudLlmHubProxy(this.config.cloudLlmHubUrl, this.config);
       }
 
       // Build MCP request from intercepted request
