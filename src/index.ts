@@ -16,11 +16,14 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } from "http";
 import { randomUUID } from "crypto";
+import { AuthBroker } from "@mcp-abap-adt/auth-broker";
 import { parseTransportConfig, TransportConfig } from "./lib/transportConfig.js";
 import { loadConfig, validateConfig } from "./lib/config.js";
 import { logger } from "./lib/logger.js";
 import { interceptRequest, requiresSapConfig, sanitizeHeadersForLogging } from "./router/requestInterceptor.js";
 import { RoutingStrategy } from "./router/headerAnalyzer.js";
+import { createDirectCloudConfig, getDirectCloudConnection } from "./router/directCloudRouter.js";
+import { getPlatformStores } from "./lib/stores.js";
 
 /**
  * MCP ABAP ADT Proxy Server
@@ -154,31 +157,40 @@ export class McpAbapAdtProxyServer {
       });
 
       // Handle request based on routing strategy
-      // For Phase 2, we just log the decision - actual routing will be in Phase 3-5
       try {
-        // Create transport for this request
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: undefined, // Stateless mode
-          enableJsonResponse: httpConfig.enableJsonResponse,
-          allowedHosts: httpConfig.allowedHosts,
-          allowedOrigins: httpConfig.allowedOrigins,
-          enableDnsRebindingProtection: httpConfig.enableDnsRebindingProtection,
-        });
+        // Phase 3: Direct Cloud Routing
+        if (intercepted.routingDecision.strategy === RoutingStrategy.DIRECT_CLOUD) {
+          await this.handleDirectCloudRequest(intercepted, req, res);
+          return;
+        }
 
-        // Close transport when response closes
-        res.on("close", () => {
-          transport.close();
-        });
+        // Phase 4: Local Basic Auth (will be implemented in Phase 4)
+        if (intercepted.routingDecision.strategy === RoutingStrategy.LOCAL_BASIC) {
+          logger.info("Local basic auth handling - to be implemented in Phase 4", {
+            type: "LOCAL_BASIC_NOT_IMPLEMENTED",
+          });
+          res.writeHead(501, { "Content-Type": "text/plain" });
+          res.end("Local basic auth handling not yet implemented");
+          return;
+        }
 
-        // Connect server to transport
-        await this.server.server.connect(transport);
+        // Phase 5: Proxy to cloud-llm-hub (will be implemented in Phase 5)
+        if (intercepted.routingDecision.strategy === RoutingStrategy.PROXY_CLOUD_LLM_HUB) {
+          logger.info("Cloud-llm-hub proxying - to be implemented in Phase 5", {
+            type: "PROXY_CLOUD_LLM_HUB_NOT_IMPLEMENTED",
+          });
+          res.writeHead(501, { "Content-Type": "text/plain" });
+          res.end("Cloud-llm-hub proxying not yet implemented");
+          return;
+        }
 
-        // Handle the request through MCP server
-        // The server will process the request and send response through transport
-        logger.debug("Request processed", {
-          type: "REQUEST_PROCESSED",
+        // Unknown strategy
+        logger.warn("Unknown routing strategy", {
+          type: "UNKNOWN_ROUTING_STRATEGY",
           strategy: intercepted.routingDecision.strategy,
         });
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Unknown routing strategy");
       } catch (error) {
         logger.error("Failed to process request", {
           type: "REQUEST_PROCESS_ERROR",
@@ -214,6 +226,96 @@ export class McpAbapAdtProxyServer {
         reject(error);
       });
     });
+  }
+
+  /**
+   * Handle direct cloud request (Phase 3)
+   */
+  private async handleDirectCloudRequest(
+    intercepted: ReturnType<typeof interceptRequest>,
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    logger.info("Handling direct cloud request", {
+      type: "DIRECT_CLOUD_REQUEST",
+      destination: intercepted.routingDecision.destination,
+      sessionId: intercepted.sessionId,
+    });
+
+    try {
+      // Create direct cloud config from routing decision
+      const cloudConfig = createDirectCloudConfig(
+        intercepted.routingDecision,
+        intercepted.headers
+      );
+
+      if (!cloudConfig) {
+        logger.error("Failed to create direct cloud config", {
+          type: "DIRECT_CLOUD_CONFIG_ERROR",
+        });
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Failed to create cloud connection configuration");
+        return;
+      }
+
+      // Get or create AuthBroker for destination if needed
+      let authBroker: AuthBroker | undefined;
+      if (cloudConfig.destination) {
+        try {
+          const { serviceKeyStore, sessionStore } = await getPlatformStores();
+          authBroker = new AuthBroker(
+            {
+              serviceKeyStore,
+              sessionStore,
+            },
+            "system"
+          );
+        } catch (error) {
+          logger.warn("Failed to create AuthBroker, continuing without it", {
+            type: "AUTH_BROKER_CREATE_WARNING",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      // Get direct cloud connection
+      const sessionId = intercepted.sessionId || randomUUID();
+      const connection = await getDirectCloudConnection(
+        sessionId,
+        cloudConfig,
+        authBroker
+      );
+
+      logger.debug("Direct cloud connection established", {
+        type: "DIRECT_CLOUD_CONNECTION_ESTABLISHED",
+        destination: cloudConfig.destination,
+        sapUrl: cloudConfig.sapUrl,
+      });
+
+      // For Phase 3, we just log that connection is established
+      // Actual MCP tool handling will be implemented when we register tools
+      // For now, return a placeholder response
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        jsonrpc: "2.0",
+        id: intercepted.body?.id || null,
+        result: {
+          message: "Direct cloud connection established (Phase 3 - routing only)",
+          destination: cloudConfig.destination,
+          strategy: "direct-cloud",
+        },
+      }));
+    } catch (error) {
+      logger.error("Failed to handle direct cloud request", {
+        type: "DIRECT_CLOUD_REQUEST_ERROR",
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Failed to establish direct cloud connection");
+      }
+    }
   }
 
   /**
