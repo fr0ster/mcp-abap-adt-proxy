@@ -23,6 +23,8 @@ import { logger } from "./lib/logger.js";
 import { interceptRequest, requiresSapConfig, sanitizeHeadersForLogging } from "./router/requestInterceptor.js";
 import { RoutingStrategy } from "./router/headerAnalyzer.js";
 import { createDirectCloudConfig, getDirectCloudConnection } from "./router/directCloudRouter.js";
+import { createLocalBasicConfig, getLocalBasicConnection } from "./router/localBasicRouter.js";
+import { createCloudLlmHubProxy, CloudLlmHubProxy } from "./proxy/cloudLlmHubProxy.js";
 import { getPlatformStores } from "./lib/stores.js";
 
 /**
@@ -33,6 +35,7 @@ export class McpAbapAdtProxyServer {
   private transportConfig: TransportConfig;
   private config: ReturnType<typeof loadConfig>;
   private httpServer?: HttpServer;
+  private cloudLlmHubProxy?: CloudLlmHubProxy;
 
   constructor(transportConfig?: TransportConfig) {
     this.transportConfig = transportConfig || parseTransportConfig();
@@ -164,23 +167,15 @@ export class McpAbapAdtProxyServer {
           return;
         }
 
-        // Phase 4: Local Basic Auth (will be implemented in Phase 4)
+        // Phase 4: Local Basic Auth
         if (intercepted.routingDecision.strategy === RoutingStrategy.LOCAL_BASIC) {
-          logger.info("Local basic auth handling - to be implemented in Phase 4", {
-            type: "LOCAL_BASIC_NOT_IMPLEMENTED",
-          });
-          res.writeHead(501, { "Content-Type": "text/plain" });
-          res.end("Local basic auth handling not yet implemented");
+          await this.handleLocalBasicRequest(intercepted, req, res);
           return;
         }
 
-        // Phase 5: Proxy to cloud-llm-hub (will be implemented in Phase 5)
+        // Phase 5: Proxy to cloud-llm-hub
         if (intercepted.routingDecision.strategy === RoutingStrategy.PROXY_CLOUD_LLM_HUB) {
-          logger.info("Cloud-llm-hub proxying - to be implemented in Phase 5", {
-            type: "PROXY_CLOUD_LLM_HUB_NOT_IMPLEMENTED",
-          });
-          res.writeHead(501, { "Content-Type": "text/plain" });
-          res.end("Cloud-llm-hub proxying not yet implemented");
+          await this.handleCloudLlmHubProxyRequest(intercepted, req, res);
           return;
         }
 
@@ -314,6 +309,142 @@ export class McpAbapAdtProxyServer {
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "text/plain" });
         res.end("Failed to establish direct cloud connection");
+      }
+    }
+  }
+
+  /**
+   * Handle local basic auth request (Phase 4)
+   */
+  private async handleLocalBasicRequest(
+    intercepted: ReturnType<typeof interceptRequest>,
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    logger.info("Handling local basic auth request", {
+      type: "LOCAL_BASIC_REQUEST",
+      sessionId: intercepted.sessionId,
+    });
+
+    try {
+      // Create local basic config from routing decision
+      const basicConfig = createLocalBasicConfig(
+        intercepted.routingDecision,
+        intercepted.headers
+      );
+
+      if (!basicConfig) {
+        logger.error("Failed to create local basic config", {
+          type: "LOCAL_BASIC_CONFIG_ERROR",
+        });
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Failed to create basic auth configuration");
+        return;
+      }
+
+      // Get local basic connection
+      const sessionId = intercepted.sessionId || randomUUID();
+      const connection = await getLocalBasicConnection(sessionId, basicConfig);
+
+      logger.debug("Local basic connection established", {
+        type: "LOCAL_BASIC_CONNECTION_ESTABLISHED",
+        sapUrl: basicConfig.sapUrl,
+      });
+
+      // For Phase 4, we just log that connection is established
+      // Actual MCP tool handling will be implemented when we register tools
+      // For now, return a placeholder response
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        jsonrpc: "2.0",
+        id: intercepted.body?.id || null,
+        result: {
+          message: "Local basic auth connection established (Phase 4 - routing only)",
+          strategy: "local-basic",
+        },
+      }));
+    } catch (error) {
+      logger.error("Failed to handle local basic request", {
+        type: "LOCAL_BASIC_REQUEST_ERROR",
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Failed to establish local basic auth connection");
+      }
+    }
+  }
+
+  /**
+   * Handle cloud-llm-hub proxy request (Phase 5)
+   */
+  private async handleCloudLlmHubProxyRequest(
+    intercepted: ReturnType<typeof interceptRequest>,
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    logger.info("Handling cloud-llm-hub proxy request", {
+      type: "CLOUD_LLM_HUB_PROXY_REQUEST",
+      destination: intercepted.routingDecision.destination,
+      sessionId: intercepted.sessionId,
+    });
+
+    try {
+      // Ensure cloud-llm-hub proxy is initialized
+      if (!this.cloudLlmHubProxy) {
+        if (!this.config.cloudLlmHubUrl) {
+          logger.error("Cloud LLM Hub URL not configured", {
+            type: "CLOUD_LLM_HUB_URL_MISSING",
+          });
+          res.writeHead(500, { "Content-Type": "text/plain" });
+          res.end("Cloud LLM Hub URL not configured");
+          return;
+        }
+
+        this.cloudLlmHubProxy = await createCloudLlmHubProxy(this.config.cloudLlmHubUrl);
+      }
+
+      // Build MCP request from intercepted request
+      const mcpRequest = {
+        method: intercepted.body?.method || "",
+        params: intercepted.body?.params || {},
+        id: intercepted.body?.id || null,
+        jsonrpc: intercepted.body?.jsonrpc || "2.0",
+      };
+
+      // Proxy request to cloud-llm-hub
+      const proxyResponse = await this.cloudLlmHubProxy.proxyRequest(
+        mcpRequest,
+        intercepted.routingDecision,
+        intercepted.headers
+      );
+
+      // Send response back to client
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(proxyResponse));
+
+      logger.debug("Cloud-llm-hub proxy request completed", {
+        type: "CLOUD_LLM_HUB_PROXY_COMPLETED",
+        hasResult: !!proxyResponse.result,
+        hasError: !!proxyResponse.error,
+      });
+    } catch (error) {
+      logger.error("Failed to handle cloud-llm-hub proxy request", {
+        type: "CLOUD_LLM_HUB_PROXY_ERROR",
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          id: intercepted.body?.id || null,
+          error: {
+            code: -32000,
+            message: error instanceof Error ? error.message : "Unknown error",
+          },
+        }));
       }
     }
   }
