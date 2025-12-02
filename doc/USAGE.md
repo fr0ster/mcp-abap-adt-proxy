@@ -99,6 +99,64 @@ mcp-abap-adt-proxy --btp=ai --mcp=trial
 
 Command line parameters work even if the corresponding headers are missing in the request.
 
+### Scenario 2: BTP Authentication Only (No SAP Configuration)
+
+**Use Case:** Proxy requests to any BTP service with JWT authentication, without SAP ABAP configuration. This is useful when connecting to BTP services that don't require SAP-specific headers.
+
+**Client Configuration:**
+```json
+{
+  "mcp-abap-adt-proxy": {
+    "disabled": false,
+    "timeout": 60,
+    "type": "streamableHttp",
+    "url": "http://localhost:3001/mcp/stream/http",
+    "headers": {
+      "x-btp-destination": "btp-cloud"
+    }
+  }
+}
+```
+
+**Or using command line:**
+```bash
+mcp-abap-adt-proxy --btp=btp-cloud
+```
+
+**What Happens:**
+1. Proxy receives request with only `x-btp-destination` header (or `--btp` parameter)
+2. Gets BTP Cloud token from auth-broker for `x-btp-destination` (or `--btp`) destination
+3. Gets MCP server URL from service key for BTP destination (via `authBroker.getSapUrl()`)
+4. Adds `Authorization: Bearer <btp-token>` header
+5. **No SAP headers are added** (since `x-mcp-destination` is not provided)
+6. Proxies request to MCP server URL obtained from BTP destination service key
+7. Target MCP server processes request and returns response
+8. Proxy forwards response to client
+
+**Key Points:**
+- ✅ Works with any BTP service, not just SAP ABAP
+- ✅ Only BTP authentication is required (`x-btp-destination` or `--btp`)
+- ✅ MCP server URL is obtained from BTP destination service key
+- ✅ No SAP-specific headers are added (no `x-sap-jwt-token`, `x-sap-url`, etc.)
+- ✅ Suitable for BTP services that don't need SAP ABAP configuration
+
+**Service Key Structure:**
+The service key for BTP destination should contain the MCP server URL:
+```json
+{
+  "uaa": {
+    "url": "https://your-uaa-url.com",
+    "clientid": "your-client-id",
+    "clientsecret": "your-client-secret"
+  },
+  "abap": {
+    "url": "https://your-mcp-server.com"
+  }
+}
+```
+
+The `abap.url` field is used as the MCP server URL (even though it's named "abap", it can point to any MCP server).
+
 ## Programmatic Usage
 
 ### Using as a Library

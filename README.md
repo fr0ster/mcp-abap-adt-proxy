@@ -81,8 +81,14 @@ The proxy uses two service keys (URLs are obtained from service keys):
 
 **BTP Authentication Mode** (with `x-btp-destination` or `--btp`):
 1. `x-btp-destination` (or `--btp`) → Gets JWT token from auth-broker → Adds `Authorization: Bearer <token>` header
-2. `x-mcp-destination` (or `--mcp`) → Gets JWT token and SAP config from auth-broker → Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.)
+2. `x-mcp-destination` (or `--mcp`) → Gets JWT token and SAP config from auth-broker → Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) - **optional**
 3. MCP server URL obtained from service key for `x-btp-destination`
+
+**BTP-Only Mode** (with only `x-btp-destination`/`--btp`, without `x-mcp-destination`):
+- Works with any BTP service, not just SAP ABAP
+- Only adds `Authorization: Bearer <token>` header (no SAP headers)
+- MCP server URL obtained from BTP destination service key
+- Suitable for BTP services that don't require SAP ABAP configuration
 
 **Local Testing Mode** (with only `x-mcp-destination`/`--mcp` or `x-mcp-url`/`--mcp-url`):
 1. `x-mcp-url` (or `--mcp-url`) → Direct URL to MCP server (no authentication)
