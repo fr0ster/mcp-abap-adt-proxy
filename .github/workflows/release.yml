@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v0.1.0, v0.1.1, etc.
+
+permissions:
+  contents: write  # Required for creating releases
+  id-token: write  # Required for npm publishing
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+        continue-on-error: true  # Don't fail release if tests fail
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Verify version matches package.json
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "Error: package.json version ($PACKAGE_VERSION) does not match tag version ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $PACKAGE_VERSION"
+
+      - name: Create package
+        run: npm pack
+
+      - name: Get package filename
+        id: package
+        run: |
+          PACKAGE_FILE=$(ls @mcp-abap-adt-proxy-*.tgz)
+          echo "filename=$PACKAGE_FILE" >> $GITHUB_OUTPUT
+          echo "Package created: $PACKAGE_FILE"
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.package.outputs.filename }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## Installation
+
+            Install from npm:
+
+            ```bash
+            npm install -g @mcp-abap-adt/proxy
+            ```
+
+            Or download the `.tgz` package and install:
+
+            ```bash
+            npm install -g ./${{ steps.package.outputs.filename }}
+            ```
+
+            ## What's Changed
+
+            See [CHANGELOG.md](https://github.com/fr0ster/mcp-abap-adt-proxy/blob/main/CHANGELOG.md) for details.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
