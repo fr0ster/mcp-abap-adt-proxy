@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2025-12-02
+
+### Added
+- **Documentation for BTP-Only authentication mode**
+  - Added "Scenario 2: BTP Authentication Only (No SAP Configuration)" in `doc/USAGE.md`
+  - Documented use case for connecting to any BTP service without SAP ABAP configuration
+  - Explained that `x-mcp-destination` is optional when using `x-btp-destination` or `--btp`
+  - Updated README.md with "BTP-Only Mode" section explaining behavior when only `--btp` is provided
+- **Enhanced help text in `bin/mcp-abap-adt-proxy.js`**
+  - Added detailed "Usage Modes" section with three modes:
+    1. BTP Authentication Mode (with `--btp` only)
+    2. BTP + SAP Configuration Mode (`--btp + --mcp`)
+    3. Local Testing Mode (only `--mcp` or `--mcp-url`)
+  - Added examples for each usage mode
+  - Added information about headers for HTTP/SSE transports
+  - Added service keys location and structure documentation
+  - Clarified that `abap.url` in service key is used as MCP server URL (even for non-SAP services)
+
+### Documentation
+- Improved clarity on when to use each authentication mode
+- Added examples showing BTP-only usage (without SAP configuration)
+- Documented that proxy works with any BTP service, not just SAP ABAP
+
 ## [0.1.3] - 2025-12-02
 
 ### Fixed
