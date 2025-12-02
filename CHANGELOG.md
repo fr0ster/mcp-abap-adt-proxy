@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2025-12-02
+
+### Fixed
+- **Unit tests updated to match new routing logic**
+  - Fixed tests that expected `UNKNOWN` strategy when only `x-mcp-destination` or `x-mcp-url` is provided
+  - Updated test expectations to reflect that `x-btp-destination` is now optional
+  - Added tests for `x-mcp-url` header support
+  - Updated `shouldProxy` function tests to cover all routing scenarios (BTP, MCP destination, MCP URL)
+  - All 51 unit tests now pass successfully
+
 ## [0.1.2] - 2025-12-02
 
 ### Added
