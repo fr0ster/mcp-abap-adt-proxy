@@ -30,9 +30,9 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Run tests
+      - name: Run unit tests
         run: npm test
-        continue-on-error: true  # Don't fail release if tests fail
+        continue-on-error: false  # Fail release if tests fail
 
       - name: Extract version from tag
         id: version
@@ -54,7 +54,8 @@ jobs:
       - name: Get package filename
         id: package
         run: |
-          PACKAGE_FILE=$(ls @mcp-abap-adt-proxy-*.tgz)
+          # Scoped packages create files like: mcp-abap-adt-proxy-0.1.1.tgz
+          PACKAGE_FILE=$(ls mcp-abap-adt-proxy-*.tgz)
           echo "filename=$PACKAGE_FILE" >> $GITHUB_OUTPUT
           echo "Package created: $PACKAGE_FILE"
 
