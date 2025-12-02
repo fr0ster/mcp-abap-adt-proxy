@@ -52,7 +52,9 @@ Options:
   --sse-host=<host>       SSE server host (default: 0.0.0.0)
   --cloud-llm-hub-url     Cloud LLM Hub URL (default: from env CLOUD_LLM_HUB_URL)
   --btp=<destination>     Override x-btp-destination header (for BTP Cloud authorization)
+                           Required for stdio and SSE transports when headers are not provided
   --mcp=<destination>     Override x-mcp-destination header (for SAP ABAP connection)
+                           Used as default destination for stdio and SSE transports
   --unsafe                 Enable file-based session storage (persists tokens to disk)
   --help, -h              Show this help message
   --version, -v           Show version number
@@ -68,10 +70,12 @@ Environment Variables:
 
 Examples:
   mcp-abap-adt-proxy                                    # Use default transport
-  mcp-abap-adt-proxy --transport=stdio                  # Use stdio transport
+  mcp-abap-adt-proxy --transport=stdio --btp=ai         # Use stdio transport with --btp (required)
+  mcp-abap-adt-proxy --transport=stdio --btp=ai --mcp=trial  # Use stdio with both destinations
   mcp-abap-adt-proxy --transport=http                   # HTTP mode (port 3001)
   mcp-abap-adt-proxy --transport=http --http-port=8080  # HTTP mode on custom port
-  mcp-abap-adt-proxy --transport=sse --sse-port=3002    # SSE mode on port 3002
+  mcp-abap-adt-proxy --transport=sse --btp=ai --mcp=trial  # SSE mode with destinations
+  mcp-abap-adt-proxy --transport=sse --sse-port=3002     # SSE mode on port 3002
   mcp-abap-adt-proxy --btp=ai --mcp=trial               # With destination overrides
   mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe      # With file-based session storage
 

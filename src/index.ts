@@ -75,7 +75,82 @@ export class McpAbapAdtProxyServer {
   private setupHandlers(): void {
     // Tools are registered using server.registerTool()
     // The server automatically handles initialize and tools/list requests
-    // For now, we don't register any tools - routing will be handled in middleware
+    // For stdio, we'll intercept requests through server.server message handler
+  }
+
+  /**
+   * Handle stdio request by proxying to cloud-llm-hub
+   */
+  private async handleStdioRequest(method: string, params: any, id: any): Promise<any> {
+    // Create fake headers with config overrides (--btp and --mcp)
+    const fakeHeaders: Record<string, string> = {};
+    if (this.config.btpDestination) {
+      fakeHeaders["x-btp-destination"] = this.config.btpDestination;
+    }
+    if (this.config.mcpDestination) {
+      fakeHeaders["x-mcp-destination"] = this.config.mcpDestination;
+    }
+
+    // Create routing decision using config overrides
+    const configOverrides = {
+      btpDestination: this.config.btpDestination,
+      mcpDestination: this.config.mcpDestination,
+    };
+    const { analyzeHeaders } = await import("./router/headerAnalyzer.js");
+    const routingDecision = analyzeHeaders(fakeHeaders, configOverrides);
+
+    // Check if routing is valid
+    if (routingDecision.strategy !== RoutingStrategy.PROXY) {
+      logger.error("Routing decision failed for stdio request", {
+        type: "STDIO_ROUTING_DECISION_FAILED",
+        reason: routingDecision.reason,
+      });
+      return {
+        jsonrpc: "2.0",
+        id: id || null,
+        error: {
+          code: -32602,
+          message: routingDecision.reason || "Routing decision failed",
+        },
+      };
+    }
+
+    // Ensure proxy is initialized
+    if (!this.cloudLlmHubProxy) {
+      const baseUrl = this.config.cloudLlmHubUrl || "https://default.example.com";
+      this.cloudLlmHubProxy = await createCloudLlmHubProxy(baseUrl, this.config);
+    }
+
+    // Build MCP request
+    const mcpRequest = {
+      method: method || "",
+      params: params || {},
+      id: id || null,
+      jsonrpc: "2.0",
+    };
+
+    // Proxy request to cloud-llm-hub
+    try {
+      const proxyResponse = await this.cloudLlmHubProxy.proxyRequest(
+        mcpRequest,
+        routingDecision,
+        fakeHeaders
+      );
+      return proxyResponse;
+    } catch (error) {
+      logger.error("Failed to proxy stdio request", {
+        type: "STDIO_PROXY_ERROR",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        jsonrpc: "2.0",
+        id: id || null,
+        error: {
+          code: -32000,
+          message: error instanceof Error ? error.message : "Unknown error",
+        },
+      };
+    }
   }
 
   /**
@@ -83,10 +158,36 @@ export class McpAbapAdtProxyServer {
    */
   async run(): Promise<void> {
     if (this.transportConfig.type === "stdio") {
-      // Simple stdio setup
+      // Check if --btp parameter is provided (required for stdio)
+      if (!this.config.btpDestination) {
+        logger.error("--btp parameter is required for stdio transport", {
+          type: "STDIO_BTP_REQUIRED",
+        });
+        throw new Error("--btp parameter is required for stdio transport. Use --btp=<destination> to specify BTP destination.");
+      }
+
+      // For stdio, we need to register a proxy tool that forwards all requests
+      // Since we can't intercept all requests directly, we'll register a tool
+      // that the client can call, which will proxy to cloud-llm-hub
+      // Note: This requires the client to know about the proxy tool
+      // Alternatively, we could use a custom transport wrapper
+      
+      // Simple stdio setup - MCP SDK will handle JSON-RPC protocol
+      // For tools/call requests, we need to intercept them
+      // Since MCP SDK doesn't provide a way to intercept all requests,
+      // we'll need to handle this differently
+      // For now, we'll just connect and let the SDK handle it
+      // The actual proxying will need to be done through registered tools
+      
       const transport = new StdioServerTransport();
       await this.server.server.connect(transport);
-      logger.info("MCP Proxy Server started (stdio transport)");
+      logger.info("MCP Proxy Server started (stdio transport)", {
+        type: "SERVER_STARTED",
+        transport: "stdio",
+        btpDestination: this.config.btpDestination,
+        mcpDestination: this.config.mcpDestination,
+        note: "For stdio transport, --btp and --mcp parameters are used as default destinations",
+      });
       return;
     }
 
@@ -297,8 +398,286 @@ export class McpAbapAdtProxyServer {
    * Start SSE server
    */
   private async startSseServer(): Promise<void> {
-    // TODO: Implement SSE server in future phase
-    throw new Error("SSE transport not yet implemented");
+    const sseConfig = this.transportConfig;
+    
+    const streamPathMap = new Map<string, string>([
+      ["/", "/messages"],
+      ["/mcp/events", "/mcp/messages"],
+      ["/sse", "/messages"],
+    ]);
+    const streamPaths = Array.from(streamPathMap.keys());
+    const postPathSet = new Set(streamPathMap.values());
+    postPathSet.add("/messages");
+    postPathSet.add("/mcp/messages");
+
+    const httpServer = createServer(async (req, res) => {
+      // SSE: Always restrict to local connections only
+      const remoteAddress = req.socket.remoteAddress;
+      const isLocal = remoteAddress === "127.0.0.1" || 
+                     remoteAddress === "::1" || 
+                     remoteAddress === "localhost" ||
+                     (remoteAddress && remoteAddress.startsWith("127."));
+      
+      if (!isLocal) {
+        logger.warn("SSE: Non-local connection rejected", {
+          type: "SSE_NON_LOCAL_REJECTED",
+          remoteAddress,
+        });
+        res.writeHead(403, { "Content-Type": "text/plain" });
+        res.end("Forbidden: SSE transport only accepts local connections");
+        return;
+      }
+
+      const requestUrl = req.url ? new URL(req.url, `http://${req.headers.host ?? `${sseConfig.host}:${sseConfig.port}`}`) : undefined;
+      let pathname = requestUrl?.pathname ?? "/";
+      if (pathname.length > 1 && pathname.endsWith("/")) {
+        pathname = pathname.slice(0, -1);
+      }
+
+      // Apply config overrides (--btp and --mcp) to headers if not present
+      const headers: Record<string, string> = {};
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (value) {
+          headers[key] = Array.isArray(value) ? value[0] : value;
+        }
+      }
+      
+      // Add config overrides if not present in headers
+      if (this.config.btpDestination && !headers["x-btp-destination"]) {
+        headers["x-btp-destination"] = this.config.btpDestination;
+      }
+      if (this.config.mcpDestination && !headers["x-mcp-destination"]) {
+        headers["x-mcp-destination"] = this.config.mcpDestination;
+      }
+
+      logger.debug("SSE request received", {
+        type: "SSE_HTTP_REQUEST",
+        method: req.method,
+        pathname,
+        originalUrl: req.url,
+      });
+
+      // GET /sse, /mcp/events, or / - establish SSE connection
+      if (req.method === "GET" && streamPathMap.has(pathname)) {
+        const postEndpoint = streamPathMap.get(pathname) ?? "/messages";
+
+        logger.debug("SSE client connecting", {
+          type: "SSE_CLIENT_CONNECTING",
+          pathname,
+          postEndpoint,
+        });
+
+        // Create new McpServer instance for this session
+        const sessionServer = new McpServer(
+          {
+            name: "@mcp-abap-adt/proxy",
+            version: "0.1.0",
+          },
+          {
+            capabilities: {
+              tools: {},
+            },
+          }
+        );
+
+        // Create SSE transport
+        const transport = new SSEServerTransport(postEndpoint, res, {
+          allowedHosts: sseConfig.allowedHosts,
+          allowedOrigins: sseConfig.allowedOrigins,
+          enableDnsRebindingProtection: sseConfig.enableDnsRebindingProtection,
+        });
+
+        const sessionId = transport.sessionId;
+        logger.info("New SSE session created", {
+          type: "SSE_SESSION_CREATED",
+          sessionId,
+          pathname,
+        });
+
+        // Connect transport to server
+        try {
+          await sessionServer.server.connect(transport);
+          logger.info("SSE transport connected", {
+            type: "SSE_CONNECTION_READY",
+            sessionId,
+            pathname,
+            postEndpoint,
+          });
+        } catch (error) {
+          logger.error("Failed to connect SSE transport", {
+            type: "SSE_CONNECT_ERROR",
+            error: error instanceof Error ? error.message : String(error),
+            sessionId,
+          });
+          if (!res.headersSent) {
+            res.writeHead(500).end("Internal Server Error");
+          } else {
+            res.end();
+          }
+          return;
+        }
+
+        // Cleanup on connection close
+        res.on("close", () => {
+          logger.info("SSE connection closed", {
+            type: "SSE_CONNECTION_CLOSED",
+            sessionId,
+            pathname,
+          });
+          sessionServer.server.close();
+        });
+
+        transport.onerror = (error) => {
+          logger.error("SSE transport error", {
+            type: "SSE_TRANSPORT_ERROR",
+            error: error instanceof Error ? error.message : String(error),
+            sessionId,
+          });
+        };
+        return;
+      }
+
+      // POST /messages or /mcp/messages - handle client messages
+      if (req.method === "POST" && postPathSet.has(pathname)) {
+        // Extract sessionId from query string or header
+        let sessionId: string | undefined;
+        if (requestUrl) {
+          sessionId = requestUrl.searchParams.get("sessionId") || undefined;
+        }
+        if (!sessionId) {
+          sessionId = req.headers["x-session-id"] as string | undefined;
+        }
+
+        logger.debug("SSE POST request received", {
+          type: "SSE_POST_REQUEST",
+          sessionId,
+          pathname,
+        });
+
+        if (!sessionId) {
+          logger.error("Missing sessionId in SSE POST request", {
+            type: "SSE_MISSING_SESSION_ID",
+            pathname,
+          });
+          res.writeHead(400, { "Content-Type": "application/json" }).end(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              error: {
+                code: -32000,
+                message: "Missing sessionId",
+              },
+              id: null,
+            })
+          );
+          return;
+        }
+
+        // Read request body
+        let body: any;
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          if (chunks.length > 0) {
+            const bodyString = Buffer.concat(chunks).toString("utf-8");
+            body = JSON.parse(bodyString);
+          }
+        } catch (error) {
+          logger.error("Failed to parse SSE POST request body", {
+            type: "SSE_POST_PARSE_ERROR",
+            error: error instanceof Error ? error.message : String(error),
+          });
+          res.writeHead(400, { "Content-Type": "application/json" }).end(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              error: {
+                code: -32700,
+                message: "Parse error",
+              },
+              id: null,
+            })
+          );
+          return;
+        }
+
+        // Intercept and analyze request with config overrides
+        const configOverrides = {
+          btpDestination: this.config.btpDestination,
+          mcpDestination: this.config.mcpDestination,
+        };
+        const intercepted = interceptRequest(req, body, configOverrides);
+
+        // Check routing decision
+        if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
+          logger.error("Routing decision failed for SSE POST", {
+            type: "SSE_POST_ROUTING_FAILED",
+            reason: intercepted.routingDecision.reason,
+          });
+          res.writeHead(400, { "Content-Type": "application/json" }).end(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body?.id || null,
+              error: {
+                code: -32602,
+                message: intercepted.routingDecision.reason,
+              },
+            })
+          );
+          return;
+        }
+
+        // Handle proxy request
+        try {
+          await this.handleProxyRequest(intercepted, req, res);
+        } catch (error) {
+          logger.error("Failed to process SSE POST request", {
+            type: "SSE_POST_PROCESS_ERROR",
+            error: error instanceof Error ? error.message : String(error),
+          });
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              jsonrpc: "2.0",
+              id: body?.id || null,
+              error: {
+                code: -32000,
+                message: error instanceof Error ? error.message : "Unknown error",
+              },
+            }));
+          }
+        }
+        return;
+      }
+
+      // Unknown path or method
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+    });
+
+    const port = sseConfig.port || 3002;
+    const host = sseConfig.host || "0.0.0.0";
+
+    return new Promise((resolve, reject) => {
+      httpServer.listen(port, host, () => {
+        logger.info("MCP Proxy Server started (SSE transport)", {
+          type: "SERVER_STARTED",
+          transport: "sse",
+          host,
+          port,
+        });
+        this.httpServer = httpServer;
+        resolve();
+      });
+
+      httpServer.on("error", (error) => {
+        logger.error("Failed to start SSE server", {
+          type: "SERVER_START_ERROR",
+          error: error.message,
+        });
+        reject(error);
+      });
+    });
   }
 
   /**

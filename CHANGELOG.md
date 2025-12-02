@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Support for `--btp` and `--mcp` parameters in stdio and SSE transports**
+  - `--btp` parameter is now required for stdio transport (replaces missing HTTP headers)
+  - `--mcp` parameter can be used as default destination for stdio and SSE transports
+  - Parameters work as config overrides when headers are not provided
+  - SSE transport now fully implemented with support for `--btp` and `--mcp` parameters
+  - Updated help text and documentation to reflect new parameter usage
+
+### Changed
+- SSE transport implementation completed (previously was TODO)
+- Improved error messages for stdio transport when `--btp` parameter is missing
+
 ## [0.1.0] - 2025-12-02
 
 ### Added
