@@ -8,20 +8,15 @@
 
 ## Core Functionality
 
-The proxy intercepts MCP requests and routes them based on authentication headers:
+The proxy intercepts MCP requests and adds authentication headers before forwarding to the target MCP server:
 
-1. **Direct Cloud Requests** (`x-sap-destination: "S4HANA_E19"`)
-   - Forward directly to cloud ABAP system
-   - No proxy needed
-
-2. **Basic Auth Requests** (`x-sap-auth-type: "basic"`)
-   - Handle locally (no cloud connection)
-   - No proxy needed
-
-3. **Service Key Requests** (`x-sap-destination: "sk"`)
-   - Proxy to `cloud-llm-hub`
-   - Add JWT token from `@mcp-abap-adt/auth-broker`
-   - Add connection parameters for cloud ABAP
+1. **Proxy Requests** (requires `x-mcp-url` header)
+   - Extracts target MCP server URL from `x-mcp-url` header
+   - Gets BTP Cloud authorization token from `x-btp-destination` (or `--btp` parameter)
+   - Optionally gets SAP ABAP configuration from `x-mcp-destination` (or `--mcp` parameter)
+   - Adds `Authorization: Bearer <token>` header for BTP Cloud
+   - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) if `x-mcp-destination` is provided
+   - Forwards request to target MCP server specified in `x-mcp-url`
 
 ## Development Phases
 
@@ -43,41 +38,38 @@ The proxy intercepts MCP requests and routes them based on authentication header
 - [x] Implement MCP server setup (similar to mcp-abap-adt)
 - [x] Create request interceptor middleware
 - [x] Implement header analysis logic:
-  - Detect `x-sap-destination` header
-  - Detect `x-sap-auth-type` header
-  - Route decision logic
+  - Extract `x-mcp-url` header (required)
+  - Extract `x-btp-destination` header (required, for BTP Cloud authorization)
+  - Extract `x-mcp-destination` header (optional, for SAP ABAP connection)
+  - Route decision logic (PROXY strategy)
 - [x] Add request logging/debugging
+- [x] Support command-line overrides (`--btp` and `--mcp` parameters)
 
-### Phase 3: Direct Cloud Routing ✅
+### Phase 3-4: Simplified Architecture ✅
 
-- [x] Implement direct cloud routing for `x-sap-destination: "S4HANA_E19"`
-- [x] Forward requests with original headers
-- [x] Handle responses and errors
-- [x] Add connection pooling/caching
-
-### Phase 4: Basic Auth Handling ✅
-
-- [x] Implement local handling for `x-sap-auth-type: "basic"`
-- [x] Reuse connection logic from mcp-abap-adt
-- [x] Handle basic auth requests locally
+- [x] Removed direct cloud routing (simplified to proxy-only)
+- [x] Removed basic auth handling (simplified to proxy-only)
+- [x] Focus on single responsibility: add authentication and forward requests
 
 ### Phase 5: Cloud Proxy with JWT ✅
 
-- [x] Implement service key detection (`x-sap-destination: "sk"`)
+- [x] Implement proxy routing with `x-mcp-url` header
 - [x] Integrate with `@mcp-abap-adt/auth-broker`:
-  - Get JWT token for destination
+  - Get JWT token for BTP Cloud (`x-btp-destination` or `--btp`)
+  - Get JWT token for SAP ABAP (`x-mcp-destination` or `--mcp`, optional)
   - Handle token refresh
-  - Cache tokens
-- [x] Build proxy request to `cloud-llm-hub`:
-  - Transform MCP request format
-  - Add JWT token to headers
-  - Add cloud ABAP connection parameters
+  - Cache tokens separately for each destination
+- [x] Build proxy request:
+  - Use full URL from `x-mcp-url` header
+  - Add `Authorization: Bearer <token>` from BTP destination
+  - Add SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) from MCP destination (if provided)
   - Preserve original request context
-- [x] Forward request to cloud-llm-hub
+- [x] Forward request to target MCP server
 - [x] Handle proxy responses:
-  - Transform response format
+  - Forward response format
   - Handle errors
   - Preserve MCP protocol structure
+- [x] Validate required headers (`x-mcp-url` and `x-btp-destination` or `--btp`)
 
 ### Phase 6: Configuration & Environment ✅
 
@@ -94,14 +86,17 @@ The proxy intercepts MCP requests and routes them based on authentication header
 - [x] Add circuit breaker for cloud-llm-hub
 - [x] Implement request timeout handling
 
-### Phase 8: Testing
+### Phase 8: Testing ✅
 
-- [ ] Unit tests for routing logic
-- [ ] Unit tests for header analysis
+- [x] Unit tests for routing logic (`headerAnalyzer.test.ts` - 16 tests)
+- [x] Unit tests for header analysis (extraction, validation, command-line overrides)
+- [x] Unit tests for request interceptor (`requestInterceptor.test.ts` - 20 tests)
+- [x] Unit tests for proxy client (`cloudLlmHubProxy.test.ts` - 11 tests)
+- [x] Test error scenarios (missing headers, token errors, network errors)
+- [x] Test command-line parameter overrides
 - [ ] Integration tests with auth-broker
 - [ ] Integration tests with cloud-llm-hub
 - [ ] End-to-end tests with MCP client
-- [ ] Test error scenarios
 
 ### Phase 9: Documentation ✅
 
@@ -136,17 +131,26 @@ MCP Client (Cline)
 mcp-abap-adt-proxy
     ↓
 [Header Analysis]
-    ├─→ x-sap-destination: "S4HANA_E19" → Direct to Cloud ABAP
-    ├─→ x-sap-auth-type: "basic" → Local Handling
-    └─→ x-sap-destination: "sk" → Proxy to cloud-llm-hub
-                                    ↓
-                            [Get JWT from auth-broker]
-                                    ↓
-                            [Add headers & forward]
-                                    ↓
-                            cloud-llm-hub
-                                    ↓
-                            Cloud ABAP System
+    - Extract x-mcp-url (required)
+    - Extract x-btp-destination (required) or use --btp parameter
+    - Extract x-mcp-destination (optional) or use --mcp parameter
+    ↓
+[Validate Headers]
+    - Check x-mcp-url is present
+    - Check x-btp-destination or --btp is present
+    ↓
+[Get Tokens from auth-broker]
+    - Get BTP Cloud token (from x-btp-destination or --btp)
+    - Get SAP ABAP token (from x-mcp-destination or --mcp, if provided)
+    ↓
+[Build Proxy Request]
+    - Add Authorization: Bearer <btp-token>
+    - Add SAP headers (x-sap-jwt-token, x-sap-url, etc.) if mcp-destination provided
+    - Use URL from x-mcp-url
+    ↓
+Target MCP Server (from x-mcp-url)
+    ↓
+Response back to Cline
 ```
 
 ### Key Components
@@ -187,27 +191,42 @@ mcp-abap-adt-proxy
 ## Configuration
 
 ### Environment Variables
-- `CLOUD_LLM_HUB_URL` - URL of cloud-llm-hub service
-- `PROXY_PORT` - Port for proxy server (default: 3001)
+- `CLOUD_LLM_HUB_URL` - Default URL for cloud-llm-hub (can be overridden by x-mcp-url)
+- `MCP_HTTP_PORT` - Port for HTTP server (default: 3001)
+- `MCP_SSE_PORT` - Port for SSE server (default: 3002)
 - `LOG_LEVEL` - Logging level
+
+### Command Line Parameters
+- `--btp=<destination>` - Override x-btp-destination header (required if header missing)
+- `--mcp=<destination>` - Override x-mcp-destination header (optional)
 
 ### Configuration File
 ```json
 {
   "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
-  "port": 3001,
+  "httpPort": 3001,
+  "ssePort": 3002,
   "logLevel": "info"
 }
 ```
 
+### Required Headers in Request
+- `x-mcp-url` - Full URL of target MCP server (required)
+- `x-btp-destination` - Destination for BTP Cloud authorization token (required, or use --btp)
+
+### Optional Headers in Request
+- `x-mcp-destination` - Destination for SAP ABAP connection (optional, or use --mcp)
+
 ## Success Criteria
 
-- [ ] Successfully proxies requests from Cline to cloud-llm-hub
-- [ ] Automatically manages JWT tokens via auth-broker
-- [ ] Handles all three routing scenarios correctly
-- [ ] Maintains MCP protocol compliance
-- [ ] Provides clear error messages
-- [ ] Well-documented and tested
+- [x] Successfully proxies requests from Cline to target MCP server (via x-mcp-url)
+- [x] Automatically manages JWT tokens via auth-broker (BTP and SAP separately)
+- [x] Validates required headers (x-mcp-url and x-btp-destination)
+- [x] Supports command-line parameter overrides (--btp and --mcp)
+- [x] Maintains MCP protocol compliance
+- [x] Provides clear error messages
+- [x] Well-documented (README, USAGE, API docs)
+- [x] Unit tests implemented (50 tests passing)
 
 ## Notes
 

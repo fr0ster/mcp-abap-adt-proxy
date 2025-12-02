@@ -15,6 +15,8 @@ export interface ProxyConfig {
   // Destination overrides from command line
   btpDestination?: string; // Overrides x-btp-destination header
   mcpDestination?: string; // Overrides x-mcp-destination header
+  // Session storage mode
+  unsafe?: boolean; // If true, use FileSessionStore (persists to disk). If false, use SafeSessionStore (in-memory).
   // Error handling & resilience
   maxRetries?: number;
   retryDelay?: number;
@@ -68,9 +70,10 @@ export function loadConfig(configPath?: string): ProxyConfig {
  * Load configuration from environment variables and command line
  */
 function loadFromEnv(): ProxyConfig {
-  // Parse command line arguments for --btp and --mcp
+  // Parse command line arguments for --btp, --mcp, and --unsafe
   const btpDestination = getArgValue("--btp");
   const mcpDestination = getArgValue("--mcp");
+  const unsafe = hasArg("--unsafe") || process.env.MCP_PROXY_UNSAFE === "true";
 
   return {
     cloudLlmHubUrl: process.env.CLOUD_LLM_HUB_URL || "",
@@ -81,6 +84,7 @@ function loadFromEnv(): ProxyConfig {
     logLevel: process.env.LOG_LEVEL || "info",
     btpDestination,
     mcpDestination,
+    unsafe,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || "3", 10),
     retryDelay: parseInt(process.env.MCP_PROXY_RETRY_DELAY || "1000", 10),
     requestTimeout: parseInt(process.env.MCP_PROXY_REQUEST_TIMEOUT || "60000", 10),
@@ -106,6 +110,14 @@ function getArgValue(argName: string): string | undefined {
 }
 
 /**
+ * Check if argument exists in command line
+ */
+function hasArg(argName: string): boolean {
+  const args = process.argv;
+  return args.some(arg => arg === argName || arg.startsWith(`${argName}=`));
+}
+
+/**
  * Merge file config with environment config (env takes precedence)
  */
 function mergeConfig(fileConfig: Partial<ProxyConfig>, envConfig: ProxyConfig): ProxyConfig {
@@ -119,6 +131,7 @@ function mergeConfig(fileConfig: Partial<ProxyConfig>, envConfig: ProxyConfig): 
     // Command line overrides take precedence
     btpDestination: envConfig.btpDestination ?? fileConfig.btpDestination,
     mcpDestination: envConfig.mcpDestination ?? fileConfig.mcpDestination,
+    unsafe: envConfig.unsafe ?? fileConfig.unsafe ?? false,
     maxRetries: envConfig.maxRetries ?? fileConfig.maxRetries ?? 3,
     retryDelay: envConfig.retryDelay ?? fileConfig.retryDelay ?? 1000,
     requestTimeout: envConfig.requestTimeout ?? fileConfig.requestTimeout ?? 60000,

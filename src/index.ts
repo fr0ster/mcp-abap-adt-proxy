@@ -175,27 +175,9 @@ export class McpAbapAdtProxyServer {
         return;
       }
 
-      const mcpUrl = intercepted.routingDecision.mcpUrl;
-      if (!mcpUrl) {
-        logger.error("x-mcp-url header is required", {
-          type: "MCP_URL_MISSING",
-        });
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
-          jsonrpc: "2.0",
-          id: body?.id || null,
-          error: {
-            code: -32602,
-            message: "x-mcp-url header is required",
-          },
-        }));
-        return;
-      }
-
       // Log proxy request
       logger.debug("Proxying request", {
         type: "PROXY_REQUEST",
-        mcpUrl,
         btpDestination: intercepted.routingDecision.btpDestination,
         mcpDestination: intercepted.routingDecision.mcpDestination,
         requiresSapConfig: requiresSapConfig(body),
@@ -249,22 +231,21 @@ export class McpAbapAdtProxyServer {
     req: IncomingMessage,
     res: ServerResponse
   ): Promise<void> {
-    const mcpUrl = intercepted.routingDecision.mcpUrl!;
-    const btpDestination = intercepted.routingDecision.btpDestination;
+    const btpDestination = intercepted.routingDecision.btpDestination!;
     const mcpDestination = intercepted.routingDecision.mcpDestination;
 
     logger.info("Handling proxy request", {
       type: "PROXY_REQUEST",
-      mcpUrl,
       btpDestination,
       mcpDestination,
       sessionId: intercepted.sessionId,
     });
 
     try {
-      // Ensure proxy is initialized (use default base URL from config, actual URL comes from x-mcp-url header)
+      // Ensure proxy is initialized (URL will be obtained from service key for btpDestination)
       if (!this.cloudLlmHubProxy) {
-        const baseUrl = this.config.cloudLlmHubUrl || mcpUrl; // Fallback to mcpUrl if config not set
+        // Use default base URL from config as fallback (actual URL comes from service key)
+        const baseUrl = this.config.cloudLlmHubUrl || "https://default.example.com";
         this.cloudLlmHubProxy = await createCloudLlmHubProxy(baseUrl, this.config);
       }
 

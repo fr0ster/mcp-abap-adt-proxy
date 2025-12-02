@@ -20,7 +20,6 @@ describe("requestInterceptor", () => {
         method: "POST",
         url: "/mcp/stream/http",
         headers: {
-          "x-mcp-url": "https://example.com/mcp/stream/http",
           "x-btp-destination": "btp-cloud",
           "x-mcp-destination": "sap-abap",
           "content-type": "application/json",
@@ -39,7 +38,6 @@ describe("requestInterceptor", () => {
     it("should extract headers from request", () => {
       const intercepted = interceptRequest(mockReq as IncomingMessage);
 
-      expect(intercepted.headers["x-mcp-url"]).toBe("https://example.com/mcp/stream/http");
       expect(intercepted.headers["x-btp-destination"]).toBe("btp-cloud");
       expect(intercepted.headers["x-mcp-destination"]).toBe("sap-abap");
     });
@@ -91,7 +89,7 @@ describe("requestInterceptor", () => {
 
       expect(intercepted.routingDecision).toBeDefined();
       expect(intercepted.routingDecision.strategy).toBeDefined();
-      expect(intercepted.routingDecision.mcpUrl).toBe("https://example.com/mcp/stream/http");
+      expect(intercepted.routingDecision.btpDestination).toBe("btp-cloud");
     });
 
     it("should default method to GET if not provided", () => {

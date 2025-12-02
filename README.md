@@ -4,7 +4,7 @@ MCP proxy server for SAP ABAP ADT - proxies local requests to cloud-llm-hub with
 
 ## Overview
 
-This package acts as a simple proxy between local MCP clients (like Cline) and any MCP server. It intercepts MCP requests, adds JWT authentication tokens, and forwards them to the target MCP server specified in the `x-mcp-url` header.
+This package acts as a simple proxy between local MCP clients (like Cline) and any MCP server. It intercepts MCP requests, adds JWT authentication tokens, and forwards them to the target MCP server. The MCP server URL is obtained from the service key for the BTP destination.
 
 ## Purpose
 
@@ -13,7 +13,7 @@ Enable local MCP clients to connect to remote MCP servers (like `cloud-llm-hub`)
 ## Features
 
 - ✅ **JWT Token Management** - Automatic token retrieval, caching, and refresh via auth-broker
-- ✅ **Flexible Routing** - Forward requests to any MCP server via `x-mcp-url` header
+- ✅ **Service Key Based** - MCP server URL is obtained from service key for BTP destination
 - ✅ **Error Handling** - Retry logic, circuit breaker, and comprehensive error handling
 - ✅ **Multiple Transport Modes** - HTTP, SSE, and stdio support
 - ✅ **Configuration Flexibility** - Environment variables, config files, or defaults
@@ -29,16 +29,22 @@ npm install -g @mcp-abap-adt/proxy
 ### Basic Usage
 
 ```bash
-# Start proxy server
+# Start proxy server (in-memory session storage, secure)
 mcp-abap-adt-proxy
 
 # With command line overrides
 mcp-abap-adt-proxy --btp=ai --mcp=trial
+
+# Enable file-based session storage (persists tokens to disk)
+mcp-abap-adt-proxy --unsafe
+
+# With all options
+mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe
 ```
 
 ### Client Configuration (Cline)
 
-The proxy requires the `x-mcp-url` header and uses two service keys:
+The proxy uses two service keys (URLs are obtained from service keys):
 
 ```json
 {
@@ -49,7 +55,6 @@ The proxy requires the `x-mcp-url` header and uses two service keys:
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
-        "x-mcp-url": "https://cloud-llm-hub.example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "sap-abap"
       }
@@ -59,8 +64,7 @@ The proxy requires the `x-mcp-url` header and uses two service keys:
 ```
 
 **Required Headers:**
-- `x-mcp-url` - Full URL of the target MCP server (required)
-- `x-btp-destination` - Destination name for BTP Cloud authorization token (required, for `Authorization: Bearer` header)
+- `x-btp-destination` - Destination name for BTP Cloud authorization token and MCP server URL (required, for `Authorization: Bearer` header and to get MCP server URL from service key)
 
 **Optional Headers:**
 - `x-mcp-destination` - Destination name for SAP ABAP connection (optional, provides SAP token and configuration)
@@ -68,6 +72,7 @@ The proxy requires the `x-mcp-url` header and uses two service keys:
 **Command Line Overrides:**
 - `--btp=<destination>` - Overrides `x-btp-destination` header (required if header is missing, takes precedence)
 - `--mcp=<destination>` - Overrides `x-mcp-destination` header (optional, takes precedence, works even if header is missing)
+- `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
 **How It Works:**
 1. `x-btp-destination` (or `--btp`) → Gets JWT token from auth-broker → Adds `Authorization: Bearer <token>` header
@@ -86,16 +91,17 @@ The proxy requires the `x-mcp-url` header and uses two service keys:
 
 The proxy performs the following steps for each request:
 
-1. **Extract Headers**: Reads `x-mcp-url` (required), `x-btp-destination` (required), and `x-mcp-destination` (optional)
+1. **Extract Headers**: Reads `x-btp-destination` (required) and `x-mcp-destination` (optional)
 2. **Apply Command Line Overrides**: `--btp` and `--mcp` parameters override headers (if provided)
-3. **Validate Required Headers**: Returns error if `x-mcp-url` or `x-btp-destination` (or `--btp`) is missing
+3. **Validate Required Headers**: Returns error if `x-btp-destination` (or `--btp`) is missing
 4. **Get BTP Cloud Token**: Retrieves JWT token for BTP Cloud authorization from `x-btp-destination` (or `--btp`)
-5. **Get SAP ABAP Config** (if provided): If `x-mcp-destination` (or `--mcp`) is provided, retrieves JWT token and SAP configuration (URL, client, etc.)
-6. **Build Request**: 
+5. **Get MCP Server URL**: Retrieves MCP server URL from service key for `x-btp-destination` (or `--btp`) via auth-broker
+6. **Get SAP ABAP Config** (if provided): If `x-mcp-destination` (or `--mcp`) is provided, retrieves JWT token and SAP configuration (URL, client, etc.)
+7. **Build Request**: 
    - Adds `Authorization: Bearer <token>` from `x-btp-destination` (or `--btp`) - **always added**
    - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) from `x-mcp-destination` (or `--mcp`) - **only if provided**
-5. **Forward Request**: Sends request to the URL specified in `x-mcp-url`
-6. **Return Response**: Forwards the response back to the client
+8. **Forward Request**: Sends request to MCP server URL from service key (with `/mcp/stream/http` endpoint)
+9. **Return Response**: Forwards the response back to the client
 
 ### Example Request Flow
 
@@ -113,6 +119,7 @@ The proxy is transparent - it only adds authentication headers and forwards requ
 export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
 export MCP_HTTP_PORT=3001
 export LOG_LEVEL=info
+export MCP_PROXY_UNSAFE=true  # Enable file-based session storage (optional)
 ```
 
 ### Configuration File
@@ -125,9 +132,14 @@ Create `mcp-proxy-config.json`:
   "httpPort": 3001,
   "logLevel": "info",
   "maxRetries": 3,
-  "circuitBreakerThreshold": 5
+  "circuitBreakerThreshold": 5,
+  "unsafe": false
 }
 ```
+
+**Session Storage:**
+- `unsafe: false` (default) - Session data stored in-memory (secure, lost on restart)
+- `unsafe: true` - Session data persisted to disk (tokens saved to `.env` files)
 
 See [Configuration Guide](./doc/CONFIGURATION.md) for complete options.
 

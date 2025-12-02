@@ -53,6 +53,7 @@ Options:
   --cloud-llm-hub-url     Cloud LLM Hub URL (default: from env CLOUD_LLM_HUB_URL)
   --btp=<destination>     Override x-btp-destination header (for BTP Cloud authorization)
   --mcp=<destination>     Override x-mcp-destination header (for SAP ABAP connection)
+  --unsafe                 Enable file-based session storage (persists tokens to disk)
   --help, -h              Show this help message
   --version, -v           Show version number
 
@@ -63,6 +64,7 @@ Environment Variables:
   MCP_HTTP_HOST           HTTP server host (default: 0.0.0.0)
   MCP_SSE_HOST            SSE server host (default: 0.0.0.0)
   MCP_TRANSPORT           Transport type (stdio|http|sse)
+  MCP_PROXY_UNSAFE        Enable file-based session storage (set to "true")
 
 Examples:
   mcp-abap-adt-proxy                                    # Use default transport
@@ -70,6 +72,8 @@ Examples:
   mcp-abap-adt-proxy --transport=http                   # HTTP mode (port 3001)
   mcp-abap-adt-proxy --transport=http --http-port=8080  # HTTP mode on custom port
   mcp-abap-adt-proxy --transport=sse --sse-port=3002    # SSE mode on port 3002
+  mcp-abap-adt-proxy --btp=ai --mcp=trial               # With destination overrides
+  mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe      # With file-based session storage
 
 Transport Modes:
   - stdio (default if stdin is not TTY): For MCP clients like Cline/Cursor

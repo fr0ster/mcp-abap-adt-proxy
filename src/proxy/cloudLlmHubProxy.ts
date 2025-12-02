@@ -244,30 +244,25 @@ export class CloudLlmHubProxy {
       }
     }
 
-    // Use full URL from x-mcp-url header
-    // x-mcp-url should contain the full URL to the MCP server (e.g., "https://example.com/mcp/stream/http")
-    const mcpUrl = routingDecision.mcpUrl;
-    if (!mcpUrl) {
-      throw new Error("x-mcp-url header is required for proxying");
+    // Get MCP server URL from BTP destination service key
+    // URL is obtained from auth-broker for the btpDestination
+    const baseUrl = await this.authBroker.getSapUrl(routingDecision.btpDestination);
+    if (!baseUrl) {
+      throw new Error(`Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`);
     }
 
-    // Determine if mcpUrl is a full URL or relative path
-    let fullUrl: string;
-    try {
-      // Try to parse as URL - if successful, it's a full URL
-      new URL(mcpUrl);
-      fullUrl = mcpUrl;
-    } catch (error) {
-      // If parsing fails, treat as relative path and prepend default base URL
-      const path = mcpUrl.startsWith("/") ? mcpUrl : `/${mcpUrl}`;
-      fullUrl = `${this.defaultBaseUrl}${path}`;
-    }
+    // Construct full MCP endpoint URL
+    // Default endpoint is /mcp/stream/http, but can be customized if needed
+    const mcpPath = "/mcp/stream/http";
+    const fullUrl = baseUrl.endsWith("/") 
+      ? `${baseUrl.slice(0, -1)}${mcpPath}`
+      : `${baseUrl}${mcpPath}`;
     
     logger.debug("Built proxy request", {
       type: "PROXY_REQUEST_BUILT",
       btpDestination: routingDecision.btpDestination,
       mcpDestination: routingDecision.mcpDestination,
-      mcpUrl,
+      baseUrl,
       fullUrl,
       hasAuthToken: !!proxyHeaders["Authorization"],
       hasSapConfig: !!proxyHeaders["x-sap-jwt-token"],
@@ -406,7 +401,8 @@ export async function createCloudLlmHubProxy(
   cloudLlmHubUrl: string,
   config?: Partial<ProxyConfig>
 ): Promise<CloudLlmHubProxy> {
-  const { serviceKeyStore, sessionStore } = await getPlatformStores();
+  const unsafe = config?.unsafe ?? false;
+  const { serviceKeyStore, sessionStore } = await getPlatformStores(unsafe);
   const authBroker = new AuthBroker(
     {
       serviceKeyStore,

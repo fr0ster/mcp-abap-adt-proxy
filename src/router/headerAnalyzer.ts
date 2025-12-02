@@ -17,7 +17,6 @@ export interface RoutingDecision {
   strategy: RoutingStrategy;
   btpDestination?: string; // Destination for BTP Cloud authorization (x-btp-destination)
   mcpDestination?: string; // Destination for SAP ABAP connection (x-mcp-destination)
-  mcpUrl?: string; // MCP server URL from x-mcp-url header
   reason: string;
   validationResult?: HeaderValidationResult;
 }
@@ -25,13 +24,14 @@ export interface RoutingDecision {
 /**
  * Analyze headers and extract routing information
  * Proxy needs:
- * - x-mcp-url: where to forward the request
- * - x-btp-destination: destination for BTP Cloud authorization token (Authorization: Bearer)
- * - x-mcp-destination: destination for SAP ABAP connection (SAP headers)
+ * - x-btp-destination: destination for BTP Cloud authorization token (Authorization: Bearer) and MCP server URL
+ * - x-mcp-destination: destination for SAP ABAP connection (SAP headers) - optional
  * 
  * Also supports command-line overrides:
  * - --btp=<destination>: overrides x-btp-destination header
  * - --mcp=<destination>: overrides x-mcp-destination header
+ * 
+ * MCP server URL is obtained from service key for x-btp-destination (via auth-broker)
  */
 export function analyzeHeaders(
   headers: IncomingHttpHeaders,
@@ -50,9 +50,6 @@ export function analyzeHeaders(
     return typeof headerValue === "string" ? headerValue.trim() : undefined;
   };
 
-  // Extract MCP URL from x-mcp-url header (required)
-  const extractedMcpUrl = getHeaderValue(headers["x-mcp-url"]);
-
   // Extract authorization destination for BTP Cloud (x-btp-destination)
   // Command-line parameter --btp takes precedence over header
   const btpDestinationHeader = getHeaderValue(headers["x-btp-destination"]);
@@ -67,26 +64,7 @@ export function analyzeHeaders(
     ? configOverrides.mcpDestination
     : mcpDestinationHeader;
 
-  // x-mcp-url is required
-  if (!extractedMcpUrl) {
-    logger.warn("x-mcp-url header is missing", {
-      headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
-      validationResult: {
-        isValid: validationResult.isValid,
-        priority: validatedConfig?.priority,
-        authType: validatedConfig?.authType,
-        errors: validationResult.errors,
-      },
-    });
-
-    return {
-      strategy: RoutingStrategy.UNKNOWN,
-      reason: "x-mcp-url header is required for proxying",
-      validationResult,
-    };
-  }
-
-  // x-btp-destination or --btp is required for Authorization header
+  // x-btp-destination or --btp is required for Authorization header and MCP server URL
   if (!extractedBtpDestination) {
     logger.warn("x-btp-destination header or --btp parameter is missing", {
       headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
@@ -95,24 +73,22 @@ export function analyzeHeaders(
 
     return {
       strategy: RoutingStrategy.UNKNOWN,
-      reason: "x-btp-destination header or --btp parameter is required for proxying (needed for Authorization: Bearer token)",
+      reason: "x-btp-destination header or --btp parameter is required for proxying (needed for Authorization: Bearer token and MCP server URL)",
       validationResult,
     };
   }
 
-  // If x-mcp-url and x-btp-destination are present, we can proxy
+  // If x-btp-destination is present, we can proxy (URL will be obtained from service key)
   logger.debug("Routing decision: PROXY", {
     btpDestination: extractedBtpDestination,
     mcpDestination: extractedMcpDestination,
-    mcpUrl: extractedMcpUrl,
     priority: validatedConfig?.priority,
   });
   return {
     strategy: RoutingStrategy.PROXY,
     btpDestination: extractedBtpDestination,
     mcpDestination: extractedMcpDestination, // Optional - only used if provided
-    mcpUrl: extractedMcpUrl,
-    reason: `Proxying to ${extractedMcpUrl} with BTP destination "${extractedBtpDestination}"${extractedMcpDestination ? ` and MCP destination "${extractedMcpDestination}"` : ''}`,
+    reason: `Proxying to MCP server from BTP destination "${extractedBtpDestination}"${extractedMcpDestination ? ` with MCP destination "${extractedMcpDestination}"` : ''}`,
     validationResult,
   };
 }

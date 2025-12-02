@@ -7,9 +7,8 @@ import { IncomingHttpHeaders } from "http";
 
 describe("headerAnalyzer", () => {
   describe("analyzeHeaders", () => {
-    it("should return PROXY strategy when x-mcp-url is present", () => {
+    it("should return PROXY strategy when x-btp-destination is present", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "sap-abap",
       };
@@ -17,15 +16,13 @@ describe("headerAnalyzer", () => {
       const decision = analyzeHeaders(headers);
 
       expect(decision.strategy).toBe(RoutingStrategy.PROXY);
-      expect(decision.mcpUrl).toBe("https://example.com/mcp/stream/http");
       expect(decision.btpDestination).toBe("btp-cloud");
       expect(decision.mcpDestination).toBe("sap-abap");
-      expect(decision.reason).toContain("Proxying to");
+      expect(decision.reason).toContain("Proxying to MCP server from BTP destination");
     });
 
     it("should extract btp-destination from x-btp-destination header", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
       };
 
@@ -37,7 +34,6 @@ describe("headerAnalyzer", () => {
 
     it("should use --btp command line override over header", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "header-value",
       };
 
@@ -49,7 +45,6 @@ describe("headerAnalyzer", () => {
 
     it("should use --mcp command line override over header", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "header-value",
       };
@@ -61,9 +56,7 @@ describe("headerAnalyzer", () => {
     });
 
     it("should use command line override even when header is missing", () => {
-      const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
-      };
+      const headers: IncomingHttpHeaders = {};
 
       const decision = analyzeHeaders(headers, { btpDestination: "cli-value", mcpDestination: "cli-mcp" });
 
@@ -74,7 +67,6 @@ describe("headerAnalyzer", () => {
 
     it("should return UNKNOWN if --btp is not provided and x-btp-destination header is missing", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-mcp-destination": "sap-abap",
       };
 
@@ -86,7 +78,6 @@ describe("headerAnalyzer", () => {
 
     it("should extract mcp-destination from x-mcp-destination header", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "sap-abap",
       };
@@ -110,7 +101,6 @@ describe("headerAnalyzer", () => {
 
     it("should work with only x-btp-destination (mcp destination optional)", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
       };
 
@@ -121,21 +111,8 @@ describe("headerAnalyzer", () => {
       expect(decision.mcpDestination).toBeUndefined();
     });
 
-    it("should trim whitespace from x-mcp-url", () => {
-      const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "  https://example.com/mcp/stream/http  ",
-        "x-btp-destination": "btp-cloud",
-      };
-
-      const decision = analyzeHeaders(headers);
-
-      expect(decision.strategy).toBe(RoutingStrategy.PROXY);
-      expect(decision.mcpUrl).toBe("https://example.com/mcp/stream/http");
-    });
-
     it("should trim whitespace from x-btp-destination", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "  btp-cloud  ",
       };
 
@@ -145,9 +122,9 @@ describe("headerAnalyzer", () => {
       expect(decision.btpDestination).toBe("btp-cloud");
     });
 
+
     it("should trim whitespace from x-mcp-destination", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "  sap-abap  ",
       };
@@ -158,40 +135,15 @@ describe("headerAnalyzer", () => {
       expect(decision.mcpDestination).toBe("sap-abap");
     });
 
-    it("should return UNKNOWN strategy when x-mcp-url is missing", () => {
+    it("should return UNKNOWN strategy when x-btp-destination is missing", () => {
       const headers: IncomingHttpHeaders = {
-        "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "sap-abap",
       };
 
       const decision = analyzeHeaders(headers);
 
       expect(decision.strategy).toBe(RoutingStrategy.UNKNOWN);
-      expect(decision.mcpUrl).toBeUndefined();
-      expect(decision.reason).toContain("x-mcp-url header is required");
-    });
-
-    it("should return UNKNOWN strategy when x-mcp-url is empty string", () => {
-      const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "",
-        "x-sap-destination": "sk",
-      };
-
-      const decision = analyzeHeaders(headers);
-
-      expect(decision.strategy).toBe(RoutingStrategy.UNKNOWN);
-    });
-
-    it("should handle array values in x-mcp-url (use first value)", () => {
-      const headers: IncomingHttpHeaders = {
-        "x-mcp-url": ["https://example.com/mcp/stream/http", "https://other.com"],
-        "x-btp-destination": "btp-cloud",
-      };
-
-      const decision = analyzeHeaders(headers);
-
-      expect(decision.strategy).toBe(RoutingStrategy.PROXY);
-      expect(decision.mcpUrl).toBe("https://example.com/mcp/stream/http");
+      expect(decision.reason).toContain("x-btp-destination");
     });
 
     it("should handle array values in x-btp-destination (use first value)", () => {
@@ -208,7 +160,6 @@ describe("headerAnalyzer", () => {
 
     it("should handle array values in x-mcp-destination (use first value)", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
         "x-mcp-destination": ["sap-abap", "other"],
       };
@@ -221,19 +172,16 @@ describe("headerAnalyzer", () => {
   });
 
   describe("shouldProxy", () => {
-    it("should return true when x-mcp-url and x-btp-destination are present", () => {
+    it("should return true when x-btp-destination is present", () => {
       const headers: IncomingHttpHeaders = {
-        "x-mcp-url": "https://example.com/mcp/stream/http",
         "x-btp-destination": "btp-cloud",
       };
 
       expect(shouldProxy(headers)).toBe(true);
     });
 
-    it("should return false when x-mcp-url is missing", () => {
-      const headers: IncomingHttpHeaders = {
-        "x-sap-destination": "sk",
-      };
+    it("should return false when x-btp-destination is missing", () => {
+      const headers: IncomingHttpHeaders = {};
 
       expect(shouldProxy(headers)).toBe(false);
     });
