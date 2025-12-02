@@ -3,11 +3,14 @@
 /**
  * MCP ABAP ADT Proxy Server
  * 
- * Proxies local MCP requests to cloud-llm-hub with JWT authentication.
+ * Proxies local MCP requests to MCP servers with optional JWT authentication.
  * Routes requests based on authentication headers:
- * - x-sap-destination: "S4HANA_E19" -> Direct to cloud
- * - x-sap-auth-type: "basic" -> Local handling
- * - x-sap-destination: "sk" -> Proxy to cloud-llm-hub with JWT
+ * - x-btp-destination (or --btp): BTP Cloud authorization with JWT token
+ * - x-mcp-destination (or --mcp): SAP ABAP connection configuration
+ * 
+ * Supports two modes:
+ * 1. BTP authentication mode: Requires x-btp-destination or --btp parameter
+ * 2. Local testing mode: Works with only x-mcp-destination or --mcp parameter (no BTP authentication)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -79,10 +82,11 @@ export class McpAbapAdtProxyServer {
   }
 
   /**
-   * Handle stdio request by proxying to cloud-llm-hub
+   * Handle stdio request by proxying to MCP server
+   * Supports both BTP authentication mode (--btp) and local testing mode (--mcp without --btp)
    */
   private async handleStdioRequest(method: string, params: any, id: any): Promise<any> {
-    // Create fake headers with config overrides (--btp and --mcp)
+    // Create fake headers with config overrides (--btp, --mcp, and/or --mcp-url)
     const fakeHeaders: Record<string, string> = {};
     if (this.config.btpDestination) {
       fakeHeaders["x-btp-destination"] = this.config.btpDestination;
@@ -90,11 +94,15 @@ export class McpAbapAdtProxyServer {
     if (this.config.mcpDestination) {
       fakeHeaders["x-mcp-destination"] = this.config.mcpDestination;
     }
+    if (this.config.mcpUrl) {
+      fakeHeaders["x-mcp-url"] = this.config.mcpUrl;
+    }
 
     // Create routing decision using config overrides
     const configOverrides = {
       btpDestination: this.config.btpDestination,
       mcpDestination: this.config.mcpDestination,
+      mcpUrl: this.config.mcpUrl,
     };
     const { analyzeHeaders } = await import("./router/headerAnalyzer.js");
     const routingDecision = analyzeHeaders(fakeHeaders, configOverrides);
@@ -158,12 +166,12 @@ export class McpAbapAdtProxyServer {
    */
   async run(): Promise<void> {
     if (this.transportConfig.type === "stdio") {
-      // Check if --btp parameter is provided (required for stdio)
-      if (!this.config.btpDestination) {
-        logger.error("--btp parameter is required for stdio transport", {
-          type: "STDIO_BTP_REQUIRED",
+      // Check if either --btp, --mcp, or --mcp-url parameter is provided (required for stdio)
+      if (!this.config.btpDestination && !this.config.mcpDestination && !this.config.mcpUrl) {
+        logger.error("Either --btp, --mcp, or --mcp-url parameter is required for stdio transport", {
+          type: "STDIO_DESTINATION_REQUIRED",
         });
-        throw new Error("--btp parameter is required for stdio transport. Use --btp=<destination> to specify BTP destination.");
+        throw new Error("Either --btp, --mcp, or --mcp-url parameter is required for stdio transport. Use --btp=<destination> for BTP destination, --mcp=<destination> for MCP destination, or --mcp-url=<url> for direct MCP server URL (local testing).");
       }
 
       // For stdio, we need to register a proxy tool that forwards all requests
@@ -186,7 +194,9 @@ export class McpAbapAdtProxyServer {
         transport: "stdio",
         btpDestination: this.config.btpDestination,
         mcpDestination: this.config.mcpDestination,
-        note: "For stdio transport, --btp and --mcp parameters are used as default destinations",
+        mcpUrl: this.config.mcpUrl,
+        note: "For stdio transport, --btp, --mcp, and/or --mcp-url parameters are used as default destinations",
+        mode: this.config.btpDestination ? "BTP authentication" : "Local testing (no BTP authentication)",
       });
       return;
     }
@@ -251,10 +261,11 @@ export class McpAbapAdtProxyServer {
       }
 
       // Intercept and analyze request
-      // Pass config overrides (--btp and --mcp) to header analyzer
+      // Pass config overrides (--btp, --mcp, and --mcp-url) to header analyzer
       const configOverrides = {
         btpDestination: this.config.btpDestination,
         mcpDestination: this.config.mcpDestination,
+        mcpUrl: this.config.mcpUrl,
       };
       const intercepted = interceptRequest(req, body, configOverrides);
 
@@ -325,25 +336,28 @@ export class McpAbapAdtProxyServer {
   }
 
   /**
-   * Handle proxy request - add JWT token and forward to x-mcp-url
+   * Handle proxy request - add JWT token and forward to MCP server
    */
   private async handleProxyRequest(
     intercepted: ReturnType<typeof interceptRequest>,
     req: IncomingMessage,
     res: ServerResponse
   ): Promise<void> {
-    const btpDestination = intercepted.routingDecision.btpDestination!;
+    const btpDestination = intercepted.routingDecision.btpDestination;
     const mcpDestination = intercepted.routingDecision.mcpDestination;
+    const mcpUrl = intercepted.routingDecision.mcpUrl;
 
     logger.info("Handling proxy request", {
       type: "PROXY_REQUEST",
       btpDestination,
       mcpDestination,
+      mcpUrl,
       sessionId: intercepted.sessionId,
+      mode: btpDestination ? "BTP authentication" : "Local testing (no BTP authentication)",
     });
 
     try {
-      // Ensure proxy is initialized (URL will be obtained from service key for btpDestination)
+      // Ensure proxy is initialized (URL will be obtained from service key for btpDestination or mcpDestination)
       if (!this.cloudLlmHubProxy) {
         // Use default base URL from config as fallback (actual URL comes from service key)
         const baseUrl = this.config.cloudLlmHubUrl || "https://default.example.com";
@@ -434,7 +448,7 @@ export class McpAbapAdtProxyServer {
         pathname = pathname.slice(0, -1);
       }
 
-      // Apply config overrides (--btp and --mcp) to headers if not present
+      // Apply config overrides (--btp, --mcp, and --mcp-url) to headers if not present
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
         if (value) {
@@ -448,6 +462,9 @@ export class McpAbapAdtProxyServer {
       }
       if (this.config.mcpDestination && !headers["x-mcp-destination"]) {
         headers["x-mcp-destination"] = this.config.mcpDestination;
+      }
+      if (this.config.mcpUrl && !headers["x-mcp-url"]) {
+        headers["x-mcp-url"] = this.config.mcpUrl;
       }
 
       logger.debug("SSE request received", {
@@ -605,6 +622,7 @@ export class McpAbapAdtProxyServer {
         const configOverrides = {
           btpDestination: this.config.btpDestination,
           mcpDestination: this.config.mcpDestination,
+          mcpUrl: this.config.mcpUrl,
         };
         const intercepted = interceptRequest(req, body, configOverrides);
 

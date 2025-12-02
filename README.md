@@ -63,20 +63,31 @@ The proxy uses two service keys (URLs are obtained from service keys):
 }
 ```
 
-**Required Headers:**
-- `x-btp-destination` - Destination name for BTP Cloud authorization token and MCP server URL (required, for `Authorization: Bearer` header and to get MCP server URL from service key)
+**Required Headers (one of the following):**
+- `x-btp-destination` - Destination name for BTP Cloud authorization token and MCP server URL (for BTP authentication mode)
+- `x-mcp-destination` - Destination name for SAP ABAP connection (for local testing mode without BTP)
+- `x-mcp-url` - Direct MCP server URL (for local testing mode without authentication)
 
 **Optional Headers:**
-- `x-mcp-destination` - Destination name for SAP ABAP connection (optional, provides SAP token and configuration)
+- `x-mcp-destination` - Destination name for SAP ABAP connection (optional, provides SAP token and configuration when used with BTP)
 
 **Command Line Overrides:**
-- `--btp=<destination>` - Overrides `x-btp-destination` header (required if header is missing, takes precedence)
-- `--mcp=<destination>` - Overrides `x-mcp-destination` header (optional, takes precedence, works even if header is missing)
+- `--btp=<destination>` - Overrides `x-btp-destination` header (for BTP authentication mode, takes precedence)
+- `--mcp=<destination>` - Overrides `x-mcp-destination` header (for local testing or SAP config, takes precedence)
+- `--mcp-url=<url>` - Direct MCP server URL (for local testing without authentication, takes precedence)
 - `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
 **How It Works:**
+
+**BTP Authentication Mode** (with `x-btp-destination` or `--btp`):
 1. `x-btp-destination` (or `--btp`) → Gets JWT token from auth-broker → Adds `Authorization: Bearer <token>` header
 2. `x-mcp-destination` (or `--mcp`) → Gets JWT token and SAP config from auth-broker → Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.)
+3. MCP server URL obtained from service key for `x-btp-destination`
+
+**Local Testing Mode** (with only `x-mcp-destination`/`--mcp` or `x-mcp-url`/`--mcp-url`):
+1. `x-mcp-url` (or `--mcp-url`) → Direct URL to MCP server (no authentication)
+2. `x-mcp-destination` (or `--mcp`) → Gets MCP server URL from service key for MCP destination (optional token)
+3. No BTP authentication required - enables local integration testing
 
 ## Documentation
 
@@ -91,16 +102,19 @@ The proxy uses two service keys (URLs are obtained from service keys):
 
 The proxy performs the following steps for each request:
 
-1. **Extract Headers**: Reads `x-btp-destination` (required) and `x-mcp-destination` (optional)
-2. **Apply Command Line Overrides**: `--btp` and `--mcp` parameters override headers (if provided)
-3. **Validate Required Headers**: Returns error if `x-btp-destination` (or `--btp`) is missing
-4. **Get BTP Cloud Token**: Retrieves JWT token for BTP Cloud authorization from `x-btp-destination` (or `--btp`)
-5. **Get MCP Server URL**: Retrieves MCP server URL from service key for `x-btp-destination` (or `--btp`) via auth-broker
-6. **Get SAP ABAP Config** (if provided): If `x-mcp-destination` (or `--mcp`) is provided, retrieves JWT token and SAP configuration (URL, client, etc.)
+1. **Extract Headers**: Reads `x-btp-destination`, `x-mcp-destination`, and `x-mcp-url` headers
+2. **Apply Command Line Overrides**: `--btp`, `--mcp`, and `--mcp-url` parameters override headers (if provided)
+3. **Validate Routing Requirements**: Requires at least one of: `x-btp-destination/--btp`, `x-mcp-destination/--mcp`, or `x-mcp-url/--mcp-url`
+4. **Get MCP Server URL** (priority order):
+   - From `x-mcp-url` header or `--mcp-url` parameter (direct URL)
+   - From service key for `x-btp-destination` (if provided)
+   - From service key for `x-mcp-destination` (if only MCP destination is provided)
+5. **Get BTP Cloud Token** (if `x-btp-destination` or `--btp` is provided): Retrieves JWT token for BTP Cloud authorization
+6. **Get SAP ABAP Config** (if `x-mcp-destination` or `--mcp` is provided): Retrieves JWT token and SAP configuration (URL, client, etc.) - optional, won't fail if unavailable
 7. **Build Request**: 
-   - Adds `Authorization: Bearer <token>` from `x-btp-destination` (or `--btp`) - **always added**
+   - Adds `Authorization: Bearer <token>` from `x-btp-destination` (or `--btp`) - **only if BTP destination is provided**
    - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) from `x-mcp-destination` (or `--mcp`) - **only if provided**
-8. **Forward Request**: Sends request to MCP server URL from service key (with `/mcp/stream/http` endpoint)
+8. **Forward Request**: Sends request to MCP server URL (from `x-mcp-url`, service key, or direct URL)
 9. **Return Response**: Forwards the response back to the client
 
 ### Example Request Flow
@@ -156,6 +170,34 @@ See [Configuration Guide](./doc/CONFIGURATION.md) for complete options.
 - Node.js >= 18.0.0
 - npm >= 9.0.0
 
+## Testing Tools
+
+### Start Both Servers for Testing
+
+Use the included script to start both `mcp-abap-adt` and `mcp-abap-adt-proxy` simultaneously:
+
+```bash
+# Using npm script
+npm run test:servers
+
+# Direct execution
+node tools/start-servers.js
+
+# With MCP destination (local testing)
+node tools/start-servers.js --mcp=trial
+
+# With SSE transport
+node tools/start-servers.js --transport=sse
+```
+
+The script automatically:
+- Starts ADT server on port 3000 (HTTP) or 3001 (SSE)
+- Starts Proxy server on port 3001 (HTTP) or 3002 (SSE)
+- Generates `mcpUrl` based on ADT server configuration
+- Ensures both servers use the same transport protocol
+
+See [tools/README.md](./tools/README.md) for complete documentation.
+
 ## Development Status
 
 ✅ **Core Features Complete**
@@ -163,8 +205,10 @@ See [Configuration Guide](./doc/CONFIGURATION.md) for complete options.
 - ✅ Project Setup & Foundation
 - ✅ Request Interception & Analysis
 - ✅ JWT Token Management & Proxy Forwarding
+- ✅ Local Testing Mode (without BTP authentication)
 - ✅ Configuration & Environment
 - ✅ Error Handling & Resilience
+- ✅ Testing Tools (`tools/start-servers.js`)
 - ✅ Documentation
 
 🚧 **Future Work**

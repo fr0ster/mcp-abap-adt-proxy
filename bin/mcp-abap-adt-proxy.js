@@ -52,9 +52,13 @@ Options:
   --sse-host=<host>       SSE server host (default: 0.0.0.0)
   --cloud-llm-hub-url     Cloud LLM Hub URL (default: from env CLOUD_LLM_HUB_URL)
   --btp=<destination>     Override x-btp-destination header (for BTP Cloud authorization)
-                           Required for stdio and SSE transports when headers are not provided
-  --mcp=<destination>     Override x-mcp-destination header (for SAP ABAP connection)
-                           Used as default destination for stdio and SSE transports
+                           Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
+  --mcp=<destination>      Override x-mcp-destination header (for SAP ABAP connection)
+                           Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
+                           Can be used without --btp for local testing (no BTP authentication)
+  --mcp-url=<url>         Direct MCP server URL (for local testing without BTP)
+                           Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
+                           Used for local testing without authentication
   --unsafe                 Enable file-based session storage (persists tokens to disk)
   --help, -h              Show this help message
   --version, -v           Show version number
@@ -70,13 +74,19 @@ Environment Variables:
 
 Examples:
   mcp-abap-adt-proxy                                    # Use default transport
-  mcp-abap-adt-proxy --transport=stdio --btp=ai         # Use stdio transport with --btp (required)
+  mcp-abap-adt-proxy --transport=stdio --btp=ai         # Use stdio transport with --btp
+  mcp-abap-adt-proxy --transport=stdio --mcp=trial      # Use stdio with --mcp only (local testing, no BTP auth)
+  mcp-abap-adt-proxy --transport=stdio --mcp-url=http://localhost:3000/mcp  # Use stdio with direct MCP URL (local testing)
   mcp-abap-adt-proxy --transport=stdio --btp=ai --mcp=trial  # Use stdio with both destinations
   mcp-abap-adt-proxy --transport=http                   # HTTP mode (port 3001)
   mcp-abap-adt-proxy --transport=http --http-port=8080  # HTTP mode on custom port
   mcp-abap-adt-proxy --transport=sse --btp=ai --mcp=trial  # SSE mode with destinations
+  mcp-abap-adt-proxy --transport=sse --mcp=trial        # SSE mode with --mcp only (local testing)
+  mcp-abap-adt-proxy --transport=sse --mcp-url=http://localhost:3000/mcp  # SSE mode with direct MCP URL
   mcp-abap-adt-proxy --transport=sse --sse-port=3002     # SSE mode on port 3002
   mcp-abap-adt-proxy --btp=ai --mcp=trial               # With destination overrides
+  mcp-abap-adt-proxy --mcp=trial                        # Local testing mode (no BTP authentication)
+  mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp  # Local testing with direct MCP URL (no authentication)
   mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe      # With file-based session storage
 
 Transport Modes:

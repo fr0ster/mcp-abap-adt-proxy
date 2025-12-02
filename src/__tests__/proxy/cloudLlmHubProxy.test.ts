@@ -209,7 +209,7 @@ describe("CloudLlmHubProxy", () => {
       expect(config.headers["x-sap-auth-type"]).toBe("jwt");
     });
 
-    it("should throw error if btpDestination is missing", async () => {
+    it("should throw error if both btpDestination and mcpDestination are missing", async () => {
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
         reason: "Test",
@@ -223,7 +223,34 @@ describe("CloudLlmHubProxy", () => {
           routingDecision,
           {}
         )
-      ).rejects.toThrow("btpDestination is required");
+      ).rejects.toThrow("Cannot determine MCP server URL");
+    });
+
+    it("should work with only mcpDestination (local testing mode)", async () => {
+      const routingDecision: RoutingDecision = {
+        strategy: RoutingStrategy.PROXY,
+        mcpDestination: "sap-abap",
+        reason: "Test",
+      };
+
+      // Mock authBroker methods for mcpDestination
+      (mockAuthBroker.getSapUrl as jest.Mock).mockResolvedValue("https://sap.example.com");
+      (mockAuthBroker.getToken as jest.Mock).mockResolvedValue("mcp-token");
+
+      const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
+      
+      const result = await buildProxyRequest(
+        { method: "tools/list" },
+        routingDecision,
+        {}
+      );
+
+      expect(result).toBeDefined();
+      expect(result.url).toContain("https://sap.example.com");
+      expect(result.headers["Authorization"]).toBeUndefined(); // No BTP auth in local testing mode
+      expect(result.headers["x-sap-jwt-token"]).toBe("mcp-token");
+      expect(mockAuthBroker.getSapUrl).toHaveBeenCalledWith("sap-abap");
+      expect(mockAuthBroker.getToken).toHaveBeenCalledWith("sap-abap");
     });
 
     it("should work without mcpDestination (optional)", async () => {

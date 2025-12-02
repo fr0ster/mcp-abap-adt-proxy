@@ -22,7 +22,7 @@ export interface InterceptedRequest {
 export function interceptRequest(
   req: IncomingMessage,
   body?: any,
-  configOverrides?: { btpDestination?: string; mcpDestination?: string }
+  configOverrides?: { btpDestination?: string; mcpDestination?: string; mcpUrl?: string }
 ): InterceptedRequest {
   // Extract headers
   const headers: Record<string, string | string[] | undefined> = {};

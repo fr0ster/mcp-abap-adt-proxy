@@ -7,17 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-12-02
+
 ### Added
-- **Support for `--btp` and `--mcp` parameters in stdio and SSE transports**
-  - `--btp` parameter is now required for stdio transport (replaces missing HTTP headers)
-  - `--mcp` parameter can be used as default destination for stdio and SSE transports
-  - Parameters work as config overrides when headers are not provided
-  - SSE transport now fully implemented with support for `--btp` and `--mcp` parameters
-  - Updated help text and documentation to reflect new parameter usage
+- **Local testing mode without BTP authentication**
+  - Proxy can now run with only `--mcp` or `x-mcp-destination` (without `--btp` or `x-btp-destination`)
+  - Enables local integration testing without BTP authentication
+  - MCP server URL can be obtained from MCP destination service key or specified directly via `--mcp-url`
+- **`--mcp-url` parameter support**
+  - Direct MCP server URL specification for local testing
+  - Auto-generated from ADT server configuration when using `tools/start-servers.js`
+  - Can be used instead of service key-based URL lookup
+  - Environment variable support: `MCP_URL`
+- **Testing tool: `tools/start-servers.js`**
+  - Utility script to start both `mcp-abap-adt` and `mcp-abap-adt-proxy` simultaneously
+  - Automatic `mcpUrl` generation based on ADT server configuration
+  - Both servers use the same transport protocol (HTTP or SSE)
+  - Default configuration: ADT on port 3000 (HTTP), Proxy on port 3001 (HTTP)
+  - Available via `npm run test:servers`
+- **Flexible routing requirements**
+  - Proxy accepts either `x-btp-destination/--btp`, `x-mcp-destination/--mcp`, or `x-mcp-url/--mcp-url`
+  - Removed strict requirement for BTP destination when using MCP destination or URL
 
 ### Changed
-- SSE transport implementation completed (previously was TODO)
-- Improved error messages for stdio transport when `--btp` parameter is missing
+- **Routing logic updated**
+  - `x-btp-destination` is now optional (was required)
+  - Proxy can work with only `x-mcp-destination` or `x-mcp-url` for local testing
+  - MCP URL can be obtained from multiple sources (priority order):
+    1. `x-mcp-url` header or `--mcp-url` parameter (direct URL)
+    2. Service key for `x-btp-destination` (if provided)
+    3. Service key for `x-mcp-destination` (if only MCP destination is provided)
+- **Token retrieval made optional for MCP destination**
+  - Token retrieval for `mcpDestination` is now optional (won't fail if token unavailable)
+  - Allows local testing without full service key configuration
+- **Error messages improved**
+  - More descriptive error messages when neither BTP nor MCP destination is provided
+  - Clear indication of local testing mode vs BTP authentication mode
+
+### Fixed
+- Proxy now correctly handles cases where only MCP destination is provided without BTP destination
 
 ## [0.1.0] - 2025-12-02
 

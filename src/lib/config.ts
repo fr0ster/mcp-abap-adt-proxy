@@ -15,6 +15,7 @@ export interface ProxyConfig {
   // Destination overrides from command line
   btpDestination?: string; // Overrides x-btp-destination header
   mcpDestination?: string; // Overrides x-mcp-destination header
+  mcpUrl?: string; // Direct MCP server URL (for local testing without BTP)
   // Session storage mode
   unsafe?: boolean; // If true, use FileSessionStore (persists to disk). If false, use SafeSessionStore (in-memory).
   // Error handling & resilience
@@ -70,9 +71,10 @@ export function loadConfig(configPath?: string): ProxyConfig {
  * Load configuration from environment variables and command line
  */
 function loadFromEnv(): ProxyConfig {
-  // Parse command line arguments for --btp, --mcp, and --unsafe
+  // Parse command line arguments for --btp, --mcp, --mcp-url, and --unsafe
   const btpDestination = getArgValue("--btp");
   const mcpDestination = getArgValue("--mcp");
+  const mcpUrl = getArgValue("--mcp-url");
   const unsafe = hasArg("--unsafe") || process.env.MCP_PROXY_UNSAFE === "true";
 
   return {
@@ -84,6 +86,7 @@ function loadFromEnv(): ProxyConfig {
     logLevel: process.env.LOG_LEVEL || "info",
     btpDestination,
     mcpDestination,
+    mcpUrl: mcpUrl || process.env.MCP_URL,
     unsafe,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || "3", 10),
     retryDelay: parseInt(process.env.MCP_PROXY_RETRY_DELAY || "1000", 10),
@@ -131,6 +134,7 @@ function mergeConfig(fileConfig: Partial<ProxyConfig>, envConfig: ProxyConfig): 
     // Command line overrides take precedence
     btpDestination: envConfig.btpDestination ?? fileConfig.btpDestination,
     mcpDestination: envConfig.mcpDestination ?? fileConfig.mcpDestination,
+    mcpUrl: envConfig.mcpUrl ?? fileConfig.mcpUrl,
     unsafe: envConfig.unsafe ?? fileConfig.unsafe ?? false,
     maxRetries: envConfig.maxRetries ?? fileConfig.maxRetries ?? 3,
     retryDelay: envConfig.retryDelay ?? fileConfig.retryDelay ?? 1000,

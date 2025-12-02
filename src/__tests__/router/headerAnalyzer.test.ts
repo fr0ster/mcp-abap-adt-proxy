@@ -88,7 +88,7 @@ describe("headerAnalyzer", () => {
       expect(decision.mcpDestination).toBe("sap-abap");
     });
 
-    it("should return UNKNOWN if x-btp-destination is missing (required)", () => {
+    it("should return UNKNOWN if both x-btp-destination and x-mcp-destination are missing", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "https://example.com/mcp/stream/http",
       };
@@ -96,7 +96,20 @@ describe("headerAnalyzer", () => {
       const decision = analyzeHeaders(headers);
 
       expect(decision.strategy).toBe(RoutingStrategy.UNKNOWN);
-      expect(decision.reason).toContain("x-btp-destination");
+      expect(decision.reason).toContain("x-btp-destination/--btp or x-mcp-destination/--mcp");
+    });
+
+    it("should work with only x-mcp-destination (local testing mode)", () => {
+      const headers: IncomingHttpHeaders = {
+        "x-mcp-destination": "sap-abap",
+      };
+
+      const decision = analyzeHeaders(headers);
+
+      expect(decision.strategy).toBe(RoutingStrategy.PROXY);
+      expect(decision.mcpDestination).toBe("sap-abap");
+      expect(decision.btpDestination).toBeUndefined();
+      expect(decision.reason).toContain("Local testing mode");
     });
 
     it("should work with only x-btp-destination (mcp destination optional)", () => {

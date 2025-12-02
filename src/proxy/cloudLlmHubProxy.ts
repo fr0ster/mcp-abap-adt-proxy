@@ -178,9 +178,11 @@ export class CloudLlmHubProxy {
   /**
    * Build proxy request with JWT tokens and SAP configuration
    * 
-   * Uses two service keys:
-   * 1. x-btp-destination - for BTP Cloud authorization (Authorization: Bearer token)
-   * 2. x-mcp-destination - for SAP ABAP connection (SAP headers with token and config)
+   * Uses service keys:
+   * 1. x-btp-destination - for BTP Cloud authorization (Authorization: Bearer token) - OPTIONAL
+   * 2. x-mcp-destination - for SAP ABAP connection (SAP headers with token and config) - OPTIONAL
+   * 
+   * Can work with only x-mcp-destination (without BTP) for local testing without authentication
    */
   private async buildProxyRequest(
     originalRequest: ProxyRequest,
@@ -193,30 +195,48 @@ export class CloudLlmHubProxy {
       "Content-Type": "application/json",
     };
 
-    // 1. Get authorization token for BTP Cloud (x-btp-destination or --btp)
+    // 1. Get authorization token for BTP Cloud (x-btp-destination or --btp) - OPTIONAL
     // This token is used for Authorization: Bearer header to connect to cloud MCP server
-    // REQUIRED: btpDestination must be present (checked in headerAnalyzer)
-    if (!routingDecision.btpDestination) {
-      throw new Error("btpDestination is required for proxying (x-btp-destination header or --btp parameter)");
+    // Only required if btpDestination is present
+    if (routingDecision.btpDestination) {
+      const authToken = await this.getJwtToken(routingDecision.btpDestination, forceTokenRefresh);
+      proxyHeaders["Authorization"] = `Bearer ${authToken}`;
+      
+      logger.debug("Added BTP Cloud authorization token", {
+        type: "BTP_AUTH_TOKEN_ADDED",
+        destination: routingDecision.btpDestination,
+      });
+    } else {
+      logger.debug("Skipping BTP Cloud authorization (no btpDestination - local testing mode)", {
+        type: "BTP_AUTH_SKIPPED",
+      });
     }
-
-    const authToken = await this.getJwtToken(routingDecision.btpDestination, forceTokenRefresh);
-    proxyHeaders["Authorization"] = `Bearer ${authToken}`;
-    
-    logger.debug("Added BTP Cloud authorization token", {
-      type: "BTP_AUTH_TOKEN_ADDED",
-      destination: routingDecision.btpDestination,
-    });
 
     // 2. Get SAP ABAP configuration from x-mcp-destination (OPTIONAL)
     // This provides token and configuration for SAP ABAP connection
     // Only used if x-mcp-destination or --mcp is provided
+    // For local testing (without BTP), token retrieval is optional - URL is still needed
     if (routingDecision.mcpDestination) {
-      const sapToken = await this.getJwtToken(routingDecision.mcpDestination, forceTokenRefresh);
       const sapUrl = await this.authBroker.getSapUrl(routingDecision.mcpDestination);
       
+      // Try to get token, but don't fail if it's not available (for local testing)
+      try {
+        const sapToken = await this.getJwtToken(routingDecision.mcpDestination, forceTokenRefresh);
+        proxyHeaders["x-sap-jwt-token"] = sapToken;
+        logger.debug("Added SAP ABAP token", {
+          type: "SAP_TOKEN_ADDED",
+          destination: routingDecision.mcpDestination,
+        });
+      } catch (error) {
+        logger.warn("Failed to get SAP ABAP token (continuing without token for local testing)", {
+          type: "SAP_TOKEN_SKIPPED",
+          destination: routingDecision.mcpDestination,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Continue without token - this is OK for local testing
+      }
+      
       // Add SAP ABAP headers
-      proxyHeaders["x-sap-jwt-token"] = sapToken;
       if (sapUrl) {
         proxyHeaders["x-sap-url"] = sapUrl;
       }
@@ -226,6 +246,7 @@ export class CloudLlmHubProxy {
         type: "SAP_CONFIG_ADDED",
         destination: routingDecision.mcpDestination,
         sapUrl: sapUrl || "not found",
+        hasToken: !!proxyHeaders["x-sap-jwt-token"],
       });
     }
 
@@ -244,24 +265,65 @@ export class CloudLlmHubProxy {
       }
     }
 
-    // Get MCP server URL from BTP destination service key
-    // URL is obtained from auth-broker for the btpDestination
-    const baseUrl = await this.authBroker.getSapUrl(routingDecision.btpDestination);
-    if (!baseUrl) {
-      throw new Error(`Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`);
+    // Get MCP server URL from:
+    // 1. x-mcp-url header (if provided) - direct URL
+    // 2. BTP destination service key (if btpDestination is present)
+    // 3. MCP destination service key (if only mcpDestination is present)
+    let baseUrl: string | undefined;
+
+    if (routingDecision.mcpUrl) {
+      // Use direct URL from x-mcp-url header
+      baseUrl = routingDecision.mcpUrl;
+      logger.debug("Using MCP URL from x-mcp-url header", {
+        type: "MCP_URL_FROM_HEADER",
+        url: baseUrl,
+      });
+    } else if (routingDecision.btpDestination) {
+      // Get URL from BTP destination service key
+      baseUrl = await this.authBroker.getSapUrl(routingDecision.btpDestination);
+      if (!baseUrl) {
+        throw new Error(`Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`);
+      }
+      logger.debug("Using MCP URL from BTP destination service key", {
+        type: "MCP_URL_FROM_BTP",
+        destination: routingDecision.btpDestination,
+        url: baseUrl,
+      });
+    } else if (routingDecision.mcpDestination) {
+      // Get URL from MCP destination service key (for local testing without BTP)
+      baseUrl = await this.authBroker.getSapUrl(routingDecision.mcpDestination);
+      if (!baseUrl) {
+        throw new Error(`Failed to get MCP server URL from MCP destination "${routingDecision.mcpDestination}". Check service key file.`);
+      }
+      logger.debug("Using MCP URL from MCP destination service key (local testing mode)", {
+        type: "MCP_URL_FROM_MCP",
+        destination: routingDecision.mcpDestination,
+        url: baseUrl,
+      });
+    } else {
+      throw new Error("Cannot determine MCP server URL: neither x-mcp-url header, btpDestination, nor mcpDestination is provided");
     }
 
     // Construct full MCP endpoint URL
-    // Default endpoint is /mcp/stream/http, but can be customized if needed
-    const mcpPath = "/mcp/stream/http";
-    const fullUrl = baseUrl.endsWith("/") 
-      ? `${baseUrl.slice(0, -1)}${mcpPath}`
-      : `${baseUrl}${mcpPath}`;
+    // If baseUrl already contains the path, use it as-is
+    // Otherwise, append default endpoint /mcp/stream/http
+    let fullUrl: string;
+    if (baseUrl.includes("/mcp/") || baseUrl.endsWith("/mcp")) {
+      // URL already contains MCP path
+      fullUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+    } else {
+      // Append default endpoint
+      const mcpPath = "/mcp/stream/http";
+      fullUrl = baseUrl.endsWith("/") 
+        ? `${baseUrl.slice(0, -1)}${mcpPath}`
+        : `${baseUrl}${mcpPath}`;
+    }
     
     logger.debug("Built proxy request", {
       type: "PROXY_REQUEST_BUILT",
       btpDestination: routingDecision.btpDestination,
       mcpDestination: routingDecision.mcpDestination,
+      mcpUrl: routingDecision.mcpUrl,
       baseUrl,
       fullUrl,
       hasAuthToken: !!proxyHeaders["Authorization"],
