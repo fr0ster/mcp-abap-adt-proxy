@@ -4,7 +4,7 @@ This document describes the architecture of `@mcp-abap-adt/proxy`.
 
 ## Overview
 
-The MCP ABAP ADT Proxy is a middleware server that sits between MCP clients (like Cline) and cloud ABAP systems. It provides intelligent routing based on authentication headers and handles JWT token management automatically.
+The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clients (like Cline) and any MCP server. It adds JWT authentication tokens to requests and forwards them to the target MCP server specified in the `x-mcp-url` header.
 
 ## System Architecture
 
@@ -15,39 +15,34 @@ The MCP ABAP ADT Proxy is a middleware server that sits between MCP clients (lik
 └────────┬─────────┘
          │
          │ HTTP/SSE/Stdio
+         │ (with x-mcp-url header)
          │
 ┌────────▼─────────────────────────────────────┐
 │     MCP ABAP ADT Proxy                       │
 │                                               │
 │  ┌──────────────────────────────────────┐   │
 │  │   Request Interceptor                │   │
-│  │   - Header Analysis                  │   │
-│  │   - Routing Decision                 │   │
+│  │   - Extract x-mcp-url                │   │
+│  │   - Extract destination              │   │
 │  └──────────────┬───────────────────────┘   │
 │                 │                             │
 │  ┌──────────────▼───────────────────────┐   │
-│  │   Router                              │   │
-│  │                                       │   │
-│  │  ┌────────────┐  ┌──────────────┐   │   │
-│  │  │  Direct    │  │  Local Basic │   │   │
-│  │  │  Cloud     │  │  Router      │   │   │
-│  │  └────────────┘  └──────────────┘   │   │
-│  │                                       │   │
-│  │  ┌──────────────────────────────┐   │   │
-│  │  │  Cloud LLM Hub Proxy          │   │   │
-│  │  │  - JWT Token Management       │   │   │
-│  │  │  - Request Forwarding         │   │   │
-│  │  │  - Error Handling             │   │   │
-│  │  └──────────────────────────────┘   │   │
+│  │   Proxy Client                        │   │
+│  │   - Get JWT Token (AuthBroker)        │   │
+│  │   - Add Authorization Header          │   │
+│  │   - Forward to x-mcp-url             │   │
+│  │   - Error Handling                    │   │
 │  └───────────────────────────────────────┘   │
 └───────────────────────────────────────────────┘
-         │                    │              │
-         │                    │              │
-    ┌────▼────┐        ┌──────▼──────┐  ┌───▼──────┐
-    │  Cloud  │        │  Cloud      │  │  On-Prem │
-    │  ABAP   │        │  LLM Hub    │  │  ABAP    │
-    │ (Direct)│        │             │  │ (Basic)  │
-    └─────────┘        └─────────────┘  └──────────┘
+         │
+         │ HTTP Request
+         │ (with JWT token)
+         │
+┌────────▼─────────────────────────────────────┐
+│     Target MCP Server                        │
+│     (from x-mcp-url header)                  │
+│     e.g., cloud-llm-hub                      │
+└───────────────────────────────────────────────┘
 ```
 
 ## Component Architecture
@@ -72,59 +67,24 @@ The MCP ABAP ADT Proxy is a middleware server that sits between MCP clients (lik
 **Location:** `src/router/headerAnalyzer.ts`
 
 **Responsibilities:**
-- Analyze HTTP headers to determine routing strategy
-- Validate authentication headers
+- Extract `x-mcp-url` header (required)
+- Extract `x-sap-destination` header (optional, default: "sk")
 - Determine routing decision
 
 **Key Functions:**
-- `analyzeHeaders()` - Main analysis function
-- `isDirectCloudRequest()` - Check for direct cloud routing
-- `isLocalBasicAuth()` - Check for local basic auth
-- `shouldProxyToCloudLlmHub()` - Check for proxy routing
+- `analyzeHeaders()` - Main analysis function, extracts MCP URL and destination
+- `shouldProxy()` - Check if request should be proxied
 
-**Routing Strategies:**
-- `DIRECT_CLOUD` - Route directly to cloud ABAP
-- `LOCAL_BASIC` - Handle locally with basic auth
-- `PROXY_CLOUD_LLM_HUB` - Proxy to cloud-llm-hub
-- `UNKNOWN` - Unknown/unsupported
+**Routing Strategy:**
+- `PROXY` - Proxy request with JWT authentication
+- `UNKNOWN` - x-mcp-url header missing
 
-### 3. Direct Cloud Router
-
-**Location:** `src/router/directCloudRouter.ts`
-
-**Responsibilities:**
-- Create and manage ABAP connections for direct cloud routing
-- Handle destination-based authentication
-- Cache connections for performance
-
-**Key Functions:**
-- `createDirectCloudConfig()` - Create config from routing decision
-- `getDirectCloudConnection()` - Get or create connection
-
-**Connection Management:**
-- Connection caching by session ID and config signature
-- Automatic cleanup of old connections
-- Integration with AuthBroker for JWT tokens
-
-### 4. Local Basic Router
-
-**Location:** `src/router/localBasicRouter.ts`
-
-**Responsibilities:**
-- Create and manage ABAP connections for basic auth
-- Handle local authentication
-- Cache connections for performance
-
-**Key Functions:**
-- `createLocalBasicConfig()` - Create config from routing decision
-- `getLocalBasicConnection()` - Get or create connection
-
-### 5. Cloud LLM Hub Proxy
+### 3. Proxy Client
 
 **Location:** `src/proxy/cloudLlmHubProxy.ts`
 
 **Responsibilities:**
-- Proxy requests to cloud-llm-hub
+- Proxy requests to target MCP server (from `x-mcp-url`)
 - Manage JWT tokens via AuthBroker
 - Handle retries and error recovery
 - Implement circuit breaker pattern
@@ -134,14 +94,16 @@ The MCP ABAP ADT Proxy is a middleware server that sits between MCP clients (lik
 - Automatic retry with exponential backoff
 - Circuit breaker for resilience
 - Token expiration handling
+- Support for full URLs or relative paths in `x-mcp-url`
 
 **Flow:**
-1. Receive MCP request
-2. Get JWT token from AuthBroker (with caching)
-3. Build proxy request with JWT and original headers
-4. Forward to cloud-llm-hub
-5. Handle response or errors
-6. Return MCP-formatted response
+1. Receive MCP request with `x-mcp-url` header
+2. Get JWT token from AuthBroker for destination (with caching)
+3. Build proxy request with JWT token in Authorization header
+4. Preserve all original headers
+5. Forward to URL specified in `x-mcp-url`
+6. Handle response or errors
+7. Return MCP-formatted response
 
 ### 6. Error Handler
 
@@ -175,89 +137,60 @@ The MCP ABAP ADT Proxy is a middleware server that sits between MCP clients (lik
 
 ## Request Flow
 
-### Direct Cloud Request Flow
+### Proxy Request Flow
 
 ```
-1. Client Request
+1. Client Request (with x-mcp-url header)
    ↓
 2. Request Interceptor
+   - Extract headers
+   - Parse request body
    ↓
-3. Header Analyzer → DIRECT_CLOUD strategy
+3. Header Analyzer
+   - Extract x-mcp-url (required)
+   - Extract x-sap-destination (optional, default: "sk")
    ↓
-4. Direct Cloud Router
-   ↓
-5. Get/Create ABAP Connection
-   ↓
-6. Process Request via Connection
-   ↓
-7. Return Response
-```
-
-### Local Basic Auth Flow
-
-```
-1. Client Request
-   ↓
-2. Request Interceptor
-   ↓
-3. Header Analyzer → LOCAL_BASIC strategy
-   ↓
-4. Local Basic Router
-   ↓
-5. Get/Create ABAP Connection (Basic Auth)
-   ↓
-6. Process Request via Connection
-   ↓
-7. Return Response
-```
-
-### Cloud LLM Hub Proxy Flow
-
-```
-1. Client Request
-   ↓
-2. Request Interceptor
-   ↓
-3. Header Analyzer → PROXY_CLOUD_LLM_HUB strategy
-   ↓
-4. Cloud LLM Hub Proxy
+4. Proxy Client
    ↓
 5. Check Circuit Breaker
    ↓
 6. Get JWT Token (from cache or AuthBroker)
    ↓
 7. Build Proxy Request
+   - Add JWT to Authorization header
+   - Preserve all original headers
+   - Use x-mcp-url as target URL
    ↓
-8. Forward to cloud-llm-hub (with retry)
+8. Forward to Target MCP Server (with retry)
    ↓
 9. Handle Response/Errors
    ↓
-10. Return Response
+10. Return Response to Client
 ```
 
-## Connection Management
+## Token Management
 
-### Connection Caching
+### Token Caching
 
-Connections are cached by:
-- Session ID
-- Configuration signature (hash of config)
+JWT tokens are cached by:
+- Destination name (from `x-sap-destination` header)
 
-**Cache Key Generation:**
+**Cache Key:**
 ```typescript
-hash(sessionId + sapUrl + destination + authType + client)
+destination // e.g., "sk", "S4HANA_E19"
 ```
 
-**Cache Cleanup:**
-- Automatic cleanup of connections older than 1 hour
-- Cleanup triggered when cache size exceeds 100 entries
+**Cache TTL:**
+- Tokens cached for 30 minutes
+- Automatic refresh on expiration
+- Force refresh on 401/403 errors
 
-### Connection Lifecycle
+### Token Lifecycle
 
-1. **Creation**: New connection created when cache miss
-2. **Usage**: Connection reused for same session/config
-3. **Cleanup**: Old connections removed automatically
-4. **Disposal**: Connections disposed when no longer needed
+1. **Retrieval**: Get token from AuthBroker for destination
+2. **Caching**: Cache token with expiration time
+3. **Usage**: Reuse cached token for subsequent requests
+4. **Refresh**: Automatically refresh on expiration or error
 
 ## Error Handling & Resilience
 
@@ -312,23 +245,18 @@ Sensitive headers are sanitized in logs:
 
 ## Performance Optimizations
 
-### Connection Pooling
-
-- Connections cached and reused
-- Reduces connection overhead
-- Automatic cleanup prevents memory leaks
-
 ### Token Caching
 
 - JWT tokens cached for 30 minutes
 - Reduces AuthBroker calls
 - Automatic refresh on expiration
+- Per-destination caching
 
-### Request Batching
+### Request Reuse
 
-- Multiple requests can share connection
-- Session-based connection reuse
-- Efficient resource utilization
+- Axios instance reused for all requests
+- Efficient HTTP connection pooling
+- Automatic retry with exponential backoff
 
 ## Scalability
 
@@ -362,17 +290,17 @@ Sensitive headers are sanitized in logs:
 
 ## Extension Points
 
-### Custom Routers
-
-New routing strategies can be added by:
-1. Adding strategy to `RoutingStrategy` enum
-2. Implementing router module
-3. Integrating in main server
-
 ### Custom Error Handlers
 
 Error handling can be customized by:
 1. Extending `errorHandler.ts`
 2. Implementing custom retry logic
 3. Adding custom circuit breaker behavior
+
+### Custom Token Providers
+
+Token management can be extended by:
+1. Implementing custom AuthBroker integration
+2. Adding custom token caching strategies
+3. Supporting additional authentication methods
 

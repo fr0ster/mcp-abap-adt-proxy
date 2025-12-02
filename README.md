@@ -4,22 +4,17 @@ MCP proxy server for SAP ABAP ADT - proxies local requests to cloud-llm-hub with
 
 ## Overview
 
-This package acts as a proxy between local MCP clients (like Cline) and the cloud-based MCP server (`cloud-llm-hub`). It intercepts MCP requests, analyzes authentication headers, and routes them appropriately:
-
-- **Direct cloud requests** (`x-sap-destination: "S4HANA_E19"`) - forwarded directly to cloud ABAP
-- **Basic auth requests** (`x-sap-auth-type: "basic"`) - handled locally (no cloud connection needed)
-- **Service key requests** (`x-sap-destination: "sk"`) - proxied to cloud-llm-hub with JWT token from auth-broker
+This package acts as a simple proxy between local MCP clients (like Cline) and any MCP server. It intercepts MCP requests, adds JWT authentication tokens, and forwards them to the target MCP server specified in the `x-mcp-url` header.
 
 ## Purpose
 
-Enable local MCP clients to connect to cloud ABAP systems through `cloud-llm-hub` with automatic JWT token management via `@mcp-abap-adt/auth-broker`.
+Enable local MCP clients to connect to remote MCP servers (like `cloud-llm-hub`) with automatic JWT token management via `@mcp-abap-adt/auth-broker`. The proxy adds authentication headers and forwards requests transparently.
 
 ## Features
 
-- ✅ **Intelligent Routing** - Automatically routes requests based on authentication headers
 - ✅ **JWT Token Management** - Automatic token retrieval, caching, and refresh via auth-broker
+- ✅ **Flexible Routing** - Forward requests to any MCP server via `x-mcp-url` header
 - ✅ **Error Handling** - Retry logic, circuit breaker, and comprehensive error handling
-- ✅ **Connection Pooling** - Efficient connection caching and reuse
 - ✅ **Multiple Transport Modes** - HTTP, SSE, and stdio support
 - ✅ **Configuration Flexibility** - Environment variables, config files, or defaults
 
@@ -34,14 +29,16 @@ npm install -g @mcp-abap-adt/proxy
 ### Basic Usage
 
 ```bash
-# Set cloud-llm-hub URL
-export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
-
 # Start proxy server
 mcp-abap-adt-proxy
+
+# With command line overrides
+mcp-abap-adt-proxy --btp=ai --mcp=trial
 ```
 
 ### Client Configuration (Cline)
+
+The proxy requires the `x-mcp-url` header and uses two service keys:
 
 ```json
 {
@@ -52,12 +49,29 @@ mcp-abap-adt-proxy
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
-        "x-sap-destination": "sk"
+        "x-mcp-url": "https://cloud-llm-hub.example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
+        "x-mcp-destination": "sap-abap"
       }
     }
   }
 }
 ```
+
+**Required Headers:**
+- `x-mcp-url` - Full URL of the target MCP server (required)
+
+**Service Key Headers:**
+- `x-btp-destination` - Destination name for BTP Cloud authorization token (for `Authorization: Bearer` header)
+- `x-mcp-destination` - Destination name for SAP ABAP connection (provides SAP token and configuration)
+
+**Command Line Overrides:**
+- `--btp=<destination>` - Overrides `x-btp-destination` header (takes precedence, works even if header is missing)
+- `--mcp=<destination>` - Overrides `x-mcp-destination` header (takes precedence, works even if header is missing)
+
+**How It Works:**
+1. `x-btp-destination` (or `--btp`) → Gets JWT token from auth-broker → Adds `Authorization: Bearer <token>` header
+2. `x-mcp-destination` (or `--mcp`) → Gets JWT token and SAP config from auth-broker → Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.)
 
 ## Documentation
 
@@ -68,46 +82,27 @@ mcp-abap-adt-proxy
 - **[Troubleshooting](./doc/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[Roadmap](./ROADMAP.md)** - Development roadmap and progress
 
-## Routing Strategies
+## How It Works
 
-### Direct Cloud Routing
+The proxy performs the following steps for each request:
 
-For requests with `x-sap-destination` (not "sk"), routes directly to cloud ABAP:
+1. **Extract Headers**: Reads `x-mcp-url` (required), `x-btp-destination` (optional), and `x-mcp-destination` (optional)
+2. **Apply Command Line Overrides**: `--btp` and `--mcp` parameters override headers (if provided)
+3. **Get BTP Cloud Token**: If `x-btp-destination` (or `--btp`) is provided, retrieves JWT token for BTP Cloud authorization
+4. **Get SAP ABAP Config**: If `x-mcp-destination` (or `--mcp`) is provided, retrieves JWT token and SAP configuration (URL, client, etc.)
+5. **Build Request**: 
+   - Adds `Authorization: Bearer <token>` from `x-btp-destination` (or `--btp`)
+   - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) from `x-mcp-destination` (or `--mcp`)
+5. **Forward Request**: Sends request to the URL specified in `x-mcp-url`
+6. **Return Response**: Forwards the response back to the client
 
-```json
-{
-  "headers": {
-    "x-sap-destination": "S4HANA_E19"
-  }
-}
+### Example Request Flow
+
+```
+Cline → Proxy (adds BTP token + SAP config) → Target MCP Server → Proxy → Cline
 ```
 
-### Local Basic Auth
-
-For requests with `x-sap-auth-type: "basic"`, handles locally:
-
-```json
-{
-  "headers": {
-    "x-sap-url": "https://abap-system.com",
-    "x-sap-auth-type": "basic",
-    "x-sap-login": "username",
-    "x-sap-password": "password"
-  }
-}
-```
-
-### Cloud LLM Hub Proxy
-
-For requests with `x-sap-destination: "sk"`, proxies to cloud-llm-hub:
-
-```json
-{
-  "headers": {
-    "x-sap-destination": "sk"
-  }
-}
-```
+The proxy is transparent - it only adds authentication headers and forwards requests.
 
 ## Configuration
 
@@ -150,22 +145,20 @@ See [Configuration Guide](./doc/CONFIGURATION.md) for complete options.
 
 ## Development Status
 
-✅ **Core Features Complete** - Phases 1-7 and 9 implemented
+✅ **Core Features Complete**
 
-- ✅ Phase 1: Project Setup & Foundation
-- ✅ Phase 2: Request Interception & Analysis
-- ✅ Phase 3: Direct Cloud Routing
-- ✅ Phase 4: Basic Auth Handling
-- ✅ Phase 5: Cloud Proxy with JWT
-- ✅ Phase 6: Configuration & Environment
-- ✅ Phase 7: Error Handling & Resilience
-- ✅ Phase 9: Documentation
+- ✅ Project Setup & Foundation
+- ✅ Request Interception & Analysis
+- ✅ JWT Token Management & Proxy Forwarding
+- ✅ Configuration & Environment
+- ✅ Error Handling & Resilience
+- ✅ Documentation
 
-🚧 **Future Work** - Phases 8, 10, 11 pending
+🚧 **Future Work**
 
-- ⏳ Phase 8: Testing
-- ⏳ Phase 10: Performance & Optimization
-- ⏳ Phase 11: Deployment & Publishing
+- ⏳ Unit Tests
+- ⏳ Performance & Optimization
+- ⏳ Deployment & Publishing
 
 See [ROADMAP.md](./ROADMAP.md) for details.
 

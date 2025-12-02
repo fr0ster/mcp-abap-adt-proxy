@@ -15,17 +15,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } from "http";
-import { randomUUID } from "crypto";
-import { AuthBroker } from "@mcp-abap-adt/auth-broker";
 import { parseTransportConfig, TransportConfig } from "./lib/transportConfig.js";
 import { loadConfig, validateConfig } from "./lib/config.js";
 import { logger } from "./lib/logger.js";
 import { interceptRequest, requiresSapConfig, sanitizeHeadersForLogging } from "./router/requestInterceptor.js";
-import { RoutingStrategy } from "./router/headerAnalyzer.js";
-import { createDirectCloudConfig, getDirectCloudConnection } from "./router/directCloudRouter.js";
-import { createLocalBasicConfig, getLocalBasicConnection } from "./router/localBasicRouter.js";
 import { createCloudLlmHubProxy, CloudLlmHubProxy } from "./proxy/cloudLlmHubProxy.js";
-import { getPlatformStores } from "./lib/stores.js";
 
 /**
  * MCP ABAP ADT Proxy Server
@@ -155,43 +149,43 @@ export class McpAbapAdtProxyServer {
       }
 
       // Intercept and analyze request
-      const intercepted = interceptRequest(req, body);
+      // Pass config overrides (--btp and --mcp) to header analyzer
+      const configOverrides = {
+        btpDestination: this.config.btpDestination,
+        mcpDestination: this.config.mcpDestination,
+      };
+      const intercepted = interceptRequest(req, body, configOverrides);
 
-      // Log routing decision
-      logger.debug("Routing decision made", {
-        type: "ROUTING_DECISION",
-        strategy: intercepted.routingDecision.strategy,
-        reason: intercepted.routingDecision.reason,
+      // Check if x-mcp-url header is present
+      const mcpUrl = intercepted.routingDecision.mcpUrl;
+      if (!mcpUrl) {
+        logger.error("x-mcp-url header is required", {
+          type: "MCP_URL_MISSING",
+        });
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          id: body?.id || null,
+          error: {
+            code: -32602,
+            message: "x-mcp-url header is required",
+          },
+        }));
+        return;
+      }
+
+      // Log proxy request
+      logger.debug("Proxying request", {
+        type: "PROXY_REQUEST",
+        mcpUrl,
+        btpDestination: intercepted.routingDecision.btpDestination,
+        mcpDestination: intercepted.routingDecision.mcpDestination,
         requiresSapConfig: requiresSapConfig(body),
       });
 
-      // Handle request based on routing strategy
+      // Handle proxy request - add JWT and forward to x-mcp-url
       try {
-        // Phase 3: Direct Cloud Routing
-        if (intercepted.routingDecision.strategy === RoutingStrategy.DIRECT_CLOUD) {
-          await this.handleDirectCloudRequest(intercepted, req, res);
-          return;
-        }
-
-        // Phase 4: Local Basic Auth
-        if (intercepted.routingDecision.strategy === RoutingStrategy.LOCAL_BASIC) {
-          await this.handleLocalBasicRequest(intercepted, req, res);
-          return;
-        }
-
-        // Phase 5: Proxy to cloud-llm-hub
-        if (intercepted.routingDecision.strategy === RoutingStrategy.PROXY_CLOUD_LLM_HUB) {
-          await this.handleCloudLlmHubProxyRequest(intercepted, req, res);
-          return;
-        }
-
-        // Unknown strategy
-        logger.warn("Unknown routing strategy", {
-          type: "UNKNOWN_ROUTING_STRATEGY",
-          strategy: intercepted.routingDecision.strategy,
-        });
-        res.writeHead(400, { "Content-Type": "text/plain" });
-        res.end("Unknown routing strategy");
+        await this.handleProxyRequest(intercepted, req, res);
       } catch (error) {
         logger.error("Failed to process request", {
           type: "REQUEST_PROCESS_ERROR",
@@ -230,192 +224,30 @@ export class McpAbapAdtProxyServer {
   }
 
   /**
-   * Handle direct cloud request (Phase 3)
+   * Handle proxy request - add JWT token and forward to x-mcp-url
    */
-  private async handleDirectCloudRequest(
+  private async handleProxyRequest(
     intercepted: ReturnType<typeof interceptRequest>,
     req: IncomingMessage,
     res: ServerResponse
   ): Promise<void> {
-    logger.info("Handling direct cloud request", {
-      type: "DIRECT_CLOUD_REQUEST",
-      destination: intercepted.routingDecision.destination,
+    const mcpUrl = intercepted.routingDecision.mcpUrl!;
+    const btpDestination = intercepted.routingDecision.btpDestination;
+    const mcpDestination = intercepted.routingDecision.mcpDestination;
+
+    logger.info("Handling proxy request", {
+      type: "PROXY_REQUEST",
+      mcpUrl,
+      btpDestination,
+      mcpDestination,
       sessionId: intercepted.sessionId,
     });
 
     try {
-      // Create direct cloud config from routing decision
-      const cloudConfig = createDirectCloudConfig(
-        intercepted.routingDecision,
-        intercepted.headers
-      );
-
-      if (!cloudConfig) {
-        logger.error("Failed to create direct cloud config", {
-          type: "DIRECT_CLOUD_CONFIG_ERROR",
-        });
-        res.writeHead(400, { "Content-Type": "text/plain" });
-        res.end("Failed to create cloud connection configuration");
-        return;
-      }
-
-      // Get or create AuthBroker for destination if needed
-      let authBroker: AuthBroker | undefined;
-      if (cloudConfig.destination) {
-        try {
-          const { serviceKeyStore, sessionStore } = await getPlatformStores();
-          authBroker = new AuthBroker(
-            {
-              serviceKeyStore,
-              sessionStore,
-            },
-            "system"
-          );
-        } catch (error) {
-          logger.warn("Failed to create AuthBroker, continuing without it", {
-            type: "AUTH_BROKER_CREATE_WARNING",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
-      // Get direct cloud connection
-      const sessionId = intercepted.sessionId || randomUUID();
-      const connection = await getDirectCloudConnection(
-        sessionId,
-        cloudConfig,
-        authBroker
-      );
-
-      logger.debug("Direct cloud connection established", {
-        type: "DIRECT_CLOUD_CONNECTION_ESTABLISHED",
-        destination: cloudConfig.destination,
-        sapUrl: cloudConfig.sapUrl,
-      });
-
-      // For Phase 3, we just log that connection is established
-      // Actual MCP tool handling will be implemented when we register tools
-      // For now, return a placeholder response
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        jsonrpc: "2.0",
-        id: intercepted.body?.id || null,
-        result: {
-          message: "Direct cloud connection established (Phase 3 - routing only)",
-          destination: cloudConfig.destination,
-          strategy: "direct-cloud",
-        },
-      }));
-    } catch (error) {
-      logger.error("Failed to handle direct cloud request", {
-        type: "DIRECT_CLOUD_REQUEST_ERROR",
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "text/plain" });
-        res.end("Failed to establish direct cloud connection");
-      }
-    }
-  }
-
-  /**
-   * Handle local basic auth request (Phase 4)
-   */
-  private async handleLocalBasicRequest(
-    intercepted: ReturnType<typeof interceptRequest>,
-    req: IncomingMessage,
-    res: ServerResponse
-  ): Promise<void> {
-    logger.info("Handling local basic auth request", {
-      type: "LOCAL_BASIC_REQUEST",
-      sessionId: intercepted.sessionId,
-    });
-
-    try {
-      // Create local basic config from routing decision
-      const basicConfig = createLocalBasicConfig(
-        intercepted.routingDecision,
-        intercepted.headers
-      );
-
-      if (!basicConfig) {
-        logger.error("Failed to create local basic config", {
-          type: "LOCAL_BASIC_CONFIG_ERROR",
-        });
-        res.writeHead(400, { "Content-Type": "text/plain" });
-        res.end("Failed to create basic auth configuration");
-        return;
-      }
-
-      // Get local basic connection
-      const sessionId = intercepted.sessionId || randomUUID();
-      const connection = await getLocalBasicConnection(sessionId, basicConfig);
-
-      logger.debug("Local basic connection established", {
-        type: "LOCAL_BASIC_CONNECTION_ESTABLISHED",
-        sapUrl: basicConfig.sapUrl,
-      });
-
-      // For Phase 4, we just log that connection is established
-      // Actual MCP tool handling will be implemented when we register tools
-      // For now, return a placeholder response
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        jsonrpc: "2.0",
-        id: intercepted.body?.id || null,
-        result: {
-          message: "Local basic auth connection established (Phase 4 - routing only)",
-          strategy: "local-basic",
-        },
-      }));
-    } catch (error) {
-      logger.error("Failed to handle local basic request", {
-        type: "LOCAL_BASIC_REQUEST_ERROR",
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "text/plain" });
-        res.end("Failed to establish local basic auth connection");
-      }
-    }
-  }
-
-  /**
-   * Handle cloud-llm-hub proxy request (Phase 5)
-   */
-  private async handleCloudLlmHubProxyRequest(
-    intercepted: ReturnType<typeof interceptRequest>,
-    req: IncomingMessage,
-    res: ServerResponse
-  ): Promise<void> {
-    logger.info("Handling cloud-llm-hub proxy request", {
-      type: "CLOUD_LLM_HUB_PROXY_REQUEST",
-      destination: intercepted.routingDecision.destination,
-      sessionId: intercepted.sessionId,
-    });
-
-    try {
-      // Ensure cloud-llm-hub proxy is initialized
+      // Ensure proxy is initialized (use default base URL from config, actual URL comes from x-mcp-url header)
       if (!this.cloudLlmHubProxy) {
-        if (!this.config.cloudLlmHubUrl) {
-          logger.error("Cloud LLM Hub URL not configured", {
-            type: "CLOUD_LLM_HUB_URL_MISSING",
-          });
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            jsonrpc: "2.0",
-            id: intercepted.body?.id || null,
-            error: {
-              code: -32603,
-              message: "Cloud LLM Hub URL not configured",
-            },
-          }));
-          return;
-        }
-
-        this.cloudLlmHubProxy = await createCloudLlmHubProxy(this.config.cloudLlmHubUrl, this.config);
+        const baseUrl = this.config.cloudLlmHubUrl || mcpUrl; // Fallback to mcpUrl if config not set
+        this.cloudLlmHubProxy = await createCloudLlmHubProxy(baseUrl, this.config);
       }
 
       // Build MCP request from intercepted request

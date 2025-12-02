@@ -51,6 +51,8 @@ Options:
   --http-host=<host>      HTTP server host (default: 0.0.0.0)
   --sse-host=<host>       SSE server host (default: 0.0.0.0)
   --cloud-llm-hub-url     Cloud LLM Hub URL (default: from env CLOUD_LLM_HUB_URL)
+  --btp=<destination>     Override x-btp-destination header (for BTP Cloud authorization)
+  --mcp=<destination>     Override x-mcp-destination header (for SAP ABAP connection)
   --help, -h              Show this help message
   --version, -v           Show version number
 

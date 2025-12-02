@@ -67,16 +67,17 @@ Analyzes HTTP headers to determine routing strategy.
 ```typescript
 import { analyzeHeaders } from "@mcp-abap-adt/proxy/router/headerAnalyzer";
 
-const decision = analyzeHeaders(req.headers);
-console.log(decision.strategy); // "direct-cloud" | "local-basic" | "proxy-cloud-llm-hub" | "unknown"
+const decision = analyzeHeaders(req.headers, { btpDestination: "ai", mcpDestination: "trial" });
+console.log(decision.strategy); // "proxy" | "unknown"
+console.log(decision.mcpUrl); // URL from x-mcp-url header
+console.log(decision.btpDestination); // Destination for BTP Cloud authorization (from header or override)
+console.log(decision.mcpDestination); // Destination for SAP ABAP connection (from header or override)
 ```
 
 #### Routing Strategies
 
-- `DIRECT_CLOUD`: Route directly to cloud ABAP (x-sap-destination: "S4HANA_E19")
-- `LOCAL_BASIC`: Handle locally with basic auth (x-sap-auth-type: "basic")
-- `PROXY_CLOUD_LLM_HUB`: Proxy to cloud-llm-hub with JWT (x-sap-destination: "sk")
-- `UNKNOWN`: Unknown/unsupported routing
+- `PROXY`: Proxy request with JWT authentication (x-mcp-url header present)
+- `UNKNOWN`: x-mcp-url header missing or invalid
 
 ### Request Interceptor
 
@@ -125,46 +126,6 @@ const proxy = await createCloudLlmHubProxy("https://cloud-llm-hub.example.com");
 const response = await proxy.proxyRequest(request, decision, headers);
 ```
 
-### Direct Cloud Router
-
-#### `getDirectCloudConnection(sessionId, config, authBroker?): Promise<AbapConnection>`
-
-Gets or creates ABAP connection for direct cloud routing.
-
-**Parameters:**
-- `sessionId`: Session identifier
-- `config`: Direct cloud configuration
-- `authBroker`: Optional AuthBroker instance
-
-**Returns:** Promise resolving to ABAP connection.
-
-**Example:**
-```typescript
-import { getDirectCloudConnection, createDirectCloudConfig } from "@mcp-abap-adt/proxy/router/directCloudRouter";
-
-const config = createDirectCloudConfig(routingDecision, headers);
-const connection = await getDirectCloudConnection(sessionId, config, authBroker);
-```
-
-### Local Basic Router
-
-#### `getLocalBasicConnection(sessionId, config): Promise<AbapConnection>`
-
-Gets or creates ABAP connection for local basic auth.
-
-**Parameters:**
-- `sessionId`: Session identifier
-- `config`: Local basic configuration
-
-**Returns:** Promise resolving to ABAP connection.
-
-**Example:**
-```typescript
-import { getLocalBasicConnection, createLocalBasicConfig } from "@mcp-abap-adt/proxy/router/localBasicRouter";
-
-const config = createLocalBasicConfig(routingDecision, headers);
-const connection = await getLocalBasicConnection(sessionId, config);
-```
 
 ## Error Handling
 
@@ -278,8 +239,9 @@ interface ProxyConfig {
 ```typescript
 interface RoutingDecision {
   strategy: RoutingStrategy;
-  destination?: string;
-  authType?: string;
+  btpDestination?: string;  // Destination for BTP Cloud authorization (x-btp-destination or --btp)
+  mcpDestination?: string;  // Destination for SAP ABAP connection (x-mcp-destination or --mcp)
+  mcpUrl?: string;          // URL from x-mcp-url header
   reason: string;
   validationResult?: HeaderValidationResult;
 }

@@ -21,7 +21,8 @@ export interface InterceptedRequest {
  */
 export function interceptRequest(
   req: IncomingMessage,
-  body?: any
+  body?: any,
+  configOverrides?: { btpDestination?: string; mcpDestination?: string }
 ): InterceptedRequest {
   // Extract headers
   const headers: Record<string, string | string[] | undefined> = {};
@@ -29,8 +30,8 @@ export function interceptRequest(
     headers[key] = value;
   }
 
-  // Analyze headers for routing decision
-  const routingDecision = analyzeHeaders(req.headers);
+  // Analyze headers for routing decision (with config overrides)
+  const routingDecision = analyzeHeaders(req.headers, configOverrides);
 
   // Extract session ID if present
   const sessionId = 

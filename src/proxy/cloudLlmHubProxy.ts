@@ -43,14 +43,15 @@ export interface ProxyResponse {
 export class CloudLlmHubProxy {
   private axiosInstance: AxiosInstance;
   private authBroker: AuthBroker;
-  private cloudLlmHubUrl: string;
+  private defaultBaseUrl: string;
   private tokenCache: Map<string, { token: string; expiresAt: number }> = new Map();
   private readonly TOKEN_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
   private circuitBreaker: CircuitBreaker;
   private config: ProxyConfig;
 
-  constructor(cloudLlmHubUrl: string, authBroker: AuthBroker, config?: Partial<ProxyConfig>) {
-    this.cloudLlmHubUrl = cloudLlmHubUrl.replace(/\/$/, ""); // Remove trailing slash
+  constructor(defaultBaseUrl: string, authBroker: AuthBroker, config?: Partial<ProxyConfig>) {
+    // Default base URL (used if x-mcp-url is relative)
+    this.defaultBaseUrl = defaultBaseUrl.replace(/\/$/, ""); // Remove trailing slash
     this.authBroker = authBroker;
     this.config = loadConfig();
     
@@ -65,8 +66,8 @@ export class CloudLlmHubProxy {
       this.config.circuitBreakerTimeout || 60000
     );
 
+    // Create axios instance without baseURL - we'll use full URLs from x-mcp-url
     this.axiosInstance = axios.create({
-      baseURL: this.cloudLlmHubUrl,
       timeout: this.config.requestTimeout || 60000,
       headers: {
         "Content-Type": "application/json",
@@ -175,7 +176,11 @@ export class CloudLlmHubProxy {
   }
 
   /**
-   * Build proxy request with JWT token and original headers
+   * Build proxy request with JWT tokens and SAP configuration
+   * 
+   * Uses two service keys:
+   * 1. x-btp-destination - for BTP Cloud authorization (Authorization: Bearer token)
+   * 2. x-mcp-destination - for SAP ABAP connection (SAP headers with token and config)
    */
   private async buildProxyRequest(
     originalRequest: ProxyRequest,
@@ -183,21 +188,46 @@ export class CloudLlmHubProxy {
     originalHeaders: Record<string, string | string[] | undefined>,
     forceTokenRefresh: boolean = false
   ): Promise<AxiosRequestConfig> {
-    const destination = routingDecision.destination || "sk";
-    const jwtToken = await this.getJwtToken(destination, forceTokenRefresh);
-
-    // Build headers for cloud-llm-hub
+    // Build headers for target MCP server
     const proxyHeaders: Record<string, string> = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${jwtToken}`,
     };
 
-    // Preserve original SAP connection headers
-    // These will be used by cloud-llm-hub to connect to cloud ABAP
+    // 1. Get authorization token for BTP Cloud (x-btp-destination)
+    // This token is used for Authorization: Bearer header to connect to cloud MCP server
+    if (routingDecision.btpDestination) {
+      const authToken = await this.getJwtToken(routingDecision.btpDestination, forceTokenRefresh);
+      proxyHeaders["Authorization"] = `Bearer ${authToken}`;
+      
+      logger.debug("Added BTP Cloud authorization token", {
+        type: "BTP_AUTH_TOKEN_ADDED",
+        destination: routingDecision.btpDestination,
+      });
+    }
+
+    // 2. Get SAP ABAP configuration from x-mcp-destination
+    // This provides token and configuration for SAP ABAP connection
+    if (routingDecision.mcpDestination) {
+      const sapToken = await this.getJwtToken(routingDecision.mcpDestination, forceTokenRefresh);
+      const sapUrl = await this.authBroker.getSapUrl(routingDecision.mcpDestination);
+      
+      // Add SAP ABAP headers
+      proxyHeaders["x-sap-jwt-token"] = sapToken;
+      if (sapUrl) {
+        proxyHeaders["x-sap-url"] = sapUrl;
+      }
+      proxyHeaders["x-sap-destination"] = routingDecision.mcpDestination;
+      
+      logger.debug("Added SAP ABAP configuration", {
+        type: "SAP_CONFIG_ADDED",
+        destination: routingDecision.mcpDestination,
+        sapUrl: sapUrl || "not found",
+      });
+    }
+
+    // Preserve other original SAP headers if provided
     const sapHeaders = [
-      "x-sap-url",
       "x-sap-client",
-      "x-sap-destination",
       "x-sap-auth-type",
       "x-sap-login",
       "x-sap-password",
@@ -210,21 +240,40 @@ export class CloudLlmHubProxy {
       }
     }
 
-    // Add original destination if not already set
-    if (!proxyHeaders["x-sap-destination"] && destination) {
-      proxyHeaders["x-sap-destination"] = destination;
+    // Use full URL from x-mcp-url header
+    // x-mcp-url should contain the full URL to the MCP server (e.g., "https://example.com/mcp/stream/http")
+    const mcpUrl = routingDecision.mcpUrl;
+    if (!mcpUrl) {
+      throw new Error("x-mcp-url header is required for proxying");
     }
 
+    // Determine if mcpUrl is a full URL or relative path
+    let fullUrl: string;
+    try {
+      // Try to parse as URL - if successful, it's a full URL
+      new URL(mcpUrl);
+      fullUrl = mcpUrl;
+    } catch (error) {
+      // If parsing fails, treat as relative path and prepend default base URL
+      const path = mcpUrl.startsWith("/") ? mcpUrl : `/${mcpUrl}`;
+      fullUrl = `${this.defaultBaseUrl}${path}`;
+    }
+    
     logger.debug("Built proxy request", {
       type: "PROXY_REQUEST_BUILT",
-      destination,
-      hasJwtToken: !!jwtToken,
-      preservedHeaders: Object.keys(proxyHeaders).filter(h => h.startsWith("x-sap")),
+      btpDestination: routingDecision.btpDestination,
+      mcpDestination: routingDecision.mcpDestination,
+      mcpUrl,
+      fullUrl,
+      hasAuthToken: !!proxyHeaders["Authorization"],
+      hasSapConfig: !!proxyHeaders["x-sap-jwt-token"],
+      sapHeaders: Object.keys(proxyHeaders).filter(h => h.startsWith("x-sap")),
     });
 
+    // Return axios config with full URL
     return {
       method: "POST",
-      url: "/mcp/stream/http", // Cloud-llm-hub MCP endpoint
+      url: fullUrl,
       headers: proxyHeaders,
       data: originalRequest,
     };
@@ -242,7 +291,8 @@ export class CloudLlmHubProxy {
     if (!this.circuitBreaker.canProceed()) {
       logger.warn("Circuit breaker is open, rejecting request", {
         type: "CIRCUIT_BREAKER_REJECTED",
-        destination: routingDecision.destination,
+        btpDestination: routingDecision.btpDestination,
+        mcpDestination: routingDecision.mcpDestination,
       });
       return createErrorResponse(
         originalRequest.id || null,
@@ -261,7 +311,6 @@ export class CloudLlmHubProxy {
     try {
       const response = await retryWithBackoff(async () => {
         // Check for token expiration and refresh if needed
-        const destination = routingDecision.destination || "sk";
         let forceTokenRefresh = false;
 
         // Build proxy request (will get fresh token if needed)
@@ -297,12 +346,12 @@ export class CloudLlmHubProxy {
       if (isTokenExpirationError(error)) {
         logger.warn("Token expiration detected, will retry with fresh token", {
           type: "TOKEN_EXPIRATION_DETECTED",
-          destination: routingDecision.destination,
+          btpDestination: routingDecision.btpDestination,
+          mcpDestination: routingDecision.mcpDestination,
         });
 
         // Retry once with fresh token
         try {
-          const destination = routingDecision.destination || "sk";
           const proxyConfig = await this.buildProxyRequest(
             originalRequest,
             routingDecision,

@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2024-12-XX
+## [Unreleased]
+
+### Dependencies
+- Updated `@mcp-abap-adt/connection` to `^0.1.13`:
+  - Uses new CSRF token endpoint `/sap/bc/adt/core/discovery` (lighter response, available on all systems)
+  - CSRF configuration constants (`CSRF_CONFIG`, `CSRF_ERROR_MESSAGES`) are now exported for consistency
+- Updated `@mcp-abap-adt/auth-broker` to `^0.1.4`:
+  - Benefits from optimized CSRF token endpoint in connection layer
+  - Faster authentication flows when managing JWT tokens
 
 ### Added
 - Initial project setup

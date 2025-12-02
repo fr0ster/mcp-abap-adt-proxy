@@ -12,6 +12,9 @@ export interface ProxyConfig {
   httpHost: string;
   sseHost: string;
   logLevel: string;
+  // Destination overrides from command line
+  btpDestination?: string; // Overrides x-btp-destination header
+  mcpDestination?: string; // Overrides x-mcp-destination header
   // Error handling & resilience
   maxRetries?: number;
   retryDelay?: number;
@@ -62,9 +65,13 @@ export function loadConfig(configPath?: string): ProxyConfig {
 }
 
 /**
- * Load configuration from environment variables
+ * Load configuration from environment variables and command line
  */
 function loadFromEnv(): ProxyConfig {
+  // Parse command line arguments for --btp and --mcp
+  const btpDestination = getArgValue("--btp");
+  const mcpDestination = getArgValue("--mcp");
+
   return {
     cloudLlmHubUrl: process.env.CLOUD_LLM_HUB_URL || "",
     httpPort: parseInt(process.env.MCP_HTTP_PORT || "3001", 10),
@@ -72,12 +79,30 @@ function loadFromEnv(): ProxyConfig {
     httpHost: process.env.MCP_HTTP_HOST || "0.0.0.0",
     sseHost: process.env.MCP_SSE_HOST || "0.0.0.0",
     logLevel: process.env.LOG_LEVEL || "info",
+    btpDestination,
+    mcpDestination,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || "3", 10),
     retryDelay: parseInt(process.env.MCP_PROXY_RETRY_DELAY || "1000", 10),
     requestTimeout: parseInt(process.env.MCP_PROXY_REQUEST_TIMEOUT || "60000", 10),
     circuitBreakerThreshold: parseInt(process.env.MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD || "5", 10),
     circuitBreakerTimeout: parseInt(process.env.MCP_PROXY_CIRCUIT_BREAKER_TIMEOUT || "60000", 10),
   };
+}
+
+/**
+ * Get argument value from command line
+ */
+function getArgValue(argName: string): string | undefined {
+  const args = process.argv;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === argName && i + 1 < args.length) {
+      return args[i + 1];
+    }
+    if (args[i].startsWith(`${argName}=`)) {
+      return args[i].split("=")[1];
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -91,6 +116,9 @@ function mergeConfig(fileConfig: Partial<ProxyConfig>, envConfig: ProxyConfig): 
     httpHost: envConfig.httpHost || fileConfig.httpHost || "0.0.0.0",
     sseHost: envConfig.sseHost || fileConfig.sseHost || "0.0.0.0",
     logLevel: envConfig.logLevel || fileConfig.logLevel || "info",
+    // Command line overrides take precedence
+    btpDestination: envConfig.btpDestination ?? fileConfig.btpDestination,
+    mcpDestination: envConfig.mcpDestination ?? fileConfig.mcpDestination,
     maxRetries: envConfig.maxRetries ?? fileConfig.maxRetries ?? 3,
     retryDelay: envConfig.retryDelay ?? fileConfig.retryDelay ?? 1000,
     requestTimeout: envConfig.requestTimeout ?? fileConfig.requestTimeout ?? 60000,

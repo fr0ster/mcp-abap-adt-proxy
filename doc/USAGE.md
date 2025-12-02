@@ -48,65 +48,9 @@ export LOG_LEVEL=debug
 mcp-abap-adt-proxy
 ```
 
-## Routing Scenarios
+## Usage Scenarios
 
-### Scenario 1: Direct Cloud Routing
-
-**Use Case:** Connect directly to cloud ABAP system (e.g., S4HANA_E19)
-
-**Client Configuration (Cline):**
-```json
-{
-  "mcp-abap-adt-proxy": {
-    "disabled": false,
-    "timeout": 60,
-    "type": "streamableHttp",
-    "url": "http://localhost:3001/mcp/stream/http",
-    "headers": {
-      "x-sap-destination": "S4HANA_E19"
-    }
-  }
-}
-```
-
-**What Happens:**
-1. Proxy receives request with `x-sap-destination: "S4HANA_E19"`
-2. Analyzes headers and determines `DIRECT_CLOUD` strategy
-3. Creates ABAP connection using destination service key
-4. Routes request directly to cloud ABAP system
-5. Returns response to client
-
-### Scenario 2: Local Basic Auth
-
-**Use Case:** Connect to on-premise ABAP system with basic authentication
-
-**Client Configuration:**
-```json
-{
-  "mcp-abap-adt-proxy": {
-    "disabled": false,
-    "timeout": 60,
-    "type": "streamableHttp",
-    "url": "http://localhost:3001/mcp/stream/http",
-    "headers": {
-      "x-sap-url": "https://onpremise.sap.com",
-      "x-sap-auth-type": "basic",
-      "x-sap-login": "username",
-      "x-sap-password": "password",
-      "x-sap-client": "100"
-    }
-  }
-}
-```
-
-**What Happens:**
-1. Proxy receives request with `x-sap-auth-type: "basic"`
-2. Analyzes headers and determines `LOCAL_BASIC` strategy
-3. Creates ABAP connection with basic auth
-4. Handles request locally (no proxying)
-5. Returns response to client
-
-### Scenario 3: Proxy to Cloud LLM Hub
+### Scenario 1: Proxy to Cloud LLM Hub
 
 **Use Case:** Proxy requests to cloud-llm-hub with JWT authentication
 
@@ -118,20 +62,42 @@ mcp-abap-adt-proxy
     "timeout": 60,
     "type": "streamableHttp",
     "url": "http://localhost:3001/mcp/stream/http",
-    "headers": {
-      "x-sap-destination": "sk"
-    }
+      "headers": {
+        "x-mcp-url": "https://cloud-llm-hub.example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
+        "x-mcp-destination": "sap-abap"
+      }
   }
 }
 ```
 
 **What Happens:**
-1. Proxy receives request with `x-sap-destination: "sk"`
-2. Analyzes headers and determines `PROXY_CLOUD_LLM_HUB` strategy
-3. Gets JWT token from auth-broker for destination "sk"
-4. Proxies request to cloud-llm-hub with JWT token
-5. Cloud-llm-hub processes request and returns response
-6. Proxy forwards response to client
+1. Proxy receives request with `x-mcp-url`, `x-btp-destination`, and `x-mcp-destination` headers
+2. Command line overrides (`--btp` and `--mcp`) take precedence over headers if provided
+3. Gets BTP Cloud token from auth-broker for `x-btp-destination` (or `--btp`) destination
+4. Gets SAP ABAP token and configuration from auth-broker for `x-mcp-destination` (or `--mcp`) destination
+5. Adds `Authorization: Bearer <btp-token>` header
+6. Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.)
+7. Proxies request to URL specified in `x-mcp-url`
+8. Target MCP server processes request and returns response
+9. Proxy forwards response to client
+
+**Using Command Line Overrides:**
+
+You can override headers using command line parameters:
+
+```bash
+# Override x-btp-destination with --btp
+mcp-abap-adt-proxy --btp=ai
+
+# Override x-mcp-destination with --mcp
+mcp-abap-adt-proxy --mcp=trial
+
+# Override both
+mcp-abap-adt-proxy --btp=ai --mcp=trial
+```
+
+Command line parameters work even if the corresponding headers are missing in the request.
 
 ## Programmatic Usage
 
@@ -238,6 +204,7 @@ mcp-abap-adt-proxy
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
+        "x-mcp-url": "https://cloud-llm-hub.example.com/mcp/stream/http",
         "x-sap-destination": "sk"
       }
     }
@@ -262,7 +229,9 @@ async function callProxy(method: string, params: any) {
     {
       headers: {
         "Content-Type": "application/json",
-        "x-sap-destination": "sk",
+        "x-mcp-url": "https://cloud-llm-hub.example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
+        "x-mcp-destination": "sap-abap",
       },
     }
   );
@@ -357,14 +326,16 @@ mcp-abap-adt-proxy
 }
 ```
 
-### Pattern 3: Multiple Destinations
+### Pattern 3: Multiple Destinations and MCP Servers
 
-Use different destination names for different systems:
+Use different destination names and MCP server URLs:
 
 ```json
 {
   "headers": {
-    "x-sap-destination": "dev"  // Uses dev.json service key
+    "x-mcp-url": "https://dev-cloud-llm-hub.example.com/mcp/stream/http",
+    "x-btp-destination": "dev-btp",
+    "x-mcp-destination": "dev-sap"
   }
 }
 ```
@@ -372,8 +343,21 @@ Use different destination names for different systems:
 ```json
 {
   "headers": {
-    "x-sap-destination": "prod"  // Uses prod.json service key
+    "x-mcp-url": "https://prod-cloud-llm-hub.example.com/mcp/stream/http",
+    "x-btp-destination": "prod-btp",
+    "x-mcp-destination": "prod-sap"
   }
 }
 ```
+
+### Pattern 4: Using Command Line Overrides
+
+Override destinations via command line (useful for development/testing):
+
+```bash
+# Use 'ai' for BTP and 'trial' for SAP regardless of headers
+mcp-abap-adt-proxy --btp=ai --mcp=trial
+```
+
+This is especially useful when you want to use the same destinations for all requests without modifying client configuration.
 
