@@ -94,6 +94,49 @@ Transport Modes:
   - http / streamable-http: HTTP server (default if stdin is TTY, port 3001)
   - sse: Server-Sent Events server (port 3002)
 
+Usage Modes:
+
+1. BTP Authentication Mode (with --btp):
+   - Adds Authorization: Bearer <token> header from BTP destination
+   - Gets MCP server URL from BTP destination service key
+   - Works with any BTP service, not just SAP ABAP
+   Example: mcp-abap-adt-proxy --btp=ai
+
+2. BTP + SAP Configuration Mode (--btp + --mcp):
+   - Adds Authorization: Bearer <token> header from BTP destination
+   - Adds SAP headers (x-sap-jwt-token, x-sap-url, etc.) from MCP destination
+   - Gets MCP server URL from BTP destination service key
+   - Suitable for SAP ABAP systems that require both BTP and SAP authentication
+   Example: mcp-abap-adt-proxy --btp=ai --mcp=trial
+
+3. Local Testing Mode (only --mcp or --mcp-url):
+   - No BTP authentication required
+   - Gets MCP server URL from MCP destination service key (--mcp) or uses direct URL (--mcp-url)
+   - Optional SAP token (won't fail if unavailable)
+   - Enables local integration testing without BTP authentication
+   Example: mcp-abap-adt-proxy --mcp=trial
+   Example: mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp
+
+Headers (for HTTP/SSE transports):
+  - x-btp-destination: Destination for BTP Cloud authorization (optional if --btp is used)
+  - x-mcp-destination: Destination for SAP ABAP connection (optional if --mcp is used)
+  - x-mcp-url: Direct MCP server URL (optional if --mcp-url is used)
+  
+  At least one of the above headers (or corresponding --btp/--mcp/--mcp-url parameter) is required.
+
+Service Keys:
+  Service keys should be placed in:
+  - Unix: ~/.config/mcp-abap-adt/service-keys/<destination>.json
+  - Windows: %USERPROFILE%\\Documents\\mcp-abap-adt\\service-keys\\<destination>.json
+  
+  For BTP destination, service key should contain:
+  {
+    "uaa": { "url": "...", "clientid": "...", "clientsecret": "..." },
+    "abap": { "url": "https://your-mcp-server.com" }
+  }
+  
+  The "abap.url" field is used as the MCP server URL (even for non-SAP services).
+
 For more information, see: https://github.com/fr0ster/mcp-abap-adt-proxy
 `);
 }
