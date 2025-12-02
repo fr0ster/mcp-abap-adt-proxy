@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-12-02
+
+### Added
+- **GitHub Actions workflows**
+  - **CI workflow** (`.github/workflows/ci.yml`): Runs unit tests on every push and pull request
+    - Tests on multiple OS (Ubuntu, macOS, Windows) and Node.js versions (18, 20)
+    - Builds project and verifies package creation
+    - Tests package installation on Unix and Windows
+  - **Release workflow** (`.github/workflows/release.yml`): Automated GitHub releases on tag push
+    - Triggers on version tags matching `v*.*.*` pattern
+    - Builds project, creates `.tgz` package, and creates GitHub Release with package as asset
+    - Verifies version matches between tag and `package.json`
+    - Generates release notes automatically
+
 ## [0.1.1] - 2025-12-02
 
 ### Added
