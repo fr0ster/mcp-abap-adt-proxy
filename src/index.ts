@@ -19,6 +19,7 @@ import { parseTransportConfig, TransportConfig } from "./lib/transportConfig.js"
 import { loadConfig, validateConfig } from "./lib/config.js";
 import { logger } from "./lib/logger.js";
 import { interceptRequest, requiresSapConfig, sanitizeHeadersForLogging } from "./router/requestInterceptor.js";
+import { RoutingStrategy } from "./router/headerAnalyzer.js";
 import { createCloudLlmHubProxy, CloudLlmHubProxy } from "./proxy/cloudLlmHubProxy.js";
 
 /**
@@ -156,7 +157,24 @@ export class McpAbapAdtProxyServer {
       };
       const intercepted = interceptRequest(req, body, configOverrides);
 
-      // Check if x-mcp-url header is present
+      // Check routing decision
+      if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
+        logger.error("Routing decision failed", {
+          type: "ROUTING_DECISION_FAILED",
+          reason: intercepted.routingDecision.reason,
+        });
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          id: body?.id || null,
+          error: {
+            code: -32602,
+            message: intercepted.routingDecision.reason,
+          },
+        }));
+        return;
+      }
+
       const mcpUrl = intercepted.routingDecision.mcpUrl;
       if (!mcpUrl) {
         logger.error("x-mcp-url header is required", {

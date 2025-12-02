@@ -60,14 +60,14 @@ The proxy requires the `x-mcp-url` header and uses two service keys:
 
 **Required Headers:**
 - `x-mcp-url` - Full URL of the target MCP server (required)
+- `x-btp-destination` - Destination name for BTP Cloud authorization token (required, for `Authorization: Bearer` header)
 
-**Service Key Headers:**
-- `x-btp-destination` - Destination name for BTP Cloud authorization token (for `Authorization: Bearer` header)
-- `x-mcp-destination` - Destination name for SAP ABAP connection (provides SAP token and configuration)
+**Optional Headers:**
+- `x-mcp-destination` - Destination name for SAP ABAP connection (optional, provides SAP token and configuration)
 
 **Command Line Overrides:**
-- `--btp=<destination>` - Overrides `x-btp-destination` header (takes precedence, works even if header is missing)
-- `--mcp=<destination>` - Overrides `x-mcp-destination` header (takes precedence, works even if header is missing)
+- `--btp=<destination>` - Overrides `x-btp-destination` header (required if header is missing, takes precedence)
+- `--mcp=<destination>` - Overrides `x-mcp-destination` header (optional, takes precedence, works even if header is missing)
 
 **How It Works:**
 1. `x-btp-destination` (or `--btp`) → Gets JWT token from auth-broker → Adds `Authorization: Bearer <token>` header
@@ -86,13 +86,14 @@ The proxy requires the `x-mcp-url` header and uses two service keys:
 
 The proxy performs the following steps for each request:
 
-1. **Extract Headers**: Reads `x-mcp-url` (required), `x-btp-destination` (optional), and `x-mcp-destination` (optional)
+1. **Extract Headers**: Reads `x-mcp-url` (required), `x-btp-destination` (required), and `x-mcp-destination` (optional)
 2. **Apply Command Line Overrides**: `--btp` and `--mcp` parameters override headers (if provided)
-3. **Get BTP Cloud Token**: If `x-btp-destination` (or `--btp`) is provided, retrieves JWT token for BTP Cloud authorization
-4. **Get SAP ABAP Config**: If `x-mcp-destination` (or `--mcp`) is provided, retrieves JWT token and SAP configuration (URL, client, etc.)
-5. **Build Request**: 
-   - Adds `Authorization: Bearer <token>` from `x-btp-destination` (or `--btp`)
-   - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) from `x-mcp-destination` (or `--mcp`)
+3. **Validate Required Headers**: Returns error if `x-mcp-url` or `x-btp-destination` (or `--btp`) is missing
+4. **Get BTP Cloud Token**: Retrieves JWT token for BTP Cloud authorization from `x-btp-destination` (or `--btp`)
+5. **Get SAP ABAP Config** (if provided): If `x-mcp-destination` (or `--mcp`) is provided, retrieves JWT token and SAP configuration (URL, client, etc.)
+6. **Build Request**: 
+   - Adds `Authorization: Bearer <token>` from `x-btp-destination` (or `--btp`) - **always added**
+   - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) from `x-mcp-destination` (or `--mcp`) - **only if provided**
 5. **Forward Request**: Sends request to the URL specified in `x-mcp-url`
 6. **Return Response**: Forwards the response back to the client
 

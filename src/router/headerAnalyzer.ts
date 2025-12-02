@@ -41,60 +41,78 @@ export function analyzeHeaders(
   const validationResult = validateAuthHeaders(headers);
   const validatedConfig = validationResult.config;
 
+  // Helper function to extract string value from header (handles arrays)
+  const getHeaderValue = (headerValue: string | string[] | undefined): string | undefined => {
+    if (!headerValue) return undefined;
+    if (Array.isArray(headerValue)) {
+      return headerValue[0]?.trim();
+    }
+    return typeof headerValue === "string" ? headerValue.trim() : undefined;
+  };
+
   // Extract MCP URL from x-mcp-url header (required)
-  const mcpUrl = headers["x-mcp-url"];
-  const extractedMcpUrl = mcpUrl && typeof mcpUrl === "string" ? mcpUrl.trim() : undefined;
+  const extractedMcpUrl = getHeaderValue(headers["x-mcp-url"]);
 
   // Extract authorization destination for BTP Cloud (x-btp-destination)
   // Command-line parameter --btp takes precedence over header
-  const btpDestinationHeader = headers["x-btp-destination"];
+  const btpDestinationHeader = getHeaderValue(headers["x-btp-destination"]);
   const extractedBtpDestination = configOverrides?.btpDestination 
     ? configOverrides.btpDestination
-    : (btpDestinationHeader && typeof btpDestinationHeader === "string" 
-      ? btpDestinationHeader.trim() 
-      : undefined);
+    : btpDestinationHeader;
 
   // Extract destination for SAP ABAP connection (x-mcp-destination)
   // Command-line parameter --mcp takes precedence over header
-  const mcpDestinationHeader = headers["x-mcp-destination"];
+  const mcpDestinationHeader = getHeaderValue(headers["x-mcp-destination"]);
   const extractedMcpDestination = configOverrides?.mcpDestination 
     ? configOverrides.mcpDestination
-    : (mcpDestinationHeader && typeof mcpDestinationHeader === "string" 
-      ? mcpDestinationHeader.trim() 
-      : undefined);
+    : mcpDestinationHeader;
 
-  // If x-mcp-url is present, we can proxy
-  if (extractedMcpUrl) {
-    logger.debug("Routing decision: PROXY", {
-      btpDestination: extractedBtpDestination,
-      mcpDestination: extractedMcpDestination,
-      mcpUrl: extractedMcpUrl,
-      priority: validatedConfig?.priority,
+  // x-mcp-url is required
+  if (!extractedMcpUrl) {
+    logger.warn("x-mcp-url header is missing", {
+      headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
+      validationResult: {
+        isValid: validationResult.isValid,
+        priority: validatedConfig?.priority,
+        authType: validatedConfig?.authType,
+        errors: validationResult.errors,
+      },
     });
+
     return {
-      strategy: RoutingStrategy.PROXY,
-      btpDestination: extractedBtpDestination,
-      mcpDestination: extractedMcpDestination,
-      mcpUrl: extractedMcpUrl,
-      reason: `Proxying to ${extractedMcpUrl} with BTP destination "${extractedBtpDestination || 'none'}" and MCP destination "${extractedMcpDestination || 'none'}"`,
+      strategy: RoutingStrategy.UNKNOWN,
+      reason: "x-mcp-url header is required for proxying",
       validationResult,
     };
   }
 
-  // x-mcp-url is required
-  logger.warn("x-mcp-url header is missing", {
-    headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
-    validationResult: {
-      isValid: validationResult.isValid,
-      priority: validatedConfig?.priority,
-      authType: validatedConfig?.authType,
-      errors: validationResult.errors,
-    },
-  });
+  // x-btp-destination or --btp is required for Authorization header
+  if (!extractedBtpDestination) {
+    logger.warn("x-btp-destination header or --btp parameter is missing", {
+      headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
+      hasConfigOverride: !!configOverrides?.btpDestination,
+    });
 
+    return {
+      strategy: RoutingStrategy.UNKNOWN,
+      reason: "x-btp-destination header or --btp parameter is required for proxying (needed for Authorization: Bearer token)",
+      validationResult,
+    };
+  }
+
+  // If x-mcp-url and x-btp-destination are present, we can proxy
+  logger.debug("Routing decision: PROXY", {
+    btpDestination: extractedBtpDestination,
+    mcpDestination: extractedMcpDestination,
+    mcpUrl: extractedMcpUrl,
+    priority: validatedConfig?.priority,
+  });
   return {
-    strategy: RoutingStrategy.UNKNOWN,
-    reason: "x-mcp-url header is required for proxying",
+    strategy: RoutingStrategy.PROXY,
+    btpDestination: extractedBtpDestination,
+    mcpDestination: extractedMcpDestination, // Optional - only used if provided
+    mcpUrl: extractedMcpUrl,
+    reason: `Proxying to ${extractedMcpUrl} with BTP destination "${extractedBtpDestination}"${extractedMcpDestination ? ` and MCP destination "${extractedMcpDestination}"` : ''}`,
     validationResult,
   };
 }

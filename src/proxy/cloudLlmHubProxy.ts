@@ -193,20 +193,24 @@ export class CloudLlmHubProxy {
       "Content-Type": "application/json",
     };
 
-    // 1. Get authorization token for BTP Cloud (x-btp-destination)
+    // 1. Get authorization token for BTP Cloud (x-btp-destination or --btp)
     // This token is used for Authorization: Bearer header to connect to cloud MCP server
-    if (routingDecision.btpDestination) {
-      const authToken = await this.getJwtToken(routingDecision.btpDestination, forceTokenRefresh);
-      proxyHeaders["Authorization"] = `Bearer ${authToken}`;
-      
-      logger.debug("Added BTP Cloud authorization token", {
-        type: "BTP_AUTH_TOKEN_ADDED",
-        destination: routingDecision.btpDestination,
-      });
+    // REQUIRED: btpDestination must be present (checked in headerAnalyzer)
+    if (!routingDecision.btpDestination) {
+      throw new Error("btpDestination is required for proxying (x-btp-destination header or --btp parameter)");
     }
 
-    // 2. Get SAP ABAP configuration from x-mcp-destination
+    const authToken = await this.getJwtToken(routingDecision.btpDestination, forceTokenRefresh);
+    proxyHeaders["Authorization"] = `Bearer ${authToken}`;
+    
+    logger.debug("Added BTP Cloud authorization token", {
+      type: "BTP_AUTH_TOKEN_ADDED",
+      destination: routingDecision.btpDestination,
+    });
+
+    // 2. Get SAP ABAP configuration from x-mcp-destination (OPTIONAL)
     // This provides token and configuration for SAP ABAP connection
+    // Only used if x-mcp-destination or --mcp is provided
     if (routingDecision.mcpDestination) {
       const sapToken = await this.getJwtToken(routingDecision.mcpDestination, forceTokenRefresh);
       const sapUrl = await this.authBroker.getSapUrl(routingDecision.mcpDestination);

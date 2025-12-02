@@ -50,6 +50,7 @@ describe("headerAnalyzer", () => {
     it("should use --mcp command line override over header", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "https://example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "header-value",
       };
 
@@ -71,9 +72,22 @@ describe("headerAnalyzer", () => {
       expect(decision.mcpDestination).toBe("cli-mcp");
     });
 
+    it("should return UNKNOWN if --btp is not provided and x-btp-destination header is missing", () => {
+      const headers: IncomingHttpHeaders = {
+        "x-mcp-url": "https://example.com/mcp/stream/http",
+        "x-mcp-destination": "sap-abap",
+      };
+
+      const decision = analyzeHeaders(headers);
+
+      expect(decision.strategy).toBe(RoutingStrategy.UNKNOWN);
+      expect(decision.reason).toContain("x-btp-destination");
+    });
+
     it("should extract mcp-destination from x-mcp-destination header", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "https://example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "sap-abap",
       };
 
@@ -83,22 +97,34 @@ describe("headerAnalyzer", () => {
       expect(decision.mcpDestination).toBe("sap-abap");
     });
 
-    it("should work with only x-mcp-url (both btp and mcp destination optional)", () => {
+    it("should return UNKNOWN if x-btp-destination is missing (required)", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "https://example.com/mcp/stream/http",
       };
 
       const decision = analyzeHeaders(headers);
 
+      expect(decision.strategy).toBe(RoutingStrategy.UNKNOWN);
+      expect(decision.reason).toContain("x-btp-destination");
+    });
+
+    it("should work with only x-btp-destination (mcp destination optional)", () => {
+      const headers: IncomingHttpHeaders = {
+        "x-mcp-url": "https://example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
+      };
+
+      const decision = analyzeHeaders(headers);
+
       expect(decision.strategy).toBe(RoutingStrategy.PROXY);
-      expect(decision.btpDestination).toBeUndefined();
+      expect(decision.btpDestination).toBe("btp-cloud");
       expect(decision.mcpDestination).toBeUndefined();
     });
 
     it("should trim whitespace from x-mcp-url", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "  https://example.com/mcp/stream/http  ",
-        "x-sap-destination": "sk",
+        "x-btp-destination": "btp-cloud",
       };
 
       const decision = analyzeHeaders(headers);
@@ -122,6 +148,7 @@ describe("headerAnalyzer", () => {
     it("should trim whitespace from x-mcp-destination", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "https://example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
         "x-mcp-destination": "  sap-abap  ",
       };
 
@@ -158,7 +185,7 @@ describe("headerAnalyzer", () => {
     it("should handle array values in x-mcp-url (use first value)", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": ["https://example.com/mcp/stream/http", "https://other.com"],
-        "x-sap-destination": "sk",
+        "x-btp-destination": "btp-cloud",
       };
 
       const decision = analyzeHeaders(headers);
@@ -182,6 +209,7 @@ describe("headerAnalyzer", () => {
     it("should handle array values in x-mcp-destination (use first value)", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "https://example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
         "x-mcp-destination": ["sap-abap", "other"],
       };
 
@@ -193,9 +221,10 @@ describe("headerAnalyzer", () => {
   });
 
   describe("shouldProxy", () => {
-    it("should return true when x-mcp-url is present", () => {
+    it("should return true when x-mcp-url and x-btp-destination are present", () => {
       const headers: IncomingHttpHeaders = {
         "x-mcp-url": "https://example.com/mcp/stream/http",
+        "x-btp-destination": "btp-cloud",
       };
 
       expect(shouldProxy(headers)).toBe(true);

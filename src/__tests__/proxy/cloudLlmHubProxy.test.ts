@@ -50,7 +50,7 @@ describe("CloudLlmHubProxy", () => {
   });
 
   describe("buildProxyRequest", () => {
-    it("should add Authorization header from x-btp-destination", async () => {
+    it("should require btpDestination and add Authorization header", async () => {
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
         btpDestination: "btp-cloud",
@@ -74,12 +74,15 @@ describe("CloudLlmHubProxy", () => {
     it("should add SAP headers from x-mcp-destination", async () => {
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
+        btpDestination: "btp-cloud",
         mcpDestination: "sap-abap",
         mcpUrl: "https://target.example.com/mcp/stream/http",
         reason: "Test",
       };
 
-      mockAuthBroker.getToken.mockResolvedValue("sap-token-123");
+      mockAuthBroker.getToken
+        .mockResolvedValueOnce("btp-token-123")
+        .mockResolvedValueOnce("sap-token-456");
       mockAuthBroker.getSapUrl.mockResolvedValue("https://sap.example.com");
 
       const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
@@ -89,9 +92,11 @@ describe("CloudLlmHubProxy", () => {
         {}
       );
 
-      expect(config.headers["x-sap-jwt-token"]).toBe("sap-token-123");
+      expect(config.headers["Authorization"]).toBe("Bearer btp-token-123");
+      expect(config.headers["x-sap-jwt-token"]).toBe("sap-token-456");
       expect(config.headers["x-sap-url"]).toBe("https://sap.example.com");
       expect(config.headers["x-sap-destination"]).toBe("sap-abap");
+      expect(mockAuthBroker.getToken).toHaveBeenCalledWith("btp-cloud");
       expect(mockAuthBroker.getToken).toHaveBeenCalledWith("sap-abap");
       expect(mockAuthBroker.getSapUrl).toHaveBeenCalledWith("sap-abap");
     });
@@ -126,9 +131,12 @@ describe("CloudLlmHubProxy", () => {
     it("should use full URL from x-mcp-url when provided", async () => {
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
+        btpDestination: "btp-cloud",
         mcpUrl: "https://target.example.com/mcp/stream/http",
         reason: "Test",
       };
+
+      mockAuthBroker.getToken.mockResolvedValue("btp-token-123");
 
       const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
       const config = await buildProxyRequest(
@@ -139,14 +147,18 @@ describe("CloudLlmHubProxy", () => {
 
       expect(config.url).toBe("https://target.example.com/mcp/stream/http");
       expect(config.method).toBe("POST");
+      expect(config.headers["Authorization"]).toBe("Bearer btp-token-123");
     });
 
     it("should handle relative path in x-mcp-url", async () => {
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
+        btpDestination: "btp-cloud",
         mcpUrl: "/mcp/stream/http",
         reason: "Test",
       };
+
+      mockAuthBroker.getToken.mockResolvedValue("btp-token-123");
 
       const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
       const config = await buildProxyRequest(
@@ -156,11 +168,13 @@ describe("CloudLlmHubProxy", () => {
       );
 
       expect(config.url).toBe("https://default.example.com/mcp/stream/http");
+      expect(config.headers["Authorization"]).toBe("Bearer btp-token-123");
     });
 
     it("should preserve other SAP headers from original request", async () => {
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
+        btpDestination: "btp-cloud",
         mcpDestination: "sap-abap",
         mcpUrl: "https://target.example.com/mcp/stream/http",
         reason: "Test",
@@ -171,7 +185,9 @@ describe("CloudLlmHubProxy", () => {
         "x-sap-auth-type": "jwt",
       };
 
-      mockAuthBroker.getToken.mockResolvedValue("sap-token-123");
+      mockAuthBroker.getToken
+        .mockResolvedValueOnce("btp-token-123")
+        .mockResolvedValueOnce("sap-token-456");
       mockAuthBroker.getSapUrl.mockResolvedValue("https://sap.example.com");
 
       const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
@@ -183,6 +199,47 @@ describe("CloudLlmHubProxy", () => {
 
       expect(config.headers["x-sap-client"]).toBe("100");
       expect(config.headers["x-sap-auth-type"]).toBe("jwt");
+    });
+
+    it("should throw error if btpDestination is missing", async () => {
+      const routingDecision: RoutingDecision = {
+        strategy: RoutingStrategy.PROXY,
+        mcpUrl: "https://target.example.com/mcp/stream/http",
+        reason: "Test",
+      };
+
+      const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
+      
+      await expect(
+        buildProxyRequest(
+          { method: "tools/list" },
+          routingDecision,
+          {}
+        )
+      ).rejects.toThrow("btpDestination is required");
+    });
+
+    it("should work without mcpDestination (optional)", async () => {
+      const routingDecision: RoutingDecision = {
+        strategy: RoutingStrategy.PROXY,
+        btpDestination: "btp-cloud",
+        mcpUrl: "https://target.example.com/mcp/stream/http",
+        reason: "Test",
+      };
+
+      mockAuthBroker.getToken.mockResolvedValue("btp-token-123");
+
+      const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
+      const config = await buildProxyRequest(
+        { method: "tools/list" },
+        routingDecision,
+        {}
+      );
+
+      expect(config.headers["Authorization"]).toBe("Bearer btp-token-123");
+      expect(config.headers["x-sap-jwt-token"]).toBeUndefined();
+      expect(mockAuthBroker.getToken).toHaveBeenCalledTimes(1);
+      expect(mockAuthBroker.getToken).toHaveBeenCalledWith("btp-cloud");
     });
   });
 
