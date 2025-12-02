@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Proxy now correctly handles cases where only MCP destination is provided without BTP destination
+- Fixed TypeScript compilation errors in `directCloudRouter.ts` (replaced `routingDecision.destination` with `btpDestination` or `mcpDestination`)
+- Fixed routing decision interface to properly support both BTP and MCP destinations
 
 ## [0.1.0] - 2025-12-02
 

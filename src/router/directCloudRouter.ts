@@ -43,12 +43,13 @@ export function createDirectCloudConfig(
 
   // Extract SAP URL
   let sapUrl = validatedConfig.sapUrl;
-  if (!sapUrl && routingDecision.destination) {
+  const destination = routingDecision.btpDestination || routingDecision.mcpDestination;
+  if (!sapUrl && destination) {
     // For destination-based auth, URL comes from destination service key
     // We'll need to load it from AuthBroker
     // For now, return null and let the caller handle it
     logger.debug("SAP URL not in validated config, will load from destination", {
-      destination: routingDecision.destination,
+      destination: destination,
     });
   }
 
@@ -57,7 +58,7 @@ export function createDirectCloudConfig(
 
   const config: DirectCloudConfig = {
     sapUrl: sapUrl || "", // Will be loaded from destination if needed
-    destination: validatedConfig.destination || routingDecision.destination,
+    destination: validatedConfig.destination || destination,
     authType: authType as "jwt" | "basic",
     sapClient: validatedConfig.sapClient,
   };
