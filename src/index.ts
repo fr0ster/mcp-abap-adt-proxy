@@ -389,11 +389,16 @@ export class McpAbapAdtProxyServer {
         hasError: !!proxyResponse.error,
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Failed to handle cloud-llm-hub proxy request", {
         type: "CLOUD_LLM_HUB_PROXY_ERROR",
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
       });
+      
+      // Output error to stderr for user visibility
+      process.stderr.write(`[MCP Proxy] ✗ Connection error: ${errorMessage}\n`);
+      
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
@@ -401,7 +406,7 @@ export class McpAbapAdtProxyServer {
           id: intercepted.body?.id || null,
           error: {
             code: -32000,
-            message: error instanceof Error ? error.message : "Unknown error",
+            message: errorMessage,
           },
         }));
       }
@@ -724,4 +729,23 @@ export class McpAbapAdtProxyServer {
 
 // Export for use in bin script
 export default McpAbapAdtProxyServer;
+
+// Auto-start server when run directly (unless MCP_SKIP_AUTO_START is set)
+if (process.env.MCP_SKIP_AUTO_START !== "true") {
+  const server = new McpAbapAdtProxyServer();
+  server.run().catch((error) => {
+    logger.error("Fatal error while running MCP proxy server", {
+      type: "SERVER_FATAL_ERROR",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // Always write to stderr (safe even in stdio mode)
+    process.stderr.write(`[MCP Proxy] ✗ Fatal error: ${error instanceof Error ? error.message : String(error)}\n`);
+    // On Windows, add a small delay before exit to allow error message to be visible
+    if (process.platform === 'win32') {
+      setTimeout(() => process.exit(1), 100);
+    } else {
+      process.exit(1);
+    }
+  });
+}
 

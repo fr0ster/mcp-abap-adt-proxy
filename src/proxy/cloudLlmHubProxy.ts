@@ -67,11 +67,19 @@ export class CloudLlmHubProxy {
     );
 
     // Create axios instance without baseURL - we'll use full URLs from x-mcp-url
+    // Configure HTTPS agent for proper SSL/TLS handling
+    const https = require('https');
     this.axiosInstance = axios.create({
       timeout: this.config.requestTimeout || 60000,
       headers: {
         "Content-Type": "application/json",
       },
+      httpsAgent: new https.Agent({
+        // Allow self-signed certificates if needed (for development)
+        rejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0',
+        // Keep connections alive for better performance
+        keepAlive: true,
+      }),
     });
 
     // Add request interceptor for logging
@@ -166,11 +174,14 @@ export class CloudLlmHubProxy {
 
       return token;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Failed to get JWT token from auth-broker after retries", {
         type: "JWT_TOKEN_ERROR",
         destination,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
+      // Output error to stderr for user visibility
+      process.stderr.write(`[MCP Proxy] ✗ Failed to get token for destination "${destination}": ${errorMessage}\n`);
       throw error;
     }
   }
@@ -282,7 +293,9 @@ export class CloudLlmHubProxy {
       // Get URL from BTP destination service key
       baseUrl = await this.authBroker.getSapUrl(routingDecision.btpDestination);
       if (!baseUrl) {
-        throw new Error(`Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`);
+        const errorMsg = `Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`;
+        process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
+        throw new Error(errorMsg);
       }
       logger.debug("Using MCP URL from BTP destination service key", {
         type: "MCP_URL_FROM_BTP",
@@ -293,7 +306,9 @@ export class CloudLlmHubProxy {
       // Get URL from MCP destination service key (for local testing without BTP)
       baseUrl = await this.authBroker.getSapUrl(routingDecision.mcpDestination);
       if (!baseUrl) {
-        throw new Error(`Failed to get MCP server URL from MCP destination "${routingDecision.mcpDestination}". Check service key file.`);
+        const errorMsg = `Failed to get MCP server URL from MCP destination "${routingDecision.mcpDestination}". Check service key file.`;
+        process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
+        throw new Error(errorMsg);
       }
       logger.debug("Using MCP URL from MCP destination service key (local testing mode)", {
         type: "MCP_URL_FROM_MCP",
@@ -308,15 +323,26 @@ export class CloudLlmHubProxy {
     // If baseUrl already contains the path, use it as-is
     // Otherwise, append default endpoint /mcp/stream/http
     let fullUrl: string;
-    if (baseUrl.includes("/mcp/") || baseUrl.endsWith("/mcp")) {
-      // URL already contains MCP path
+    // Check if URL already contains MCP path (more flexible check)
+    if (baseUrl.includes("/mcp/") || baseUrl.endsWith("/mcp") || baseUrl.includes("/mcp/stream/")) {
+      // URL already contains MCP path - use as-is (but remove trailing slash if present)
       fullUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+      logger.debug("Using MCP URL as-is (already contains path)", {
+        type: "MCP_URL_AS_IS",
+        original: baseUrl,
+        final: fullUrl,
+      });
     } else {
       // Append default endpoint
       const mcpPath = "/mcp/stream/http";
       fullUrl = baseUrl.endsWith("/") 
         ? `${baseUrl.slice(0, -1)}${mcpPath}`
         : `${baseUrl}${mcpPath}`;
+      logger.debug("Appended MCP path to base URL", {
+        type: "MCP_URL_APPENDED",
+        original: baseUrl,
+        final: fullUrl,
+      });
     }
     
     logger.debug("Built proxy request", {
@@ -431,20 +457,29 @@ export class CloudLlmHubProxy {
         }
       }
 
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       logger.error("Failed to proxy request to cloud-llm-hub", {
         type: "PROXY_REQUEST_ERROR",
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
         status: axios.isAxiosError(error) ? error.response?.status : undefined,
         circuitBreakerState: this.circuitBreaker.getState(),
       });
 
+      // Output error to stderr for user visibility
+      const statusCode = axios.isAxiosError(error) && error.response?.status 
+        ? error.response.status 
+        : undefined;
+      if (statusCode) {
+        process.stderr.write(`[MCP Proxy] ✗ Connection failed: ${errorMessage} (HTTP ${statusCode})\n`);
+      } else {
+        process.stderr.write(`[MCP Proxy] ✗ Connection failed: ${errorMessage}\n`);
+      }
+
       // Return error response in MCP format
       return createErrorResponse(
         originalRequest.id || null,
-        axios.isAxiosError(error) && error.response?.status
-          ? error.response.status
-          : -32000,
-        error instanceof Error ? error.message : "Unknown error",
+        statusCode || -32000,
+        errorMessage,
         {
           circuitBreakerState: this.circuitBreaker.getState(),
           originalError: axios.isAxiosError(error) && error.response?.data

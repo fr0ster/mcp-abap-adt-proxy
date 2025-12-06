@@ -17,7 +17,7 @@ export interface ProxyConfig {
   mcpDestination?: string; // Overrides x-mcp-destination header
   mcpUrl?: string; // Direct MCP server URL (for local testing without BTP)
   // Session storage mode
-  unsafe?: boolean; // If true, use FileSessionStore (persists to disk). If false, use SafeSessionStore (in-memory).
+  unsafe?: boolean; // If true, use AbapSessionStore (persists to disk). If false, use SafeAbapSessionStore (in-memory).
   // Error handling & resilience
   maxRetries?: number;
   retryDelay?: number;
@@ -151,11 +151,13 @@ export function validateConfig(config: ProxyConfig): { valid: boolean; errors: s
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Cloud LLM Hub URL is only required if we're using proxy functionality
-  // For direct cloud and basic auth, it's not needed
-  if (!config.cloudLlmHubUrl) {
-    warnings.push("CLOUD_LLM_HUB_URL is not set - proxy to cloud-llm-hub will not work");
-  } else {
+  // Cloud LLM Hub URL is only required if we're not using BTP/MCP destinations
+  // If --btp, --mcp, or --mcp-url is provided, URL will be obtained from service keys
+  const hasDestination = config.btpDestination || config.mcpDestination || config.mcpUrl;
+  
+  if (!config.cloudLlmHubUrl && !hasDestination) {
+    warnings.push("CLOUD_LLM_HUB_URL is not set and no destination provided (--btp, --mcp, or --mcp-url) - proxy will not work without a destination");
+  } else if (config.cloudLlmHubUrl) {
     try {
       new URL(config.cloudLlmHubUrl);
     } catch {
