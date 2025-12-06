@@ -8,10 +8,14 @@ import {
   AbapServiceKeyStore,
   XsuaaServiceKeyStore,
   AbapSessionStore, 
-  SafeAbapSessionStore,
+  SafeAbapSessionStore
+} from "@mcp-abap-adt/auth-stores";
+import type { 
   IServiceKeyStore,
   ISessionStore,
-  ServiceKey
+  IAuthorizationConfig,
+  IConnectionConfig,
+  IConfig
 } from "@mcp-abap-adt/auth-broker";
 import * as path from "path";
 import * as os from "os";
@@ -83,17 +87,21 @@ function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
 /**
  * Combined service key store that tries both standard and XSUAA loaders
  * Tries standard ABAP service key loader first, then XSUAA loader if not found
+ * 
+ * Note: Stores only support a single directory, so we use the first path from the array
  */
 class CombinedServiceKeyStore implements IServiceKeyStore {
   private abapStore: AbapServiceKeyStore;
   private xsuaaStore: XsuaaServiceKeyStore;
 
   constructor(searchPaths: string[]) {
-    this.abapStore = new AbapServiceKeyStore(searchPaths);
-    this.xsuaaStore = new XsuaaServiceKeyStore(searchPaths);
+    // Stores only support a single directory, use the first path
+    const firstPath = searchPaths[0] || process.cwd();
+    this.abapStore = new AbapServiceKeyStore(firstPath);
+    this.xsuaaStore = new XsuaaServiceKeyStore(firstPath);
   }
 
-  async getServiceKey(destination: string): Promise<ServiceKey | null> {
+  async getServiceKey(destination: string): Promise<IConfig | null> {
     // Try ABAP service key store first
     const abapKey = await this.abapStore.getServiceKey(destination);
     if (abapKey) {
@@ -102,6 +110,28 @@ class CombinedServiceKeyStore implements IServiceKeyStore {
 
     // If not found, try XSUAA store (for BTP XSUAA service keys)
     return await this.xsuaaStore.getServiceKey(destination);
+  }
+
+  async getAuthorizationConfig(destination: string): Promise<IAuthorizationConfig | null> {
+    // Try ABAP service key store first
+    const abapConfig = await this.abapStore.getAuthorizationConfig(destination);
+    if (abapConfig) {
+      return abapConfig;
+    }
+
+    // If not found, try XSUAA store (for BTP XSUAA service keys)
+    return await this.xsuaaStore.getAuthorizationConfig(destination);
+  }
+
+  async getConnectionConfig(destination: string): Promise<IConnectionConfig | null> {
+    // Try ABAP service key store first
+    const abapConfig = await this.abapStore.getConnectionConfig(destination);
+    if (abapConfig) {
+      return abapConfig;
+    }
+
+    // If not found, try XSUAA store (for BTP XSUAA service keys)
+    return await this.xsuaaStore.getConnectionConfig(destination);
   }
 }
 
@@ -117,13 +147,18 @@ export async function getPlatformStores(unsafe: boolean = false): Promise<{
   serviceKeyStore: IServiceKeyStore;
   sessionStore: ISessionStore;
 }> {
-  // Get platform-specific paths for service keys
+  // Get platform-specific paths for service keys and sessions
   const serviceKeyPaths = getPlatformPaths('service-keys');
+  const sessionPaths = getPlatformPaths('sessions');
+  
+  // Stores only support a single directory, use the first path
+  const firstServiceKeyPath = serviceKeyPaths[0] || process.cwd();
+  const firstSessionPath = sessionPaths[0] || process.cwd();
   
   return {
     serviceKeyStore: new CombinedServiceKeyStore(serviceKeyPaths),
     sessionStore: unsafe 
-      ? new AbapSessionStore(getPlatformPaths('sessions'))
+      ? new AbapSessionStore(firstSessionPath)
       : new SafeAbapSessionStore(),
   };
 }

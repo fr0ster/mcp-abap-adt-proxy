@@ -7,6 +7,7 @@
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from "axios";
 import { AuthBroker } from "@mcp-abap-adt/auth-broker";
+import { BtpTokenProvider } from "@mcp-abap-adt/auth-providers";
 import { logger } from "../lib/logger.js";
 import { RoutingDecision } from "../router/headerAnalyzer.js";
 import { loadConfig, ProxyConfig } from "../lib/config.js";
@@ -228,7 +229,8 @@ export class CloudLlmHubProxy {
     // Only used if x-mcp-destination or --mcp is provided
     // For local testing (without BTP), token retrieval is optional - URL is still needed
     if (routingDecision.mcpDestination) {
-      const sapUrl = await this.authBroker.getSapUrl(routingDecision.mcpDestination);
+      const connConfig = await this.authBroker.getConnectionConfig(routingDecision.mcpDestination);
+      const sapUrl = connConfig?.serviceUrl;
       
       // Try to get token, but don't fail if it's not available (for local testing)
       try {
@@ -291,7 +293,8 @@ export class CloudLlmHubProxy {
       });
     } else if (routingDecision.btpDestination) {
       // Get URL from BTP destination service key
-      baseUrl = await this.authBroker.getSapUrl(routingDecision.btpDestination);
+      const connConfig = await this.authBroker.getConnectionConfig(routingDecision.btpDestination);
+      baseUrl = connConfig?.serviceUrl;
       if (!baseUrl) {
         const errorMsg = `Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`;
         process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
@@ -304,7 +307,8 @@ export class CloudLlmHubProxy {
       });
     } else if (routingDecision.mcpDestination) {
       // Get URL from MCP destination service key (for local testing without BTP)
-      baseUrl = await this.authBroker.getSapUrl(routingDecision.mcpDestination);
+      const connConfig = await this.authBroker.getConnectionConfig(routingDecision.mcpDestination);
+      baseUrl = connConfig?.serviceUrl;
       if (!baseUrl) {
         const errorMsg = `Failed to get MCP server URL from MCP destination "${routingDecision.mcpDestination}". Check service key file.`;
         process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
@@ -500,10 +504,12 @@ export async function createCloudLlmHubProxy(
 ): Promise<CloudLlmHubProxy> {
   const unsafe = config?.unsafe ?? false;
   const { serviceKeyStore, sessionStore } = await getPlatformStores(unsafe);
+  const tokenProvider = new BtpTokenProvider();
   const authBroker = new AuthBroker(
     {
       serviceKeyStore,
       sessionStore,
+      tokenProvider,
     },
     "system"
   );
