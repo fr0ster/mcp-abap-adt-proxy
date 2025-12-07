@@ -59,6 +59,8 @@ Options:
   --mcp-url=<url>         Direct MCP server URL (for local testing without BTP)
                            Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
                            Used for local testing without authentication
+  --config=<file>, -c     Load configuration from YAML or JSON file
+                           Alternative to command-line parameters
   --unsafe                 Enable file-based session storage (persists tokens to disk)
   --help, -h              Show this help message
   --version, -v           Show version number
@@ -88,6 +90,8 @@ Examples:
   mcp-abap-adt-proxy --mcp=trial                        # Local testing mode (no BTP authentication)
   mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp  # Local testing with direct MCP URL (no authentication)
   mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe      # With file-based session storage
+  mcp-abap-adt-proxy --config=proxy-config.yaml         # Load configuration from YAML file
+  mcp-abap-adt-proxy -c proxy-config.yml                # Load configuration from YAML file (short form)
 
 Transport Modes:
   - stdio (default if stdin is not TTY): For MCP clients like Cline/Cursor

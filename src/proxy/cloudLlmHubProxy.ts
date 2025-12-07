@@ -372,19 +372,71 @@ export class CloudLlmHubProxy {
       }
     }
 
-    // Get MCP server URL only from x-mcp-url header or --mcp-url parameter
-    // Service URL is NOT obtained from service keys - only from explicit URL parameter/header
+    // Get MCP server URL with priority:
+    // 1. x-mcp-url header or --mcp-url parameter (explicit URL - highest priority)
+    // 2. BTP destination service key (if btpDestination is present)
+    // 3. MCP destination service key (if only mcpDestination is present)
     let baseUrl: string | undefined;
 
     if (routingDecision.mcpUrl) {
-      // Use direct URL from x-mcp-url header or --mcp-url parameter
+      // Priority 1: Use direct URL from x-mcp-url header or --mcp-url parameter
       baseUrl = routingDecision.mcpUrl;
       logger.debug("Using MCP URL from x-mcp-url header or --mcp-url parameter", {
         type: "MCP_URL_FROM_HEADER",
         url: baseUrl,
       });
-    } else {
-      throw new Error("Cannot determine MCP server URL: x-mcp-url header or --mcp-url parameter is required");
+    } else if (routingDecision.btpDestination) {
+      // Priority 2: Get URL from BTP destination service key
+      try {
+        const connConfig = await this.btpAuthBroker.getConnectionConfig(routingDecision.btpDestination);
+        baseUrl = connConfig?.serviceUrl;
+        if (baseUrl) {
+          logger.debug("Using MCP URL from BTP destination service key", {
+            type: "MCP_URL_FROM_BTP_DESTINATION",
+            destination: routingDecision.btpDestination,
+            url: baseUrl,
+          });
+        } else {
+          logger.warn("BTP destination service key does not contain service URL", {
+            type: "BTP_DESTINATION_NO_URL",
+            destination: routingDecision.btpDestination,
+          });
+        }
+      } catch (error) {
+        logger.warn("Failed to get URL from BTP destination service key", {
+          type: "BTP_DESTINATION_URL_ERROR",
+          destination: routingDecision.btpDestination,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else if (routingDecision.mcpDestination) {
+      // Priority 3: Get URL from MCP destination service key (if only MCP destination is present)
+      try {
+        const connConfig = await this.abapAuthBroker.getConnectionConfig(routingDecision.mcpDestination);
+        baseUrl = connConfig?.serviceUrl;
+        if (baseUrl) {
+          logger.debug("Using MCP URL from MCP destination service key", {
+            type: "MCP_URL_FROM_MCP_DESTINATION",
+            destination: routingDecision.mcpDestination,
+            url: baseUrl,
+          });
+        } else {
+          logger.warn("MCP destination service key does not contain service URL", {
+            type: "MCP_DESTINATION_NO_URL",
+            destination: routingDecision.mcpDestination,
+          });
+        }
+      } catch (error) {
+        logger.warn("Failed to get URL from MCP destination service key", {
+          type: "MCP_DESTINATION_URL_ERROR",
+          destination: routingDecision.mcpDestination,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (!baseUrl) {
+      throw new Error("Cannot determine MCP server URL: provide x-mcp-url/--mcp-url, or use btpDestination/mcpDestination with service key containing URL");
     }
 
     // Construct full MCP endpoint URL

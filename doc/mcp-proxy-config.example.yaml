@@ -1,0 +1,36 @@
+# MCP ABAP ADT Proxy Configuration Example
+# Copy this file to mcp-proxy-config.yaml and customize for your environment
+
+# Transport configuration
+transport: http  # stdio | http | sse
+httpPort: 3001
+ssePort: 3002
+httpHost: "0.0.0.0"
+sseHost: "0.0.0.0"
+
+# Destination overrides (optional - can be overridden by command-line parameters)
+# BTP destination for Cloud authorization (Authorization: Bearer token)
+btpDestination: "btp"  # Uses service key from ~/.config/mcp-abap-adt/service-keys/btp.json
+
+# MCP destination for SAP ABAP connection (x-sap-jwt-token, x-sap-url, etc.)
+mcpDestination: "mcp"  # Uses service key from ~/.config/mcp-abap-adt/service-keys/mcp.json
+
+# Direct MCP server URL (alternative to mcpDestination, for local testing)
+# mcpUrl: "https://your-mcp-server.com/mcp/stream/http"
+
+# Session storage mode
+unsafe: false  # If true, persists tokens to disk. If false, uses in-memory storage (secure)
+
+# Error handling & resilience
+maxRetries: 3
+retryDelay: 1000  # milliseconds
+requestTimeout: 60000  # milliseconds
+circuitBreakerThreshold: 5
+circuitBreakerTimeout: 60000  # milliseconds
+
+# Logging
+logLevel: "info"  # debug | info | warn | error
+
+# Cloud LLM Hub URL (optional - usually obtained from service keys)
+# cloudLlmHubUrl: "https://your-cloud-llm-hub.com"
+

@@ -42,6 +42,28 @@ mcp-abap-adt-proxy --unsafe
 mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe
 ```
 
+### Configuration
+
+The proxy supports multiple configuration methods:
+
+- **Command-line parameters** (highest priority)
+- **YAML/JSON configuration files** - See [YAML Configuration Guide](./doc/YAML_CONFIG.md)
+- **Environment variables**
+- **Default values** (lowest priority)
+
+**Quick Example (YAML config)**:
+```bash
+# Copy example config from documentation
+cp doc/mcp-proxy-config.example.yaml mcp-proxy-config.yaml
+
+# Edit mcp-proxy-config.yaml with your settings
+
+# Run with config file
+mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
+# Or short form:
+mcp-abap-adt-proxy -c mcp-proxy-config.yaml
+```
+
 ### Client Configuration
 
 For detailed setup instructions for Cline and GitHub Copilot, see the **[Client Setup Guide](./doc/CLIENT_SETUP.md)**.
@@ -114,6 +136,7 @@ The proxy uses two separate authentication injectors:
 
 - **[Client Setup Guide](./doc/CLIENT_SETUP.md)** - Step-by-step setup for Cline and GitHub Copilot
 - **[Configuration Guide](./doc/CONFIGURATION.md)** - Complete configuration reference
+- **[YAML Configuration Guide](./doc/YAML_CONFIG.md)** - Using YAML/JSON configuration files
 - **[Usage Examples](./doc/USAGE.md)** - Practical usage examples and patterns
 - **[API Documentation](./doc/API.md)** - API reference and interfaces
 - **[Architecture](./doc/ARCHITECTURE.md)** - System architecture and design

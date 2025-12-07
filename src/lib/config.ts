@@ -4,6 +4,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import * as yaml from "js-yaml";
 
 export interface ProxyConfig {
   cloudLlmHubUrl: string;
@@ -28,34 +29,43 @@ export interface ProxyConfig {
 
 /**
  * Load configuration from file if exists, otherwise from environment variables
+ * Supports both JSON and YAML formats
  */
 export function loadConfig(configPath?: string): ProxyConfig {
+  // Get config path from parameter, command line (--config/-c), or environment variable
+  const finalConfigPath = configPath || getConfigPath() || process.env.MCP_PROXY_CONFIG;
+  
   // Try to load from config file first
-  if (configPath || process.env.MCP_PROXY_CONFIG) {
-    const filePath = configPath || process.env.MCP_PROXY_CONFIG;
+  if (finalConfigPath) {
     try {
-      if (fs.existsSync(filePath!)) {
-        const configContent = fs.readFileSync(filePath!, "utf-8");
-        const fileConfig = JSON.parse(configContent);
+      if (fs.existsSync(finalConfigPath)) {
+        const fileConfig = loadConfigFile(finalConfigPath);
         return mergeConfig(fileConfig, loadFromEnv());
+      } else {
+        console.warn(`Config file not found: ${finalConfigPath}`);
       }
     } catch (error) {
-      console.warn(`Failed to load config from file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`Failed to load config from file ${finalConfigPath}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  // Try default config file locations
+  // Try default config file locations (both JSON and YAML)
   const defaultPaths = [
+    path.join(process.cwd(), "mcp-proxy-config.yaml"),
+    path.join(process.cwd(), "mcp-proxy-config.yml"),
     path.join(process.cwd(), "mcp-proxy-config.json"),
+    path.join(process.cwd(), ".mcp-proxy-config.yaml"),
+    path.join(process.cwd(), ".mcp-proxy-config.yml"),
     path.join(process.cwd(), ".mcp-proxy-config.json"),
+    path.join(process.env.HOME || process.env.USERPROFILE || "", ".mcp-proxy-config.yaml"),
+    path.join(process.env.HOME || process.env.USERPROFILE || "", ".mcp-proxy-config.yml"),
     path.join(process.env.HOME || process.env.USERPROFILE || "", ".mcp-proxy-config.json"),
   ];
 
   for (const configPath of defaultPaths) {
     try {
       if (fs.existsSync(configPath)) {
-        const configContent = fs.readFileSync(configPath, "utf-8");
-        const fileConfig = JSON.parse(configContent);
+        const fileConfig = loadConfigFile(configPath);
         return mergeConfig(fileConfig, loadFromEnv());
       }
     } catch (error) {
@@ -65,6 +75,20 @@ export function loadConfig(configPath?: string): ProxyConfig {
 
   // Fall back to environment variables only
   return loadFromEnv();
+}
+
+/**
+ * Load configuration from file (supports JSON and YAML)
+ */
+function loadConfigFile(filePath: string): Partial<ProxyConfig> {
+  const configContent = fs.readFileSync(filePath, "utf-8");
+  const ext = path.extname(filePath).toLowerCase();
+  
+  if (ext === ".yaml" || ext === ".yml") {
+    return yaml.load(configContent) as Partial<ProxyConfig>;
+  } else {
+    return JSON.parse(configContent);
+  }
 }
 
 /**
@@ -110,6 +134,13 @@ function getArgValue(argName: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Get config file path from command line (--config or -c)
+ */
+export function getConfigPath(): string | undefined {
+  return getArgValue("--config") || getArgValue("-c");
 }
 
 /**
