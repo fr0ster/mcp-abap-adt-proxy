@@ -15,7 +15,6 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } from "http";
 import { parseTransportConfig, TransportConfig } from "./lib/transportConfig.js";

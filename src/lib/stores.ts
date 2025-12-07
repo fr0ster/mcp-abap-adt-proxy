@@ -86,101 +86,20 @@ function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
   return uniquePaths;
 }
 
-/**
- * Combined service key store that tries both standard and XSUAA loaders
- * For BTP destinations: tries XSUAA loader first, then ABAP loader
- * For ABAP destinations: tries ABAP loader first, then XSUAA loader
- * 
- * Note: Stores only support a single directory, so we use the first path from the array
- */
-class CombinedServiceKeyStore implements IServiceKeyStore {
-  private abapStore: AbapServiceKeyStore;
-  private xsuaaStore: XsuaaServiceKeyStore;
-  private preferXsuaa: boolean;
-
-  constructor(searchPaths: string[], preferXsuaa: boolean = false) {
-    // Stores only support a single directory, use the first path
-    const firstPath = searchPaths[0] || process.cwd();
-    this.abapStore = new AbapServiceKeyStore(firstPath);
-    this.xsuaaStore = new XsuaaServiceKeyStore(firstPath);
-    this.preferXsuaa = preferXsuaa;
-  }
-
-  async getServiceKey(destination: string): Promise<IConfig | null> {
-    if (this.preferXsuaa) {
-      // For BTP destinations: try XSUAA first
-      const xsuaaKey = await this.xsuaaStore.getServiceKey(destination);
-      if (xsuaaKey) {
-        return xsuaaKey;
-      }
-      // If XSUAA store didn't find it, don't try ABAP store (it will fail on XSUAA format)
-      return null;
-    } else {
-      // For ABAP destinations: try ABAP first
-      const abapKey = await this.abapStore.getServiceKey(destination);
-      if (abapKey) {
-        return abapKey;
-      }
-      // If not found, try XSUAA store
-      return await this.xsuaaStore.getServiceKey(destination);
-    }
-  }
-
-  async getAuthorizationConfig(destination: string): Promise<IAuthorizationConfig | null> {
-    if (this.preferXsuaa) {
-      // For BTP destinations: try XSUAA first
-      const xsuaaConfig = await this.xsuaaStore.getAuthorizationConfig(destination);
-      if (xsuaaConfig) {
-        return xsuaaConfig;
-      }
-      // If XSUAA store didn't find it, don't try ABAP store (it will fail on XSUAA format)
-      // Only try ABAP store if XSUAA store explicitly returned null (file not found)
-      // But if file exists but is in wrong format, XSUAA store returns null, so we should not try ABAP
-      return null;
-    } else {
-      // For ABAP destinations: try ABAP first
-      const abapConfig = await this.abapStore.getAuthorizationConfig(destination);
-      if (abapConfig) {
-        return abapConfig;
-      }
-      // If not found, try XSUAA store
-      return await this.xsuaaStore.getAuthorizationConfig(destination);
-    }
-  }
-
-  async getConnectionConfig(destination: string): Promise<IConnectionConfig | null> {
-    if (this.preferXsuaa) {
-      // For BTP destinations: try XSUAA first
-      const xsuaaConfig = await this.xsuaaStore.getConnectionConfig(destination);
-      if (xsuaaConfig) {
-        return xsuaaConfig;
-      }
-      // If XSUAA store didn't find it, don't try ABAP store (it will fail on XSUAA format)
-      return null;
-    } else {
-      // For ABAP destinations: try ABAP first
-      const abapConfig = await this.abapStore.getConnectionConfig(destination);
-      if (abapConfig) {
-        return abapConfig;
-      }
-      // If not found, try XSUAA store
-      return await this.xsuaaStore.getConnectionConfig(destination);
-    }
-  }
-}
+// No CombinedServiceKeyStore needed - we use separate stores for BTP and ABAP
 
 /**
  * Get platform-specific stores
  * Returns stores based on configuration:
  * - If unsafe=true: uses AbapSessionStore (persists to disk)
  * - If unsafe=false: uses SafeAbapSessionStore (in-memory, secure)
- * - Service key store: Combined store that tries both standard and XSUAA loaders
+ * - Service key store: Separate stores - XSUAA store for BTP, ABAP store for ABAP
  * @param unsafe If true, use AbapSessionStore. If false, use SafeAbapSessionStore (default).
- * @param preferXsuaa If true, prefer XSUAA store for BTP destinations. If false, prefer ABAP store (default).
+ * @param useXsuaaStore If true, use XsuaaServiceKeyStore (for BTP destinations). If false, use AbapServiceKeyStore (for ABAP destinations).
  */
 export async function getPlatformStores(
   unsafe: boolean = false,
-  preferXsuaa: boolean = false
+  useXsuaaStore: boolean = false
 ): Promise<{
   serviceKeyStore: IServiceKeyStore;
   sessionStore: ISessionStore;
@@ -193,8 +112,13 @@ export async function getPlatformStores(
   const firstServiceKeyPath = serviceKeyPaths[0] || process.cwd();
   const firstSessionPath = sessionPaths[0] || process.cwd();
   
+  // Use separate stores: XSUAA store for BTP, ABAP store for ABAP
+  const serviceKeyStore = useXsuaaStore
+    ? new XsuaaServiceKeyStore(firstServiceKeyPath)
+    : new AbapServiceKeyStore(firstServiceKeyPath);
+  
   return {
-    serviceKeyStore: new CombinedServiceKeyStore(serviceKeyPaths, preferXsuaa),
+    serviceKeyStore,
     sessionStore: unsafe 
       ? new AbapSessionStore(firstSessionPath)
       : new SafeAbapSessionStore(),
