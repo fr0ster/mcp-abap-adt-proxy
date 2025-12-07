@@ -23,7 +23,7 @@ import { loadConfig, validateConfig } from "./lib/config.js";
 import { logger } from "./lib/logger.js";
 import { interceptRequest, requiresSapConfig, sanitizeHeadersForLogging } from "./router/requestInterceptor.js";
 import { RoutingStrategy } from "./router/headerAnalyzer.js";
-import { createCloudLlmHubProxy, CloudLlmHubProxy } from "./proxy/cloudLlmHubProxy.js";
+import { createCloudLlmHubProxy, CloudLlmHubProxy, shouldWriteStderr } from "./proxy/cloudLlmHubProxy.js";
 
 /**
  * MCP ABAP ADT Proxy Server
@@ -397,13 +397,7 @@ export class McpAbapAdtProxyServer {
       });
       
       // Output error to stderr for user visibility (only if verbose mode is enabled)
-      const verboseMode = process.env.MCP_PROXY_VERBOSE === "true" || 
-                         process.env.DEBUG === "true" || 
-                         process.env.DEBUG?.includes("mcp-proxy") === true;
-      const isTestEnv = process.env.NODE_ENV === "test" || 
-                       process.env.JEST_WORKER_ID !== undefined ||
-                       typeof jest !== "undefined";
-      if (verboseMode && !isTestEnv) {
+      if (shouldWriteStderr()) {
         process.stderr.write(`[MCP Proxy] ✗ Connection error: ${errorMessage}\n`);
       }
       
@@ -750,7 +744,7 @@ if (process.env.MCP_SKIP_AUTO_START !== "true") {
     // But skip in test environment
     const isTestEnv = process.env.NODE_ENV === "test" || 
                      process.env.JEST_WORKER_ID !== undefined ||
-                     typeof jest !== "undefined";
+                     typeof (globalThis as any).jest !== "undefined";
     if (!isTestEnv) {
       process.stderr.write(`[MCP Proxy] ✗ Fatal error: ${error instanceof Error ? error.message : String(error)}\n`);
     }

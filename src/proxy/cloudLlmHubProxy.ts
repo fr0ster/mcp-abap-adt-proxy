@@ -24,13 +24,13 @@ import {
  * Check if error messages should be written to stderr
  * Only output in verbose mode and not in test environment
  */
-function shouldWriteStderr(): boolean {
+export function shouldWriteStderr(): boolean {
   const verboseMode = process.env.MCP_PROXY_VERBOSE === "true" || 
                      process.env.DEBUG === "true" || 
                      process.env.DEBUG?.includes("mcp-proxy") === true;
   const isTestEnv = process.env.NODE_ENV === "test" || 
                    process.env.JEST_WORKER_ID !== undefined ||
-                   typeof jest !== "undefined";
+                   typeof (globalThis as any).jest !== "undefined";
   return verboseMode && !isTestEnv;
 }
 
