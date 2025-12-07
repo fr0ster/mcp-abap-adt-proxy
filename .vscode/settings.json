@@ -1,7 +1,9 @@
 {
     "cSpell.words": [
+        "dedupe",
         "EADDRINUSE",
         "findstr",
+        "loglevel",
         "retryable",
         "softprops",
         "streamable",

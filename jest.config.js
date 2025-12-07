@@ -9,6 +9,7 @@ module.exports = {
       tsconfig: {
         module: 'node16',
         moduleResolution: 'node16',
+        types: ['node', 'jest'],
       },
     }],
   },
