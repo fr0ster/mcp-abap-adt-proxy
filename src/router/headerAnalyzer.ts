@@ -24,22 +24,27 @@ export interface RoutingDecision {
 
 /**
  * Analyze headers and extract routing information
- * Proxy needs either:
+ * 
+ * Proxy validates only two headers:
  * - x-btp-destination (or --btp): destination for BTP Cloud authorization token (Authorization: Bearer) and MCP server URL
- * - x-mcp-destination (or --mcp): destination for SAP ABAP connection (SAP headers) - can be used without BTP for local testing
+ * - x-mcp-destination (or --mcp): destination for SAP ABAP connection (SAP headers)
  * 
  * Also supports:
- * - x-mcp-url (or --mcp-url): direct MCP server URL (used when no BTP destination is provided, for local testing)
+ * - x-mcp-url (or --mcp-url): direct MCP server URL (optional, for local testing)
  * 
- * Command-line overrides:
+ * Command-line overrides (take precedence over headers):
  * - --btp=<destination>: overrides x-btp-destination header
  * - --mcp=<destination>: overrides x-mcp-destination header
- * - --mcp-url=<url>: overrides x-mcp-url header (for local testing without BTP)
+ * - --mcp-url=<url>: overrides x-mcp-url header
+ * 
+ * Other headers (x-sap-url, x-sap-jwt-token, etc.) are passed directly to MCP server without validation.
  * 
  * MCP server URL is obtained from:
  * - x-mcp-url header or --mcp-url parameter (if provided) - takes precedence
  * - service key for x-btp-destination (via auth-broker) if BTP destination is present
  * - service key for x-mcp-destination (via auth-broker) if only MCP destination is present
+ * 
+ * Note: Proxy does NOT use .env files for connection configuration. Only destinations via auth-broker (service key files) are used.
  */
 export function analyzeHeaders(
   headers: IncomingHttpHeaders,
@@ -79,13 +84,11 @@ export function analyzeHeaders(
     ? configOverrides.mcpUrl
     : mcpUrlHeader;
 
-  // Allow proxying if either:
-  // 1. BTP destination is present, OR
-  // 2. MCP destination is present, OR
-  // 3. MCP URL is provided (for local testing without BTP)
-  // This enables local testing without BTP authentication
+  // Validate: at least one destination or MCP URL must be provided
+  // We validate only x-btp-destination and x-mcp-destination headers
+  // Other headers (x-sap-url, x-sap-jwt-token, etc.) are passed directly to MCP server
   if (!extractedBtpDestination && !extractedMcpDestination && !extractedMcpUrl) {
-    logger.warn("Neither x-btp-destination/x-mcp-destination/x-mcp-url header nor --btp/--mcp/--mcp-url parameter is provided", {
+    logger.warn("Neither x-btp-destination/x-mcp-destination header nor --btp/--mcp parameter is provided, and no x-mcp-url/--mcp-url", {
       headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
       hasBtpConfigOverride: !!configOverrides?.btpDestination,
       hasMcpConfigOverride: !!configOverrides?.mcpDestination,
@@ -99,11 +102,9 @@ export function analyzeHeaders(
     };
   }
 
-  // If only MCP URL is provided without destination, we still need either mcpDestination or btpDestination
-  // unless mcpUrl is a full URL that can be used directly
+  // If only MCP URL is provided without destinations, that's OK - other headers will be passed directly
   if (!extractedBtpDestination && !extractedMcpDestination && extractedMcpUrl) {
-    // This is OK - we can use mcpUrl directly for local testing
-    logger.debug("Using MCP URL directly for local testing (no destination required)", {
+    logger.debug("Using MCP URL directly (no destinations - headers will be passed as-is)", {
       type: "MCP_URL_DIRECT",
       mcpUrl: extractedMcpUrl,
     });

@@ -102,6 +102,8 @@ The proxy uses two service keys (URLs are obtained from service keys):
 - **[API Documentation](./doc/API.md)** - API reference and interfaces
 - **[Architecture](./doc/ARCHITECTURE.md)** - System architecture and design
 - **[Troubleshooting](./doc/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Routing Logic Specification](./doc/ROUTING_LOGIC.md)** - Detailed routing logic and scenarios
+- **[Implementation Analysis](./doc/IMPLEMENTATION_ANALYSIS.md)** - Current implementation analysis
 - **[Roadmap](./ROADMAP.md)** - Development roadmap and progress
 
 ## How It Works

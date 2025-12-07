@@ -131,13 +131,13 @@ MCP Client (Cline)
 mcp-abap-adt-proxy
     ↓
 [Header Analysis]
-    - Extract x-mcp-url (required)
-    - Extract x-btp-destination (required) or use --btp parameter
+    - Extract x-mcp-url (optional, can be from --mcp-url)
+    - Extract x-btp-destination (optional) or use --btp parameter
     - Extract x-mcp-destination (optional) or use --mcp parameter
     ↓
 [Validate Headers]
-    - Check x-mcp-url is present
-    - Check x-btp-destination or --btp is present
+    - Validate only x-btp-destination and x-mcp-destination
+    - All other headers passed directly to MCP server
     ↓
 [Get Tokens from auth-broker]
     - Get BTP Cloud token (from x-btp-destination or --btp)
@@ -210,23 +210,47 @@ Response back to Cline
 }
 ```
 
-### Required Headers in Request
-- `x-mcp-url` - Full URL of target MCP server (required)
-- `x-btp-destination` - Destination for BTP Cloud authorization token (required, or use --btp)
+### Validated Headers in Request
+- `x-btp-destination` - Destination for BTP Cloud authorization token (optional, or use --btp)
+- `x-mcp-destination` - Destination for SAP ABAP connection (optional, or use --mcp)
 
 ### Optional Headers in Request
-- `x-mcp-destination` - Destination for SAP ABAP connection (optional, or use --mcp)
+- `x-mcp-url` - Direct URL of target MCP server (optional, or use --mcp-url)
+- All other headers (x-sap-url, x-sap-jwt-token, etc.) - Passed directly to MCP server without validation
 
 ## Success Criteria
 
-- [x] Successfully proxies requests from Cline to target MCP server (via x-mcp-url)
+- [x] Successfully proxies requests from Cline to target MCP server (via x-mcp-url or destinations)
 - [x] Automatically manages JWT tokens via auth-broker (BTP and SAP separately)
-- [x] Validates required headers (x-mcp-url and x-btp-destination)
-- [x] Supports command-line parameter overrides (--btp and --mcp)
+- [x] Validates only destination headers (x-btp-destination and x-mcp-destination)
+- [x] Passes all other headers directly to MCP server
+- [x] Supports command-line parameter overrides (--btp, --mcp, --mcp-url)
+- [x] Uses only destinations (service key files) for connection configuration, no .env files
 - [x] Maintains MCP protocol compliance
 - [x] Provides clear error messages
 - [x] Well-documented (README, USAGE, API docs)
 - [x] Unit tests implemented (50 tests passing)
+
+## Current Issues & Future Work
+
+### Routing Logic Refinement ✅
+
+**Status**: ✅ Completed
+
+The routing logic has been simplified and clarified. See [Routing Logic Specification](./doc/ROUTING_LOGIC.md) for detailed documentation.
+
+**Completed Changes:**
+1. ✅ **Simplified header validation**: Only `x-btp-destination` and `x-mcp-destination` headers are validated. All other headers are passed directly to MCP server.
+2. ✅ **Removed .env file usage**: Removed `dotenv` from dependencies. Proxy uses only destinations via auth-broker (service key files) for connection configuration.
+3. ✅ **Updated documentation**: Created comprehensive routing logic specification and implementation analysis.
+
+**Current Behavior:**
+- Proxy validates only two headers: `x-btp-destination` (or `--btp`) and `x-mcp-destination` (or `--mcp`)
+- All other headers are passed directly to MCP server without validation or modification
+- Connection configuration comes only from destinations (service key files) via auth-broker
+- No `.env` files are used for connection configuration (session stores may use `.env` for token storage, but that's separate)
+
+See [Routing Logic Specification](./doc/ROUTING_LOGIC.md) and [Implementation Analysis](./doc/IMPLEMENTATION_ANALYSIS.md) for complete details.
 
 ## Notes
 
@@ -234,4 +258,5 @@ Response back to Cline
 - JWT token management should be automatic and seamless
 - Error handling should provide clear feedback
 - Performance should be comparable to direct connections
+- **No .env file usage**: Proxy should only use destinations via auth-broker, never `.env` files
 
