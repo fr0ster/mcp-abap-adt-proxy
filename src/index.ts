@@ -396,8 +396,16 @@ export class McpAbapAdtProxyServer {
         stack: error instanceof Error ? error.stack : undefined,
       });
       
-      // Output error to stderr for user visibility
-      process.stderr.write(`[MCP Proxy] ✗ Connection error: ${errorMessage}\n`);
+      // Output error to stderr for user visibility (only if verbose mode is enabled)
+      const verboseMode = process.env.MCP_PROXY_VERBOSE === "true" || 
+                         process.env.DEBUG === "true" || 
+                         process.env.DEBUG?.includes("mcp-proxy") === true;
+      const isTestEnv = process.env.NODE_ENV === "test" || 
+                       process.env.JEST_WORKER_ID !== undefined ||
+                       typeof jest !== "undefined";
+      if (verboseMode && !isTestEnv) {
+        process.stderr.write(`[MCP Proxy] ✗ Connection error: ${errorMessage}\n`);
+      }
       
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
@@ -738,8 +746,14 @@ if (process.env.MCP_SKIP_AUTO_START !== "true") {
       type: "SERVER_FATAL_ERROR",
       error: error instanceof Error ? error.message : String(error),
     });
-    // Always write to stderr (safe even in stdio mode)
-    process.stderr.write(`[MCP Proxy] ✗ Fatal error: ${error instanceof Error ? error.message : String(error)}\n`);
+    // Always write fatal errors to stderr (even in non-verbose mode, as these are critical)
+    // But skip in test environment
+    const isTestEnv = process.env.NODE_ENV === "test" || 
+                     process.env.JEST_WORKER_ID !== undefined ||
+                     typeof jest !== "undefined";
+    if (!isTestEnv) {
+      process.stderr.write(`[MCP Proxy] ✗ Fatal error: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
     // On Windows, add a small delay before exit to allow error message to be visible
     if (process.platform === 'win32') {
       setTimeout(() => process.exit(1), 100);

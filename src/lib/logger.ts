@@ -18,12 +18,24 @@ export interface Logger {
 
 class SimpleLogger implements Logger {
   private level: LogLevel;
+  private verbose: boolean;
 
   constructor(level: LogLevel = LogLevel.INFO) {
     this.level = level;
+    // Enable logging only if MCP_PROXY_VERBOSE or DEBUG environment variable is set
+    // In default mode (without env vars), no logs are output
+    this.verbose = process.env.MCP_PROXY_VERBOSE === "true" || 
+                   process.env.DEBUG === "true" || 
+                   process.env.DEBUG?.includes("mcp-proxy") === true;
   }
 
   private log(level: LogLevel, prefix: string, message: string, meta?: Record<string, unknown>): void {
+    // In non-verbose mode, don't output any logs
+    if (!this.verbose) {
+      return;
+    }
+
+    // In verbose mode, respect the log level
     if (level < this.level) {
       return;
     }

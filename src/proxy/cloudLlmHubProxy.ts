@@ -20,6 +20,20 @@ import {
   RetryOptions,
 } from "../lib/errorHandler.js";
 
+/**
+ * Check if error messages should be written to stderr
+ * Only output in verbose mode and not in test environment
+ */
+function shouldWriteStderr(): boolean {
+  const verboseMode = process.env.MCP_PROXY_VERBOSE === "true" || 
+                     process.env.DEBUG === "true" || 
+                     process.env.DEBUG?.includes("mcp-proxy") === true;
+  const isTestEnv = process.env.NODE_ENV === "test" || 
+                   process.env.JEST_WORKER_ID !== undefined ||
+                   typeof jest !== "undefined";
+  return verboseMode && !isTestEnv;
+}
+
 export interface ProxyRequest {
   method: string;
   params?: any;
@@ -181,8 +195,10 @@ export class CloudLlmHubProxy {
         destination,
         error: errorMessage,
       });
-      // Output error to stderr for user visibility
-      process.stderr.write(`[MCP Proxy] ✗ Failed to get token for destination "${destination}": ${errorMessage}\n`);
+      // Output error to stderr for user visibility (only if verbose mode is enabled)
+      if (shouldWriteStderr()) {
+        process.stderr.write(`[MCP Proxy] ✗ Failed to get token for destination "${destination}": ${errorMessage}\n`);
+      }
       throw error;
     }
   }
@@ -297,7 +313,9 @@ export class CloudLlmHubProxy {
       baseUrl = connConfig?.serviceUrl;
       if (!baseUrl) {
         const errorMsg = `Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`;
-        process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
+        if (shouldWriteStderr()) {
+          process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
+        }
         throw new Error(errorMsg);
       }
       logger.debug("Using MCP URL from BTP destination service key", {
@@ -311,7 +329,9 @@ export class CloudLlmHubProxy {
       baseUrl = connConfig?.serviceUrl;
       if (!baseUrl) {
         const errorMsg = `Failed to get MCP server URL from MCP destination "${routingDecision.mcpDestination}". Check service key file.`;
-        process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
+        if (shouldWriteStderr()) {
+          process.stderr.write(`[MCP Proxy] ✗ ${errorMsg}\n`);
+        }
         throw new Error(errorMsg);
       }
       logger.debug("Using MCP URL from MCP destination service key (local testing mode)", {
@@ -462,21 +482,24 @@ export class CloudLlmHubProxy {
       }
 
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      logger.error("Failed to proxy request to cloud-llm-hub", {
-        type: "PROXY_REQUEST_ERROR",
-        error: errorMessage,
-        status: axios.isAxiosError(error) ? error.response?.status : undefined,
-        circuitBreakerState: this.circuitBreaker.getState(),
-      });
-
-      // Output error to stderr for user visibility
       const statusCode = axios.isAxiosError(error) && error.response?.status 
         ? error.response.status 
         : undefined;
-      if (statusCode) {
-        process.stderr.write(`[MCP Proxy] ✗ Connection failed: ${errorMessage} (HTTP ${statusCode})\n`);
-      } else {
-        process.stderr.write(`[MCP Proxy] ✗ Connection failed: ${errorMessage}\n`);
+      
+      logger.error("Failed to proxy request to cloud-llm-hub", {
+        type: "PROXY_REQUEST_ERROR",
+        error: errorMessage,
+        status: statusCode,
+        circuitBreakerState: this.circuitBreaker.getState(),
+      });
+
+      // Output error to stderr for user visibility (only if verbose mode is enabled)
+      if (shouldWriteStderr()) {
+        if (statusCode) {
+          process.stderr.write(`[MCP Proxy] ✗ Connection failed: ${errorMessage} (HTTP ${statusCode})\n`);
+        } else {
+          process.stderr.write(`[MCP Proxy] ✗ Connection failed: ${errorMessage}\n`);
+        }
       }
 
       // Return error response in MCP format

@@ -32,53 +32,14 @@ export function createDirectCloudConfig(
   routingDecision: RoutingDecision,
   headers: IncomingHttpHeaders
 ): DirectCloudConfig | null {
-  const validatedConfig = routingDecision.validationResult?.config;
-  if (!validatedConfig) {
-    logger.warn("No validated config available for direct cloud routing", {
-      type: "DIRECT_CLOUD_CONFIG_ERROR",
-      strategy: routingDecision.strategy,
-    });
-    return null;
-  }
-
-  // Extract SAP URL
-  let sapUrl = validatedConfig.sapUrl;
-  const destination = routingDecision.btpDestination || routingDecision.mcpDestination;
-  if (!sapUrl && destination) {
-    // For destination-based auth, URL comes from destination service key
-    // We'll need to load it from AuthBroker
-    // For now, return null and let the caller handle it
-    logger.debug("SAP URL not in validated config, will load from destination", {
-      destination: destination,
-    });
-  }
-
-  // Convert xsuaa to jwt (they're the same for connection purposes)
-  const authType = validatedConfig.authType === "xsuaa" ? "jwt" : validatedConfig.authType;
-
-  const config: DirectCloudConfig = {
-    sapUrl: sapUrl || "", // Will be loaded from destination if needed
-    destination: validatedConfig.destination || destination,
-    authType: authType as "jwt" | "basic",
-    sapClient: validatedConfig.sapClient,
-  };
-
-  // Add JWT-specific fields
-  if (validatedConfig.authType === "jwt" || validatedConfig.authType === "xsuaa") {
-    config.jwtToken = validatedConfig.jwtToken;
-    config.refreshToken = validatedConfig.refreshToken;
-    config.uaaUrl = validatedConfig.uaaUrl;
-    config.uaaClientId = validatedConfig.uaaClientId;
-    config.uaaClientSecret = validatedConfig.uaaClientSecret;
-  }
-
-  // Add basic auth fields
-  if (validatedConfig.authType === "basic") {
-    config.username = validatedConfig.username;
-    config.password = validatedConfig.password;
-  }
-
-  return config;
+  // Proxy validates only x-btp-destination and x-mcp-destination headers
+  // This function is not used in the current proxy implementation
+  // as proxy passes all other headers directly to MCP server
+  logger.warn("Direct cloud routing is not supported in proxy mode", {
+    type: "DIRECT_CLOUD_CONFIG_ERROR",
+    strategy: routingDecision.strategy,
+  });
+  return null;
 }
 
 /**

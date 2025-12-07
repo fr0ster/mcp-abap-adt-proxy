@@ -143,4 +143,3 @@ export function shouldProxy(headers: IncomingHttpHeaders): boolean {
   const decision = analyzeHeaders(headers);
   return decision.strategy === RoutingStrategy.PROXY;
 }
-

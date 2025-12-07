@@ -8,7 +8,6 @@ import { IncomingHttpHeaders } from "http";
 import { createAbapConnection, AbapConnection, FileSessionStorage } from "@mcp-abap-adt/connection";
 import { logger } from "../lib/logger.js";
 import { RoutingDecision } from "./headerAnalyzer.js";
-import { ValidatedAuthConfig } from "@mcp-abap-adt/header-validator";
 
 export interface LocalBasicConfig {
   sapUrl: string;
@@ -24,39 +23,14 @@ export function createLocalBasicConfig(
   routingDecision: RoutingDecision,
   headers: IncomingHttpHeaders
 ): LocalBasicConfig | null {
-  const validatedConfig = routingDecision.validationResult?.config;
-  if (!validatedConfig) {
-    logger.warn("No validated config available for local basic routing", {
-      type: "LOCAL_BASIC_CONFIG_ERROR",
-      strategy: routingDecision.strategy,
-    });
-    return null;
-  }
-
-  if (validatedConfig.authType !== "basic") {
-    logger.warn("Config is not basic auth type", {
-      type: "LOCAL_BASIC_CONFIG_TYPE_ERROR",
-      authType: validatedConfig.authType,
-    });
-    return null;
-  }
-
-  if (!validatedConfig.sapUrl || !validatedConfig.username || !validatedConfig.password) {
-    logger.warn("Missing required fields for basic auth", {
-      type: "LOCAL_BASIC_CONFIG_MISSING",
-      hasUrl: !!validatedConfig.sapUrl,
-      hasUsername: !!validatedConfig.username,
-      hasPassword: !!validatedConfig.password,
-    });
-    return null;
-  }
-
-  return {
-    sapUrl: validatedConfig.sapUrl,
-    username: validatedConfig.username,
-    password: validatedConfig.password,
-    sapClient: validatedConfig.sapClient,
-  };
+  // Proxy validates only x-btp-destination and x-mcp-destination headers
+  // This function is not used in the current proxy implementation
+  // as proxy passes all other headers directly to MCP server
+  logger.warn("Local basic routing is not supported in proxy mode", {
+    type: "LOCAL_BASIC_CONFIG_ERROR",
+    strategy: routingDecision.strategy,
+  });
+  return null;
 }
 
 /**
