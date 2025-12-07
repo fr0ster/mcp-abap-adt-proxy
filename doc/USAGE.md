@@ -74,10 +74,10 @@ mcp-abap-adt-proxy
 **What Happens:**
 1. Proxy receives request with `x-mcp-url`, `x-btp-destination`, and `x-mcp-destination` headers
 2. Command line overrides (`--btp` and `--mcp`) take precedence over headers if provided
-3. Gets BTP Cloud token from auth-broker for `x-btp-destination` (or `--btp`) destination
-4. Gets SAP ABAP token and configuration from auth-broker for `x-mcp-destination` (or `--mcp`) destination
-5. Adds `Authorization: Bearer <btp-token>` header
-6. Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.)
+3. **XSUAA Block**: Uses `btpAuthBroker` with `XsuaaTokenProvider` to get BTP Cloud token from `x-btp-destination` (or `--btp`) service key (XSUAA format)
+4. **ABAP Block**: Uses `abapAuthBroker` with `BtpTokenProvider` to get SAP ABAP token and configuration from `x-mcp-destination` (or `--mcp`) service key (ABAP format)
+5. Injects/overwrites `Authorization: Bearer <btp-token>` header (from XSUAA block)
+6. Injects/overwrites `x-sap-jwt-token: <token>` and adds SAP headers (`x-sap-url`, etc.) (from ABAP block)
 7. Proxies request to URL specified in `x-mcp-url`
 8. Target MCP server processes request and returns response
 9. Proxy forwards response to client

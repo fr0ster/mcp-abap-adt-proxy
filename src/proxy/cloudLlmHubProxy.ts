@@ -7,7 +7,7 @@
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from "axios";
 import { AuthBroker } from "@mcp-abap-adt/auth-broker";
-import { BtpTokenProvider } from "@mcp-abap-adt/auth-providers";
+import { BtpTokenProvider, XsuaaTokenProvider } from "@mcp-abap-adt/auth-providers";
 import { logger } from "../lib/logger.js";
 import { RoutingDecision } from "../router/headerAnalyzer.js";
 import { loadConfig, ProxyConfig } from "../lib/config.js";
@@ -57,17 +57,24 @@ export interface ProxyResponse {
  */
 export class CloudLlmHubProxy {
   private axiosInstance: AxiosInstance;
-  private authBroker: AuthBroker;
+  private btpAuthBroker: AuthBroker; // For BTP destinations (uses XsuaaTokenProvider)
+  private abapAuthBroker: AuthBroker; // For ABAP destinations (uses BtpTokenProvider)
   private defaultBaseUrl: string;
   private tokenCache: Map<string, { token: string; expiresAt: number }> = new Map();
   private readonly TOKEN_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
   private circuitBreaker: CircuitBreaker;
   private config: ProxyConfig;
 
-  constructor(defaultBaseUrl: string, authBroker: AuthBroker, config?: Partial<ProxyConfig>) {
+  constructor(
+    defaultBaseUrl: string, 
+    btpAuthBroker: AuthBroker,
+    abapAuthBroker: AuthBroker,
+    config?: Partial<ProxyConfig>
+  ) {
     // Default base URL (used if x-mcp-url is relative)
     this.defaultBaseUrl = defaultBaseUrl.replace(/\/$/, ""); // Remove trailing slash
-    this.authBroker = authBroker;
+    this.btpAuthBroker = btpAuthBroker;
+    this.abapAuthBroker = abapAuthBroker;
     this.config = loadConfig();
     
     // Merge provided config
@@ -141,8 +148,17 @@ export class CloudLlmHubProxy {
 
   /**
    * Get JWT token for destination from auth-broker with retry and token refresh
+   * @param destination Destination name
+   * @param isBtpDestination If true, use BTP auth broker (XsuaaTokenProvider), otherwise use ABAP auth broker (BtpTokenProvider)
+   * @param forceRefresh Force token refresh
    */
-  private async getJwtToken(destination: string, forceRefresh: boolean = false): Promise<string> {
+  private async getJwtToken(
+    destination: string, 
+    isBtpDestination: boolean = false,
+    forceRefresh: boolean = false
+  ): Promise<string> {
+    // Select appropriate auth broker based on destination type
+    const authBroker = isBtpDestination ? this.btpAuthBroker : this.abapAuthBroker;
     // Check cache first (unless force refresh)
     if (!forceRefresh) {
       const cached = this.tokenCache.get(destination);
@@ -170,7 +186,7 @@ export class CloudLlmHubProxy {
         }
 
         // Get token from auth-broker
-        const token = await this.authBroker.getToken(destination);
+        const token = await authBroker.getToken(destination);
         
         // Cache token (assume it's valid for 30 minutes)
         this.tokenCache.set(destination, {
@@ -189,7 +205,34 @@ export class CloudLlmHubProxy {
 
       return token;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      let errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Rewrite error message to remove .env file references (proxy only uses service keys)
+      if (errorMessage.includes('.env') || errorMessage.includes('mcp.env')) {
+        // Extract searched paths from error message if present
+        const searchedInMatch = errorMessage.match(/Searched in:\s*([\s\S]*?)(?:\n|$)/);
+        const searchedPaths = searchedInMatch ? searchedInMatch[1].trim().split('\n').map(p => p.trim().replace(/^-\s*/, '')).filter(p => p) : [];
+        
+        // Create proxy-specific error message
+        errorMessage = `Service key file not found for destination "${destination}".\n` +
+          `Please create service key file: ${destination}.json\n`;
+        
+        if (searchedPaths.length > 0) {
+          errorMessage += `Searched in:\n`;
+          searchedPaths.forEach(path => {
+            errorMessage += `  - ${path}\n`;
+          });
+        } else {
+          // Fallback: use default paths
+          const isWindows = process.platform === 'win32';
+          const homeDir = require('os').homedir();
+          const defaultPath = isWindows
+            ? require('path').join(homeDir, 'Documents', 'mcp-abap-adt', 'service-keys')
+            : require('path').join(homeDir, '.config', 'mcp-abap-adt', 'service-keys');
+          errorMessage += `Searched in:\n  - ${defaultPath}\n`;
+        }
+      }
+      
       logger.error("Failed to get JWT token from auth-broker after retries", {
         type: "JWT_TOKEN_ERROR",
         destination,
@@ -197,18 +240,32 @@ export class CloudLlmHubProxy {
       });
       // Output error to stderr for user visibility (only if verbose mode is enabled)
       if (shouldWriteStderr()) {
-        process.stderr.write(`[MCP Proxy] ✗ Failed to get token for destination "${destination}": ${errorMessage}\n`);
+        process.stderr.write(`[MCP Proxy] ✗ ${errorMessage}`);
       }
-      throw error;
+      
+      // Throw new error with rewritten message
+      throw new Error(errorMessage);
     }
   }
 
   /**
    * Build proxy request with JWT tokens and SAP configuration
    * 
+   * Process flow:
+   * 1. XSUAA block: If --btp or x-btp-destination is present
+   *    - Uses btpAuthBroker (with XsuaaTokenProvider)
+   *    - Injects/overwrites Authorization: Bearer <token> header
+   * 
+   * 2. ABAP block: If --mcp or x-mcp-destination is present
+   *    - Uses abapAuthBroker (with BtpTokenProvider)
+   *    - Injects/overwrites x-sap-jwt-token: <token> header
+   *    - Adds x-sap-url and other SAP configuration headers
+   * 
+   * 3. Other headers: Preserves other SAP headers from original request
+   * 
    * Uses service keys:
-   * 1. x-btp-destination - for BTP Cloud authorization (Authorization: Bearer token) - OPTIONAL
-   * 2. x-mcp-destination - for SAP ABAP connection (SAP headers with token and config) - OPTIONAL
+   * - x-btp-destination - for BTP Cloud authorization (Authorization: Bearer token) - OPTIONAL
+   * - x-mcp-destination - for SAP ABAP connection (SAP headers with token and config) - OPTIONAL
    * 
    * Can work with only x-mcp-destination (without BTP) for local testing without authentication
    */
@@ -223,11 +280,16 @@ export class CloudLlmHubProxy {
       "Content-Type": "application/json",
     };
 
-    // 1. Get authorization token for BTP Cloud (x-btp-destination or --btp) - OPTIONAL
-    // This token is used for Authorization: Bearer header to connect to cloud MCP server
-    // Only required if btpDestination is present
+    // ============================================
+    // XSUAA BLOCK: BTP Authentication
+    // ============================================
+    // If --btp parameter or x-btp-destination header is present:
+    // - Use btpAuthBroker (with XsuaaTokenProvider)
+    // - Inject/overwrite Authorization: Bearer <token> header
     if (routingDecision.btpDestination) {
-      const authToken = await this.getJwtToken(routingDecision.btpDestination, forceTokenRefresh);
+      // For BTP destinations, use XsuaaTokenProvider (client_credentials)
+      const authToken = await this.getJwtToken(routingDecision.btpDestination, true, forceTokenRefresh);
+      // Overwrite any existing Authorization header with BTP token
       proxyHeaders["Authorization"] = `Bearer ${authToken}`;
       
       logger.debug("Added BTP Cloud authorization token", {
@@ -240,17 +302,22 @@ export class CloudLlmHubProxy {
       });
     }
 
-    // 2. Get SAP ABAP configuration from x-mcp-destination (OPTIONAL)
-    // This provides token and configuration for SAP ABAP connection
-    // Only used if x-mcp-destination or --mcp is provided
-    // For local testing (without BTP), token retrieval is optional - URL is still needed
+    // ============================================
+    // ABAP BLOCK: SAP ABAP Authentication
+    // ============================================
+    // If --mcp parameter or x-mcp-destination header is present:
+    // - Use abapAuthBroker (with BtpTokenProvider)
+    // - Inject/overwrite x-sap-jwt-token: <token> header
+    // - Add x-sap-url and other SAP configuration headers
     if (routingDecision.mcpDestination) {
-      const connConfig = await this.authBroker.getConnectionConfig(routingDecision.mcpDestination);
+      // For ABAP destinations, use BtpTokenProvider (browser OAuth2 or refresh token)
+      const connConfig = await this.abapAuthBroker.getConnectionConfig(routingDecision.mcpDestination);
       const sapUrl = connConfig?.serviceUrl;
       
       // Try to get token, but don't fail if it's not available (for local testing)
       try {
-        const sapToken = await this.getJwtToken(routingDecision.mcpDestination, forceTokenRefresh);
+        const sapToken = await this.getJwtToken(routingDecision.mcpDestination, false, forceTokenRefresh);
+        // Overwrite any existing x-sap-jwt-token header with ABAP token
         proxyHeaders["x-sap-jwt-token"] = sapToken;
         logger.debug("Added SAP ABAP token", {
           type: "SAP_TOKEN_ADDED",
@@ -308,8 +375,8 @@ export class CloudLlmHubProxy {
         url: baseUrl,
       });
     } else if (routingDecision.btpDestination) {
-      // Get URL from BTP destination service key
-      const connConfig = await this.authBroker.getConnectionConfig(routingDecision.btpDestination);
+      // Get URL from BTP destination service key (using BTP auth broker)
+      const connConfig = await this.btpAuthBroker.getConnectionConfig(routingDecision.btpDestination);
       baseUrl = connConfig?.serviceUrl;
       if (!baseUrl) {
         const errorMsg = `Failed to get MCP server URL from BTP destination "${routingDecision.btpDestination}". Check service key file.`;
@@ -324,8 +391,8 @@ export class CloudLlmHubProxy {
         url: baseUrl,
       });
     } else if (routingDecision.mcpDestination) {
-      // Get URL from MCP destination service key (for local testing without BTP)
-      const connConfig = await this.authBroker.getConnectionConfig(routingDecision.mcpDestination);
+      // Get URL from MCP destination service key (for local testing without BTP, using ABAP auth broker)
+      const connConfig = await this.abapAuthBroker.getConnectionConfig(routingDecision.mcpDestination);
       baseUrl = connConfig?.serviceUrl;
       if (!baseUrl) {
         const errorMsg = `Failed to get MCP server URL from MCP destination "${routingDecision.mcpDestination}". Check service key file.`;
@@ -526,17 +593,35 @@ export async function createCloudLlmHubProxy(
   config?: Partial<ProxyConfig>
 ): Promise<CloudLlmHubProxy> {
   const unsafe = config?.unsafe ?? false;
-  const { serviceKeyStore, sessionStore } = await getPlatformStores(unsafe);
-  const tokenProvider = new BtpTokenProvider();
-  const authBroker = new AuthBroker(
+  
+  // Get stores for BTP destinations (prefer XSUAA store)
+  const { serviceKeyStore: btpServiceKeyStore, sessionStore: btpSessionStore } = await getPlatformStores(unsafe, true);
+  
+  // Get stores for ABAP destinations (prefer ABAP store)
+  const { serviceKeyStore: abapServiceKeyStore, sessionStore: abapSessionStore } = await getPlatformStores(unsafe, false);
+  
+  // Create BTP auth broker with XsuaaTokenProvider (for BTP destinations)
+  const xsuaaTokenProvider = new XsuaaTokenProvider();
+  const btpAuthBroker = new AuthBroker(
     {
-      serviceKeyStore,
-      sessionStore,
-      tokenProvider,
+      serviceKeyStore: btpServiceKeyStore,
+      sessionStore: btpSessionStore,
+      tokenProvider: xsuaaTokenProvider,
+    },
+    "system"
+  );
+  
+  // Create ABAP auth broker with BtpTokenProvider (for ABAP destinations)
+  const btpTokenProvider = new BtpTokenProvider();
+  const abapAuthBroker = new AuthBroker(
+    {
+      serviceKeyStore: abapServiceKeyStore,
+      sessionStore: abapSessionStore,
+      tokenProvider: btpTokenProvider,
     },
     "system"
   );
 
-  return new CloudLlmHubProxy(cloudLlmHubUrl, authBroker, config);
+  return new CloudLlmHubProxy(cloudLlmHubUrl, btpAuthBroker, abapAuthBroker, config);
 }
 

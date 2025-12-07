@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2025-12-07
+
+### Added
+- **Separate AuthBroker instances for BTP and ABAP destinations**
+  - `btpAuthBroker` with `XsuaaTokenProvider` for BTP destinations (`--btp` or `x-btp-destination`)
+  - `abapAuthBroker` with `BtpTokenProvider` for ABAP destinations (`--mcp` or `x-mcp-destination`)
+  - Proper separation ensures correct token provider is used for each destination type
+- **Client Setup Guide** (`doc/CLIENT_SETUP.md`)
+  - Step-by-step setup instructions for Cline and GitHub Copilot
+  - Configuration examples for different scenarios (local MCP, BTP MCP, BTP + ABAP)
+  - Troubleshooting section with common issues and solutions
+  - Quick reference for command-line options and service key locations
+
+### Changed
+- **Improved service key store selection**
+  - `CombinedServiceKeyStore` now prefers XSUAA store for BTP destinations (`preferXsuaa=true`)
+  - Prevents errors when BTP service keys (XSUAA format) are parsed by ABAP store
+  - For BTP destinations, only tries XSUAA store (doesn't fallback to ABAP store)
+- **Error messages updated**
+  - Error messages no longer mention `.env` files (proxy only uses service keys)
+  - Service key errors now show correct paths and file requirements
+- **Platform path resolution**
+  - Updated `getPlatformPaths` to match logic from `mcp-abap-adt`
+  - Correctly determines service key and session paths for Unix and Windows
+  - Unix: `~/.config/mcp-abap-adt/service-keys` and `~/.config/mcp-abap-adt/sessions`
+  - Windows: `%USERPROFILE%\Documents\mcp-abap-adt\service-keys` and `%USERPROFILE%\Documents\mcp-abap-adt\sessions`
+
+### Fixed
+- **BTP destination authentication**
+  - Fixed issue where BTP destinations were incorrectly using ABAP token provider
+  - BTP destinations now correctly use `XsuaaTokenProvider` (client_credentials grant type)
+  - ABAP destinations use `BtpTokenProvider` (browser OAuth2 or refresh token flow)
+- **Service key lookup for BTP destinations**
+  - Fixed "Service key missing 'uaa' object" error for BTP destinations
+  - BTP service keys (XSUAA format) are now correctly parsed by `XsuaaServiceKeyStore`
+  - Prevents ABAP store from attempting to parse XSUAA format service keys
+
+### Documentation
+- Added comprehensive client setup guide with examples for Cline and GitHub Copilot
+- Updated README to reflect dual AuthBroker architecture
+- Clarified authentication flow: XSUAA block (BTP) → ABAP block (SAP) → MCP server
+
 ## [0.1.4] - 2025-12-02
 
 ### Added

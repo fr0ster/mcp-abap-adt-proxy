@@ -47,9 +47,9 @@ x-sap-client: 100
 
 **Behavior:**
 - MCP server URL: From `--mcp-url` parameter
-- Authorization for MCP: `Authorization: Bearer <token>` from BTP destination (via auth-broker)
-  - Token obtained from BTP destination service key (xsuaa format)
-  - Uses `@mcp-abap-adt/auth-broker` with BTP destination
+- **XSUAA Block**: Uses `btpAuthBroker` with `XsuaaTokenProvider` to get BTP Cloud token
+  - Token obtained from BTP destination service key (XSUAA format: url, clientid, clientsecret at root level)
+  - Injects/overwrites `Authorization: Bearer <token>` header
 - ABAP connection parameters: From request headers OR from `--mcp` destination (if provided)
 - BTP authentication required
 
@@ -81,10 +81,12 @@ mcp-abap-adt-proxy --mcp-url=https://mcp-server.cfapps.eu10.hana.ondemand.com --
 
 **Behavior:**
 - MCP server URL: From `--mcp-url` parameter
-- Authorization for MCP: `Authorization: Bearer <token>` from BTP destination (via auth-broker)
-- ABAP connection parameters: From `--mcp` destination (via auth-broker)
-  - `x-sap-url`: From MCP destination service key
-  - `x-sap-jwt-token`: From MCP destination (via auth-broker token)
+- **XSUAA Block**: Uses `btpAuthBroker` with `XsuaaTokenProvider` to get BTP Cloud token
+  - Token obtained from BTP destination service key (XSUAA format)
+  - Injects/overwrites `Authorization: Bearer <token>` header
+- **ABAP Block**: Uses `abapAuthBroker` with `BtpTokenProvider` to get ABAP connection parameters
+  - `x-sap-url`: From MCP destination service key (ABAP format: nested uaa object)
+  - `x-sap-jwt-token`: From MCP destination (via `abapAuthBroker` token)
   - `x-sap-client`: From MCP destination service key (if available)
 - Both BTP and ABAP authentication via destinations
 
@@ -137,10 +139,10 @@ x-sap-client: 100
 
 | Source | Target Header | Description |
 |--------|---------------|-------------|
-| BTP destination token (via auth-broker) | `Authorization: Bearer <token>` | For MCP server on BTP (when `x-btp-destination` or `--btp` is provided) |
-| MCP destination service key (via auth-broker) | `x-sap-url` | ABAP system URL (when `x-mcp-destination` or `--mcp` is provided) |
-| MCP destination token (via auth-broker) | `x-sap-jwt-token` | ABAP authentication token (when `x-mcp-destination` or `--mcp` is provided) |
-| MCP destination service key (via auth-broker) | `x-sap-client` | SAP client number (when `x-mcp-destination` or `--mcp` is provided) |
+| BTP destination token (via `btpAuthBroker` with `XsuaaTokenProvider`) | `Authorization: Bearer <token>` | For MCP server on BTP (when `x-btp-destination` or `--btp` is provided) |
+| MCP destination service key (via `abapAuthBroker`) | `x-sap-url` | ABAP system URL (when `x-mcp-destination` or `--mcp` is provided) |
+| MCP destination token (via `abapAuthBroker` with `BtpTokenProvider`) | `x-sap-jwt-token` | ABAP authentication token (when `x-mcp-destination` or `--mcp` is provided) |
+| MCP destination service key (via `abapAuthBroker`) | `x-sap-client` | SAP client number (when `x-mcp-destination` or `--mcp` is provided) |
 
 ### Headers Passed Through
 
@@ -157,20 +159,26 @@ All headers from the original request (except `x-btp-destination` and `x-mcp-des
 
 ### ✅ What Works Correctly
 
-1. **BTP destination handling**: Correctly gets token from BTP destination for MCP server authorization
-2. **MCP destination handling**: Correctly gets ABAP configuration from MCP destination
-3. **Command-line overrides**: `--btp`, `--mcp`, `--mcp-url` work as expected
-4. **Header preservation**: Original SAP headers are preserved
+1. **Dual AuthBroker architecture**: 
+   - `btpAuthBroker` with `XsuaaTokenProvider` for BTP destinations (XSUAA format service keys)
+   - `abapAuthBroker` with `BtpTokenProvider` for ABAP destinations (ABAP format service keys)
+2. **BTP destination handling**: Correctly gets token from BTP destination using `btpAuthBroker` for MCP server authorization
+3. **MCP destination handling**: Correctly gets ABAP configuration from MCP destination using `abapAuthBroker`
+4. **Service key store selection**: `CombinedServiceKeyStore` correctly prefers XSUAA store for BTP destinations
+5. **Command-line overrides**: `--btp`, `--mcp`, `--mcp-url` work as expected
+6. **Header preservation**: Original SAP headers are preserved
+7. **Platform path resolution**: Correctly determines service key and session paths for Unix and Windows
 
-### ❌ What Needs Fixing
+### ✅ Resolved Issues
 
-1. **Header validation**:
-   - Current: Validates all headers
-   - Expected: Should validate only `x-btp-destination` and `x-mcp-destination`. All other headers should be passed through.
+1. **Header validation**: ✅ Fixed
+   - Now validates only `x-btp-destination` and `x-mcp-destination`
+   - All other headers are passed directly to MCP server
 
-2. **No .env file usage**:
-   - Current: May use .env files through auth-broker
-   - Expected: Should NOT use .env files for connection configuration, only destinations via auth-broker (service key files)
+2. **No .env file usage**: ✅ Fixed
+   - Proxy no longer uses .env files for connection configuration
+   - Only destinations via auth-broker (service key files) are used
+   - Error messages no longer mention .env files
 
 ## Implementation Requirements
 

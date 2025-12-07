@@ -42,9 +42,11 @@ mcp-abap-adt-proxy --unsafe
 mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe
 ```
 
-### Client Configuration (Cline)
+### Client Configuration
 
-The proxy uses two service keys (URLs are obtained from service keys):
+For detailed setup instructions for Cline and GitHub Copilot, see the **[Client Setup Guide](./doc/CLIENT_SETUP.md)**.
+
+**Quick Example (Cline)**:
 
 ```json
 {
@@ -79,9 +81,22 @@ The proxy uses two service keys (URLs are obtained from service keys):
 
 **How It Works:**
 
+The proxy uses two separate authentication injectors:
+
+1. **XSUAA Block** (if `--btp` or `x-btp-destination` is present):
+   - Uses `btpAuthBroker` with `XsuaaTokenProvider` (client_credentials grant type)
+   - Injects/overwrites `Authorization: Bearer <token>` header
+   - Service key format: XSUAA format (url, clientid, clientsecret at root level)
+
+2. **ABAP Block** (if `--mcp` or `x-mcp-destination` is present):
+   - Uses `abapAuthBroker` with `BtpTokenProvider` (browser OAuth2 or refresh token flow)
+   - Injects/overwrites `x-sap-jwt-token: <token>` header
+   - Adds `x-sap-url` and other SAP configuration headers
+   - Service key format: ABAP format (nested uaa object)
+
 **BTP Authentication Mode** (with `x-btp-destination` or `--btp`):
-1. `x-btp-destination` (or `--btp`) → Gets JWT token from auth-broker → Adds `Authorization: Bearer <token>` header
-2. `x-mcp-destination` (or `--mcp`) → Gets JWT token and SAP config from auth-broker → Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) - **optional**
+1. `x-btp-destination` (or `--btp`) → Gets JWT token from `btpAuthBroker` (XsuaaTokenProvider) → Adds `Authorization: Bearer <token>` header
+2. `x-mcp-destination` (or `--mcp`) → Gets JWT token and SAP config from `abapAuthBroker` (BtpTokenProvider) → Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) - **optional**
 3. MCP server URL obtained from service key for `x-btp-destination`
 
 **BTP-Only Mode** (with only `x-btp-destination`/`--btp`, without `x-mcp-destination`):
@@ -97,6 +112,7 @@ The proxy uses two service keys (URLs are obtained from service keys):
 
 ## Documentation
 
+- **[Client Setup Guide](./doc/CLIENT_SETUP.md)** - Step-by-step setup for Cline and GitHub Copilot
 - **[Configuration Guide](./doc/CONFIGURATION.md)** - Complete configuration reference
 - **[Usage Examples](./doc/USAGE.md)** - Practical usage examples and patterns
 - **[API Documentation](./doc/API.md)** - API reference and interfaces
@@ -113,17 +129,21 @@ The proxy performs the following steps for each request:
 1. **Extract Headers**: Reads `x-btp-destination`, `x-mcp-destination`, and `x-mcp-url` headers
 2. **Apply Command Line Overrides**: `--btp`, `--mcp`, and `--mcp-url` parameters override headers (if provided)
 3. **Validate Routing Requirements**: Requires at least one of: `x-btp-destination/--btp`, `x-mcp-destination/--mcp`, or `x-mcp-url/--mcp-url`
-4. **Get MCP Server URL** (priority order):
+4. **XSUAA Block** (if `x-btp-destination` or `--btp` is provided):
+   - Uses `btpAuthBroker` with `XsuaaTokenProvider` (client_credentials grant type)
+   - Retrieves JWT token from BTP destination service key (XSUAA format)
+   - Injects/overwrites `Authorization: Bearer <token>` header
+5. **ABAP Block** (if `x-mcp-destination` or `--mcp` is provided):
+   - Uses `abapAuthBroker` with `BtpTokenProvider` (browser OAuth2 or refresh token flow)
+   - Retrieves JWT token and SAP configuration from ABAP destination service key
+   - Injects/overwrites `x-sap-jwt-token: <token>` header
+   - Adds `x-sap-url` and other SAP configuration headers
+6. **Get MCP Server URL** (priority order):
    - From `x-mcp-url` header or `--mcp-url` parameter (direct URL)
    - From service key for `x-btp-destination` (if provided)
    - From service key for `x-mcp-destination` (if only MCP destination is provided)
-5. **Get BTP Cloud Token** (if `x-btp-destination` or `--btp` is provided): Retrieves JWT token for BTP Cloud authorization
-6. **Get SAP ABAP Config** (if `x-mcp-destination` or `--mcp` is provided): Retrieves JWT token and SAP configuration (URL, client, etc.) - optional, won't fail if unavailable
-7. **Build Request**: 
-   - Adds `Authorization: Bearer <token>` from `x-btp-destination` (or `--btp`) - **only if BTP destination is provided**
-   - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) from `x-mcp-destination` (or `--mcp`) - **only if provided**
-8. **Forward Request**: Sends request to MCP server URL (from `x-mcp-url`, service key, or direct URL)
-9. **Return Response**: Forwards the response back to the client
+7. **Forward Request**: Sends request to MCP server URL with all injected headers
+8. **Return Response**: Forwards the response back to the client
 
 ### Example Request Flow
 
