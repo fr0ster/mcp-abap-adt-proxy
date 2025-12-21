@@ -99,6 +99,7 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
 - `--btp=<destination>` - Overrides `x-btp-destination` header (for BTP authentication mode, takes precedence)
 - `--mcp=<destination>` - Overrides `x-mcp-destination` header (for local testing or SAP config, takes precedence)
 - `--mcp-url=<url>` - Direct MCP server URL (for local testing without authentication, takes precedence)
+- `--browser-auth-port=<port>` - OAuth callback port for browser authentication (default: 3001). Use different port (e.g., 3101) to avoid conflicts when proxy runs on port 3001
 - `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
 **How It Works:**

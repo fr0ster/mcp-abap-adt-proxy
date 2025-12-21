@@ -17,6 +17,8 @@ export interface ProxyConfig {
   btpDestination?: string; // Overrides x-btp-destination header
   mcpDestination?: string; // Overrides x-mcp-destination header
   mcpUrl?: string; // Direct MCP server URL (for local testing without BTP)
+  // Browser auth port for OAuth callback (default: 3001)
+  browserAuthPort?: number;
   // Session storage mode
   unsafe?: boolean; // If true, use AbapSessionStore (persists to disk). If false, use SafeAbapSessionStore (in-memory).
   // Error handling & resilience
@@ -28,52 +30,47 @@ export interface ProxyConfig {
 }
 
 /**
- * Load configuration from file if exists, otherwise from environment variables
+ * Load configuration from file if --config is provided, otherwise from environment variables and command line
  * Supports both JSON and YAML formats
+ * 
+ * IMPORTANT: YAML config and command line parameters are mutually exclusive:
+ * - If --config is provided, load ONLY from that file
+ * - If --config is NOT provided, load ONLY from command line parameters and environment variables
  */
 export function loadConfig(configPath?: string): ProxyConfig {
-  // Get config path from parameter, command line (--config/-c), or environment variable
-  const finalConfigPath = configPath || getConfigPath() || process.env.MCP_PROXY_CONFIG;
+  // Get config path from parameter or command line (--config/-c)
+  // Do NOT use environment variable MCP_PROXY_CONFIG - only explicit --config parameter
+  const finalConfigPath = configPath || getConfigPath();
   
-  // Try to load from config file first
+  // If --config is provided, load ONLY from that file (no merge with command line params)
   if (finalConfigPath) {
+    // Warn if other CLI parameters are also provided (they will be ignored)
+    const conflictingParams = [
+      "--btp", "--mcp", "--mcp-url", "--browser-auth-port", "--unsafe"
+    ].filter(param => hasArg(param));
+    
+    if (conflictingParams.length > 0) {
+      console.warn(
+        `Warning: --config is specified, but the following CLI parameters will be ignored: ${conflictingParams.join(", ")}. ` +
+        `Configuration will be loaded ONLY from ${finalConfigPath}. ` +
+        `To use CLI parameters, do not specify --config.`
+      );
+    }
+    
     try {
       if (fs.existsSync(finalConfigPath)) {
         const fileConfig = loadConfigFile(finalConfigPath);
-        return mergeConfig(fileConfig, loadFromEnv());
+        // Apply defaults for missing values in file config
+        return applyDefaults(fileConfig);
       } else {
-        console.warn(`Config file not found: ${finalConfigPath}`);
+        throw new Error(`Config file not found: ${finalConfigPath}`);
       }
     } catch (error) {
-      console.warn(`Failed to load config from file ${finalConfigPath}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to load config from file ${finalConfigPath}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  // Try default config file locations (both JSON and YAML)
-  const defaultPaths = [
-    path.join(process.cwd(), "mcp-proxy-config.yaml"),
-    path.join(process.cwd(), "mcp-proxy-config.yml"),
-    path.join(process.cwd(), "mcp-proxy-config.json"),
-    path.join(process.cwd(), ".mcp-proxy-config.yaml"),
-    path.join(process.cwd(), ".mcp-proxy-config.yml"),
-    path.join(process.cwd(), ".mcp-proxy-config.json"),
-    path.join(process.env.HOME || process.env.USERPROFILE || "", ".mcp-proxy-config.yaml"),
-    path.join(process.env.HOME || process.env.USERPROFILE || "", ".mcp-proxy-config.yml"),
-    path.join(process.env.HOME || process.env.USERPROFILE || "", ".mcp-proxy-config.json"),
-  ];
-
-  for (const configPath of defaultPaths) {
-    try {
-      if (fs.existsSync(configPath)) {
-        const fileConfig = loadConfigFile(configPath);
-        return mergeConfig(fileConfig, loadFromEnv());
-      }
-    } catch (error) {
-      // Continue to next path
-    }
-  }
-
-  // Fall back to environment variables only
+  // No --config provided: load ONLY from command line parameters and environment variables
   return loadFromEnv();
 }
 
@@ -92,13 +89,54 @@ function loadConfigFile(filePath: string): Partial<ProxyConfig> {
 }
 
 /**
+ * Apply default values to partial config (used when loading from file)
+ */
+function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
+  // Ensure browserAuthPort is a number if provided
+  let browserAuthPort: number | undefined = undefined;
+  if (fileConfig.browserAuthPort !== undefined && fileConfig.browserAuthPort !== null) {
+    if (typeof fileConfig.browserAuthPort === "string") {
+      browserAuthPort = parseInt(fileConfig.browserAuthPort, 10);
+      if (isNaN(browserAuthPort)) {
+        console.warn(`[CONFIG] Invalid browserAuthPort value: "${fileConfig.browserAuthPort}", ignoring`);
+        browserAuthPort = undefined;
+      }
+    } else if (typeof fileConfig.browserAuthPort === "number") {
+      browserAuthPort = fileConfig.browserAuthPort;
+    }
+  }
+  
+  const result: ProxyConfig = {
+    cloudLlmHubUrl: fileConfig.cloudLlmHubUrl || "",
+    httpPort: fileConfig.httpPort ?? 3001,
+    ssePort: fileConfig.ssePort ?? 3002,
+    httpHost: fileConfig.httpHost || "0.0.0.0",
+    sseHost: fileConfig.sseHost || "0.0.0.0",
+    logLevel: fileConfig.logLevel || "info",
+    btpDestination: fileConfig.btpDestination,
+    mcpDestination: fileConfig.mcpDestination,
+    mcpUrl: fileConfig.mcpUrl,
+    browserAuthPort: browserAuthPort,
+    unsafe: fileConfig.unsafe ?? false,
+    maxRetries: fileConfig.maxRetries ?? 3,
+    retryDelay: fileConfig.retryDelay ?? 1000,
+    requestTimeout: fileConfig.requestTimeout ?? 60000,
+    circuitBreakerThreshold: fileConfig.circuitBreakerThreshold ?? 5,
+    circuitBreakerTimeout: fileConfig.circuitBreakerTimeout ?? 60000,
+  };
+  
+  return result;
+}
+
+/**
  * Load configuration from environment variables and command line
  */
 function loadFromEnv(): ProxyConfig {
-  // Parse command line arguments for --btp, --mcp, --mcp-url, and --unsafe
+  // Parse command line arguments for --btp, --mcp, --mcp-url, --browser-auth-port, and --unsafe
   const btpDestination = getArgValue("--btp");
   const mcpDestination = getArgValue("--mcp");
   const mcpUrl = getArgValue("--mcp-url");
+  const browserAuthPortArg = getArgValue("--browser-auth-port");
   const unsafe = hasArg("--unsafe") || process.env.MCP_PROXY_UNSAFE === "true";
 
   return {
@@ -111,6 +149,7 @@ function loadFromEnv(): ProxyConfig {
     btpDestination,
     mcpDestination,
     mcpUrl: mcpUrl || process.env.MCP_URL,
+    browserAuthPort: browserAuthPortArg ? parseInt(browserAuthPortArg, 10) : (process.env.MCP_BROWSER_AUTH_PORT ? parseInt(process.env.MCP_BROWSER_AUTH_PORT, 10) : undefined),
     unsafe,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || "3", 10),
     retryDelay: parseInt(process.env.MCP_PROXY_RETRY_DELAY || "1000", 10),
@@ -151,29 +190,6 @@ function hasArg(argName: string): boolean {
   return args.some(arg => arg === argName || arg.startsWith(`${argName}=`));
 }
 
-/**
- * Merge file config with environment config (env takes precedence)
- */
-function mergeConfig(fileConfig: Partial<ProxyConfig>, envConfig: ProxyConfig): ProxyConfig {
-  return {
-    cloudLlmHubUrl: envConfig.cloudLlmHubUrl || fileConfig.cloudLlmHubUrl || "",
-    httpPort: envConfig.httpPort || fileConfig.httpPort || 3001,
-    ssePort: envConfig.ssePort || fileConfig.ssePort || 3002,
-    httpHost: envConfig.httpHost || fileConfig.httpHost || "0.0.0.0",
-    sseHost: envConfig.sseHost || fileConfig.sseHost || "0.0.0.0",
-    logLevel: envConfig.logLevel || fileConfig.logLevel || "info",
-    // Command line overrides take precedence
-    btpDestination: envConfig.btpDestination ?? fileConfig.btpDestination,
-    mcpDestination: envConfig.mcpDestination ?? fileConfig.mcpDestination,
-    mcpUrl: envConfig.mcpUrl ?? fileConfig.mcpUrl,
-    unsafe: envConfig.unsafe ?? fileConfig.unsafe ?? false,
-    maxRetries: envConfig.maxRetries ?? fileConfig.maxRetries ?? 3,
-    retryDelay: envConfig.retryDelay ?? fileConfig.retryDelay ?? 1000,
-    requestTimeout: envConfig.requestTimeout ?? fileConfig.requestTimeout ?? 60000,
-    circuitBreakerThreshold: envConfig.circuitBreakerThreshold ?? fileConfig.circuitBreakerThreshold ?? 5,
-    circuitBreakerTimeout: envConfig.circuitBreakerTimeout ?? fileConfig.circuitBreakerTimeout ?? 60000,
-  };
-}
 
 /**
  * Validate configuration
@@ -181,6 +197,18 @@ function mergeConfig(fileConfig: Partial<ProxyConfig>, envConfig: ProxyConfig): 
 export function validateConfig(config: ProxyConfig): { valid: boolean; errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
+
+  // mcpUrl is required (either from yaml config via --config or --mcp-url parameter)
+  if (!config.mcpUrl) {
+    errors.push("mcpUrl is required: provide --mcp-url parameter or set mcpUrl in config file (use --config to specify config file)");
+  } else {
+    // Validate mcpUrl is a valid URL
+    try {
+      new URL(config.mcpUrl);
+    } catch {
+      errors.push("mcpUrl must be a valid URL");
+    }
+  }
 
   // Cloud LLM Hub URL is only required if we're not using BTP/MCP destinations
   // If --btp, --mcp, or --mcp-url is provided, URL will be obtained from service keys

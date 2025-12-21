@@ -7,14 +7,11 @@ module.exports = {
   transform: {
     '^.+\\.ts$': ['ts-jest', {
       tsconfig: {
-        module: 'node16',
-        moduleResolution: 'node16',
-        types: ['node', 'jest'],
+        esModuleInterop: true,
       },
     }],
   },
-  moduleFileExtensions: ['ts', 'js', 'json'],
-  extensionsToTreatAsEsm: ['.ts'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
@@ -28,5 +25,8 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   verbose: true,
   testTimeout: 10000,
+  // Suppress console.error output during tests (logger uses console.error)
+  silent: false,
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };
 

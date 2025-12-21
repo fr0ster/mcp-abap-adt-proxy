@@ -59,6 +59,8 @@ Options:
   --mcp-url=<url>         Direct MCP server URL (for local testing without BTP)
                            Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
                            Used for local testing without authentication
+  --browser-auth-port=<port>  OAuth callback port for browser authentication (default: 3001)
+                              Use different port (e.g., 3101) to avoid conflicts when proxy runs on port 3001
   --config=<file>, -c     Load configuration from YAML or JSON file
                            Alternative to command-line parameters
   --unsafe                 Enable file-based session storage (persists tokens to disk)
@@ -73,6 +75,7 @@ Environment Variables:
   MCP_SSE_HOST            SSE server host (default: 0.0.0.0)
   MCP_TRANSPORT           Transport type (stdio|http|sse)
   MCP_PROXY_UNSAFE        Enable file-based session storage (set to "true")
+  MCP_BROWSER_AUTH_PORT   OAuth callback port for browser authentication (default: 3001)
 
 Examples:
   mcp-abap-adt-proxy                                    # Use default transport
@@ -90,6 +93,7 @@ Examples:
   mcp-abap-adt-proxy --mcp=trial                        # Local testing mode (no BTP authentication)
   mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp  # Local testing with direct MCP URL (no authentication)
   mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe      # With file-based session storage
+  mcp-abap-adt-proxy --browser-auth-port=3101           # Use custom OAuth callback port (avoids conflict with proxy on 3001)
   mcp-abap-adt-proxy --config=proxy-config.yaml         # Load configuration from YAML file
   mcp-abap-adt-proxy -c proxy-config.yml                # Load configuration from YAML file (short form)
 

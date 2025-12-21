@@ -3,7 +3,18 @@
  */
 
 import { IncomingMessage } from "http";
-import { analyzeHeaders, RoutingDecision } from "./headerAnalyzer.js";
+import { analyzeHeaders, RoutingDecision, RoutingStrategy } from "./headerAnalyzer.js";
+import { validateProxyHeaders } from "@mcp-abap-adt/header-validator";
+import {
+  HEADER_SAP_JWT_TOKEN,
+  HEADER_SAP_REFRESH_TOKEN,
+  HEADER_SAP_PASSWORD,
+  HEADER_SAP_UAA_CLIENT_SECRET,
+  HEADER_AUTHORIZATION,
+  HEADER_SESSION_ID,
+  HEADER_MCP_SESSION_ID,
+  HEADER_X_MCP_SESSION_ID,
+} from "@mcp-abap-adt/interfaces";
 import { logger } from "../lib/logger.js";
 
 export interface InterceptedRequest {
@@ -33,11 +44,29 @@ export function interceptRequest(
   // Analyze headers for routing decision (with config overrides)
   const routingDecision = analyzeHeaders(req.headers, configOverrides);
 
+  // Validate proxy headers only if request will be processed as PROXY (not PASSTHROUGH)
+  // For PASSTHROUGH requests, validation is not needed as headers are passed as-is
+  if (routingDecision.strategy !== RoutingStrategy.PASSTHROUGH) {
+    const validation = validateProxyHeaders(req.headers);
+    if (!validation.isValid && validation.errors.length > 0) {
+      logger.warn("Proxy header validation failed", {
+        type: "PROXY_HEADER_VALIDATION_ERROR",
+        errors: validation.errors,
+        warnings: validation.warnings,
+      });
+    } else if (validation.warnings.length > 0) {
+      logger.warn("Proxy header validation warnings", {
+        type: "PROXY_HEADER_VALIDATION_WARNINGS",
+        warnings: validation.warnings,
+      });
+    }
+  }
+
   // Extract session ID if present
   const sessionId = 
-    (req.headers["x-session-id"] || 
-     req.headers["mcp-session-id"] || 
-     req.headers["x-mcp-session-id"]) as string | undefined;
+    (req.headers[HEADER_SESSION_ID] || 
+     req.headers[HEADER_MCP_SESSION_ID] || 
+     req.headers[HEADER_X_MCP_SESSION_ID]) as string | undefined;
 
   // Generate client ID
   const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
@@ -85,12 +114,12 @@ export function sanitizeHeadersForLogging(
 ): Record<string, string> {
   const sanitized: Record<string, string> = {};
   const sensitiveKeys = [
-    "authorization",
-    "x-sap-jwt-token",
-    "x-sap-refresh-token",
-    "x-sap-password",
-    "x-sap-uaa-client-secret",
-  ];
+    HEADER_AUTHORIZATION,
+    HEADER_SAP_JWT_TOKEN,
+    HEADER_SAP_REFRESH_TOKEN,
+    HEADER_SAP_PASSWORD,
+    HEADER_SAP_UAA_CLIENT_SECRET,
+  ].map(k => k.toLowerCase());
 
   for (const [key, value] of Object.entries(headers)) {
     if (sensitiveKeys.includes(key.toLowerCase())) {

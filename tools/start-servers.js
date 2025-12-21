@@ -27,6 +27,7 @@ function parseArgs() {
     btpDestination: undefined,
     adtEnv: undefined,
     proxyUnsafe: false,
+    browserAuthPort: 3101,  // Default: OAuth callback port (to avoid conflict with proxy on 3001)
   };
 
   for (const arg of args) {
@@ -48,6 +49,8 @@ function parseArgs() {
       config.adtEnv = arg.split('=')[1];
     } else if (arg.startsWith('--transport=')) {
       config.transport = arg.split('=')[1];
+    } else if (arg.startsWith('--browser-auth-port=')) {
+      config.browserAuthPort = parseInt(arg.split('=')[1], 10);
     } else if (arg === '--proxy-unsafe') {
       config.proxyUnsafe = true;
     } else if (arg === '--help' || arg === '-h') {
@@ -92,6 +95,7 @@ Options:
   --btp=<destination>     BTP destination name for proxy
   --adt-env=<path>         Path to .env file for ADT server
   --proxy-unsafe           Enable unsafe (file-based) session storage for proxy
+  --browser-auth-port=<port>  OAuth callback port for browser authentication (default: 3101)
   --help, -h               Show this help message
 
 Examples:
@@ -240,6 +244,9 @@ function startProxyServer(config) {
     args.push('--unsafe');
   }
   
+  // Add browser auth port to avoid conflict with proxy port
+  args.push(`--browser-auth-port=${config.browserAuthPort}`);
+  
   console.log(`[PROXY] Starting mcp-abap-adt-proxy on ${config.proxyHost}:${config.proxyPort} (${config.transport})...`);
   console.log(`[PROXY] Command: ${proxyExecutable} ${args.join(' ')}`);
   
@@ -281,6 +288,7 @@ function main() {
   console.log(`ADT Server:    http://${config.adtHost}:${config.adtPort} (${config.transport})`);
   console.log(`Proxy Server:  http://${config.proxyHost}:${config.proxyPort} (${config.transport})`);
   console.log(`MCP URL:       ${config.mcpUrl} (auto-generated from ADT server config)`);
+  console.log(`Browser Auth Port: ${config.browserAuthPort} (OAuth callback port)`);
   if (config.mcpDestination) {
     console.log(`MCP Destination: ${config.mcpDestination}`);
   }
@@ -303,6 +311,7 @@ function main() {
     console.log(`ADT Server:    http://${config.adtHost}:${config.adtPort} (${config.transport})`);
     console.log(`Proxy Server:  http://${config.proxyHost}:${config.proxyPort} (${config.transport})`);
     console.log(`MCP URL:       ${config.mcpUrl} (auto-generated from ADT server config)`);
+    console.log(`Browser Auth Port: ${config.browserAuthPort} (OAuth callback port)`);
     console.log('='.repeat(60) + '\n');
   }, 2000);
   

@@ -3,12 +3,18 @@
  */
 
 import { IncomingHttpHeaders } from "http";
-import { validateAuthHeaders, AuthMethodPriority, HeaderValidationResult } from "@mcp-abap-adt/header-validator";
+import {
+  HEADER_BTP_DESTINATION,
+  HEADER_MCP_DESTINATION,
+  HEADER_MCP_URL,
+} from "@mcp-abap-adt/interfaces";
 import { logger } from "../lib/logger.js";
 
 export enum RoutingStrategy {
   /** Proxy request with JWT authentication */
   PROXY = "proxy",
+  /** Pass through request without modifications (no proxy headers) */
+  PASSTHROUGH = "passthrough",
   /** Unknown/unsupported - should not route */
   UNKNOWN = "unknown",
 }
@@ -19,7 +25,6 @@ export interface RoutingDecision {
   mcpDestination?: string; // Destination for SAP ABAP connection (x-mcp-destination)
   mcpUrl?: string; // Direct MCP server URL (x-mcp-url header)
   reason: string;
-  validationResult?: HeaderValidationResult;
 }
 
 /**
@@ -50,12 +55,19 @@ export function analyzeHeaders(
   headers: IncomingHttpHeaders,
   configOverrides?: { btpDestination?: string; mcpDestination?: string; mcpUrl?: string }
 ): RoutingDecision {
-  // Validate headers using header-validator
-  const validationResult = validateAuthHeaders(headers);
-  const validatedConfig = validationResult.config;
+  // Note: Proxy does NOT validate headers (except for routing decision)
+  // Proxy only modifies headers related to BTP/MCP destinations
+  // All other headers (including x-sap-destination) are passed through as-is
 
-  // Helper function to extract string value from header (handles arrays)
-  const getHeaderValue = (headerValue: string | string[] | undefined): string | undefined => {
+  // Helper function to extract string value from header (handles arrays and case-insensitive lookup)
+  // Node.js normalizes headers to lowercase, so we check both cases
+  const getHeaderValue = (headerName: string): string | undefined => {
+    // Try lowercase first (Node.js normalizes to lowercase)
+    let headerValue = headers[headerName.toLowerCase()];
+    // If not found, try original case (for compatibility)
+    if (!headerValue) {
+      headerValue = headers[headerName];
+    }
     if (!headerValue) return undefined;
     if (Array.isArray(headerValue)) {
       return headerValue[0]?.trim();
@@ -65,30 +77,38 @@ export function analyzeHeaders(
 
   // Extract authorization destination for BTP Cloud (x-btp-destination)
   // Command-line parameter --btp takes precedence over header
-  const btpDestinationHeader = getHeaderValue(headers["x-btp-destination"]);
+  const btpDestinationHeader = getHeaderValue(HEADER_BTP_DESTINATION);
   const extractedBtpDestination = configOverrides?.btpDestination 
     ? configOverrides.btpDestination
     : btpDestinationHeader;
 
   // Extract destination for SAP ABAP connection (x-mcp-destination)
   // Command-line parameter --mcp takes precedence over header
-  const mcpDestinationHeader = getHeaderValue(headers["x-mcp-destination"]);
+  const mcpDestinationHeader = getHeaderValue(HEADER_MCP_DESTINATION);
   const extractedMcpDestination = configOverrides?.mcpDestination 
     ? configOverrides.mcpDestination
     : mcpDestinationHeader;
 
   // Extract direct MCP server URL (x-mcp-url)
   // Command-line parameter --mcp-url takes precedence over header
-  const mcpUrlHeader = getHeaderValue(headers["x-mcp-url"]);
+  const mcpUrlHeader = getHeaderValue(HEADER_MCP_URL);
   const extractedMcpUrl = configOverrides?.mcpUrl 
     ? configOverrides.mcpUrl
     : mcpUrlHeader;
 
-  // Validate: at least one destination or MCP URL must be provided
-  // We validate only x-btp-destination and x-mcp-destination headers
-  // Other headers (x-sap-url, x-sap-jwt-token, etc.) are passed directly to MCP server
-  if (!extractedBtpDestination && !extractedMcpDestination && !extractedMcpUrl) {
-    logger.warn("Neither x-btp-destination/x-mcp-destination header nor --btp/--mcp parameter is provided, and no x-mcp-url/--mcp-url", {
+  // Check if proxy headers exist in the actual HTTP request (not in config overrides)
+  // If no proxy headers in the request itself, pass through without modifications
+  // Config overrides (--btp, --mcp, --mcp-url) are only used when headers are present in the request
+  const hasBtpInRequest = !!btpDestinationHeader;
+  const hasMcpInRequest = !!mcpDestinationHeader;
+  const hasMcpUrlInRequest = !!mcpUrlHeader;
+
+  // If no proxy headers in the actual request, pass through without modifications
+  // This allows requests to be forwarded as-is without authentication headers
+  // Note: --mcp-url is used as target URL for passthrough, but request is not modified
+  if (!hasBtpInRequest && !hasMcpInRequest && !hasMcpUrlInRequest) {
+    logger.debug("No proxy headers found in request - passing through without modifications", {
+      type: "PASSTHROUGH_REQUEST",
       headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
       hasBtpConfigOverride: !!configOverrides?.btpDestination,
       hasMcpConfigOverride: !!configOverrides?.mcpDestination,
@@ -96,9 +116,9 @@ export function analyzeHeaders(
     });
 
     return {
-      strategy: RoutingStrategy.UNKNOWN,
-      reason: "Either x-btp-destination/--btp, x-mcp-destination/--mcp, or x-mcp-url/--mcp-url parameter is required for proxying",
-      validationResult,
+      strategy: RoutingStrategy.PASSTHROUGH,
+      mcpUrl: extractedMcpUrl, // Use --mcp-url as target URL for passthrough
+      reason: "No proxy headers found in request - request will be passed through without modifications",
     };
   }
 
@@ -117,7 +137,6 @@ export function analyzeHeaders(
     btpDestination: extractedBtpDestination,
     mcpDestination: extractedMcpDestination,
     mcpUrl: extractedMcpUrl || "not provided",
-    priority: validatedConfig?.priority,
   });
 
   const reason = extractedBtpDestination
@@ -132,7 +151,6 @@ export function analyzeHeaders(
     mcpDestination: extractedMcpDestination, // Optional - only used if provided
     mcpUrl: extractedMcpUrl, // Optional - direct URL if provided (takes precedence)
     reason,
-    validationResult,
   };
 }
 

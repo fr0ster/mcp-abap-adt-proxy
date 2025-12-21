@@ -8,7 +8,9 @@ import {
   AbapServiceKeyStore,
   XsuaaServiceKeyStore,
   AbapSessionStore, 
-  SafeAbapSessionStore
+  SafeAbapSessionStore,
+  SafeXsuaaSessionStore,
+  XsuaaSessionStore
 } from "@mcp-abap-adt/auth-stores";
 import type { 
   IServiceKeyStore,
@@ -117,11 +119,20 @@ export async function getPlatformStores(
     ? new XsuaaServiceKeyStore(firstServiceKeyPath)
     : new AbapServiceKeyStore(firstServiceKeyPath);
   
+  // Use appropriate session store based on store type
+  // For XSUAA destinations: use SafeXsuaaSessionStore or XsuaaSessionStore
+  // For ABAP destinations: use SafeAbapSessionStore or AbapSessionStore
+  const sessionStore = unsafe
+    ? (useXsuaaStore 
+        ? new XsuaaSessionStore(firstSessionPath)
+        : new AbapSessionStore(firstSessionPath))
+    : (useXsuaaStore
+        ? new SafeXsuaaSessionStore()
+        : new SafeAbapSessionStore());
+  
   return {
     serviceKeyStore,
-    sessionStore: unsafe 
-      ? new AbapSessionStore(firstSessionPath)
-      : new SafeAbapSessionStore(),
+    sessionStore,
   };
 }
 

@@ -17,12 +17,18 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } from "http";
+import axios from "axios";
 import { parseTransportConfig, TransportConfig } from "./lib/transportConfig.js";
 import { loadConfig, validateConfig } from "./lib/config.js";
 import { logger } from "./lib/logger.js";
 import { interceptRequest, requiresSapConfig, sanitizeHeadersForLogging } from "./router/requestInterceptor.js";
 import { RoutingStrategy } from "./router/headerAnalyzer.js";
 import { createCloudLlmHubProxy, CloudLlmHubProxy, shouldWriteStderr } from "./proxy/cloudLlmHubProxy.js";
+import {
+  HEADER_BTP_DESTINATION,
+  HEADER_MCP_DESTINATION,
+  HEADER_MCP_URL,
+} from "@mcp-abap-adt/interfaces";
 
 /**
  * MCP ABAP ADT Proxy Server
@@ -88,13 +94,13 @@ export class McpAbapAdtProxyServer {
     // Create fake headers with config overrides (--btp, --mcp, and/or --mcp-url)
     const fakeHeaders: Record<string, string> = {};
     if (this.config.btpDestination) {
-      fakeHeaders["x-btp-destination"] = this.config.btpDestination;
+      fakeHeaders[HEADER_BTP_DESTINATION] = this.config.btpDestination;
     }
     if (this.config.mcpDestination) {
-      fakeHeaders["x-mcp-destination"] = this.config.mcpDestination;
+      fakeHeaders[HEADER_MCP_DESTINATION] = this.config.mcpDestination;
     }
     if (this.config.mcpUrl) {
-      fakeHeaders["x-mcp-url"] = this.config.mcpUrl;
+      fakeHeaders[HEADER_MCP_URL] = this.config.mcpUrl;
     }
 
     // Create routing decision using config overrides
@@ -220,21 +226,24 @@ export class McpAbapAdtProxyServer {
     const httpConfig = this.transportConfig;
     
     this.httpServer = createServer(async (req, res) => {
-      // Log incoming HTTP request (if debug enabled)
-      const debugHttpEnabled = process.env.DEBUG_HTTP_REQUESTS === "true";
-      if (debugHttpEnabled) {
-        const sanitizedHeaders = sanitizeHeadersForLogging(req.headers);
-        logger.info("HTTP Request received", {
-          type: "HTTP_REQUEST",
-          method: req.method,
-          url: req.url,
-          headers: sanitizedHeaders,
-          remoteAddress: req.socket.remoteAddress,
-        });
-      }
+      // Log incoming HTTP request (always log in DEBUG mode)
+      const debugEnabled = process.env.DEBUG === "true" || process.env.DEBUG_HTTP_REQUESTS === "true";
+      const sanitizedHeaders = sanitizeHeadersForLogging(req.headers);
+      
+      logger.info("=== HTTP REQUEST RECEIVED ===", {
+        type: "HTTP_REQUEST_RECEIVED",
+        method: req.method,
+        url: req.url,
+        headers: sanitizedHeaders,
+        remoteAddress: req.socket.remoteAddress,
+      });
 
       // Only handle POST requests
       if (req.method !== "POST") {
+        logger.warn("Non-POST request rejected", {
+          type: "NON_POST_REQUEST",
+          method: req.method,
+        });
         res.writeHead(405, { "Content-Type": "text/plain" });
         res.end("Method not allowed");
         return;
@@ -248,11 +257,50 @@ export class McpAbapAdtProxyServer {
           chunks.push(chunk);
         }
         const bodyString = Buffer.concat(chunks).toString("utf-8");
+        
+        logger.info("=== PARSING REQUEST BODY ===", {
+          type: "REQUEST_BODY_PARSING",
+          bodyLength: bodyString.length,
+          bodyPreview: bodyString.substring(0, 200),
+        });
+        
         body = JSON.parse(bodyString);
+        
+        // Sanitize body for logging
+        const sanitizedBody: any = {};
+        if (body && typeof body === 'object') {
+          sanitizedBody.method = body.method;
+          sanitizedBody.id = body.id;
+          sanitizedBody.jsonrpc = body.jsonrpc;
+          if (body.params && typeof body.params === 'object') {
+            sanitizedBody.params = {};
+            if (body.params.arguments && typeof body.params.arguments === 'object') {
+              sanitizedBody.params.arguments = {};
+              for (const [key, value] of Object.entries(body.params.arguments)) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey.includes('password') || lowerKey.includes('token') || lowerKey.includes('secret')) {
+                  sanitizedBody.params.arguments[key] = '[REDACTED]';
+                } else {
+                  sanitizedBody.params.arguments[key] = value;
+                }
+              }
+            }
+            for (const [key, value] of Object.entries(body.params)) {
+              if (key === 'arguments') continue;
+              sanitizedBody.params[key] = value;
+            }
+          }
+        }
+        
+        logger.info("=== REQUEST BODY PARSED ===", {
+          type: "REQUEST_BODY_PARSED",
+          body: sanitizedBody,
+        });
       } catch (error) {
-        logger.error("Failed to parse request body", {
+        logger.error("=== FAILED TO PARSE REQUEST BODY ===", {
           type: "REQUEST_PARSE_ERROR",
           error: error instanceof Error ? error.message : String(error),
+          errorStack: error instanceof Error ? error.stack : undefined,
         });
         res.writeHead(400, { "Content-Type": "text/plain" });
         res.end("Invalid request body");
@@ -266,7 +314,22 @@ export class McpAbapAdtProxyServer {
         mcpDestination: this.config.mcpDestination,
         mcpUrl: this.config.mcpUrl,
       };
+      
+      logger.info("=== INTERCEPTING REQUEST ===", {
+        type: "REQUEST_INTERCEPTING",
+        configOverrides,
+      });
+      
       const intercepted = interceptRequest(req, body, configOverrides);
+      
+      logger.info("=== REQUEST INTERCEPTED ===", {
+        type: "REQUEST_INTERCEPTED",
+        routingStrategy: intercepted.routingDecision.strategy,
+        routingReason: intercepted.routingDecision.reason,
+        btpDestination: intercepted.routingDecision.btpDestination,
+        mcpDestination: intercepted.routingDecision.mcpDestination,
+        mcpUrl: intercepted.routingDecision.mcpUrl,
+      });
 
       // Check routing decision
       if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
@@ -286,9 +349,30 @@ export class McpAbapAdtProxyServer {
         return;
       }
 
+      // If no proxy headers, pass through request without modifications
+      if (intercepted.routingDecision.strategy === RoutingStrategy.PASSTHROUGH) {
+        logger.debug("Passing through request without modifications", {
+          type: "PASSTHROUGH_REQUEST",
+          reason: intercepted.routingDecision.reason,
+        });
+        try {
+          await this.handlePassthroughRequest(intercepted, req, res);
+        } catch (error) {
+          logger.error("Failed to process passthrough request", {
+            type: "PASSTHROUGH_REQUEST_ERROR",
+            error: error instanceof Error ? error.message : String(error),
+          });
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Internal server error");
+          }
+        }
+        return;
+      }
+
       // Log proxy request
-      logger.debug("Proxying request", {
-        type: "PROXY_REQUEST",
+      logger.info("=== PROXYING REQUEST ===", {
+        type: "PROXY_REQUEST_START",
         btpDestination: intercepted.routingDecision.btpDestination,
         mcpDestination: intercepted.routingDecision.mcpDestination,
         requiresSapConfig: requiresSapConfig(body),
@@ -335,6 +419,72 @@ export class McpAbapAdtProxyServer {
   }
 
   /**
+   * Handle passthrough request - forward request as-is without modifications
+   */
+  private async handlePassthroughRequest(
+    intercepted: ReturnType<typeof interceptRequest>,
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    // Use mcpUrl from routing decision (from --mcp-url) or cloudLlmHubUrl from config as target URL
+    const targetUrl = intercepted.routingDecision.mcpUrl || this.config.cloudLlmHubUrl;
+    if (!targetUrl) {
+      logger.error("Cannot handle passthrough request: no target URL configured", {
+        type: "PASSTHROUGH_NO_URL",
+      });
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        jsonrpc: "2.0",
+        id: intercepted.body?.id || null,
+        error: {
+          code: -32000,
+          message: "Target URL not configured",
+        },
+      }));
+      return;
+    }
+
+    logger.debug("Forwarding passthrough request", {
+      type: "PASSTHROUGH_FORWARD",
+      targetUrl,
+      method: intercepted.method,
+      url: intercepted.url,
+    });
+
+    try {
+      // Forward request with original headers and body
+      const response = await axios({
+        method: intercepted.method || "POST",
+        url: `${targetUrl}${intercepted.url || "/"}`,
+        headers: intercepted.headers as Record<string, string>,
+        data: intercepted.body,
+        validateStatus: () => true, // Accept all status codes
+      });
+
+      // Forward response back to client
+      res.writeHead(response.status, response.headers as Record<string, string | string[]>);
+      res.end(response.data);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error("Failed to forward passthrough request", {
+        type: "PASSTHROUGH_FORWARD_ERROR",
+        error: errorMessage,
+      });
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          id: intercepted.body?.id || null,
+          error: {
+            code: -32000,
+            message: errorMessage,
+          },
+        }));
+      }
+    }
+  }
+
+  /**
    * Handle proxy request - add JWT token and forward to MCP server
    */
   private async handleProxyRequest(
@@ -346,12 +496,54 @@ export class McpAbapAdtProxyServer {
     const mcpDestination = intercepted.routingDecision.mcpDestination;
     const mcpUrl = intercepted.routingDecision.mcpUrl;
 
-    logger.info("Handling proxy request", {
-      type: "PROXY_REQUEST",
+    // Log incoming request details
+    const incomingHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(intercepted.headers)) {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey.includes('token') || lowerKey.includes('authorization') || lowerKey.includes('password') || lowerKey.includes('secret')) {
+        incomingHeaders[key] = '[REDACTED]';
+      } else {
+        incomingHeaders[key] = Array.isArray(value) ? value.join(', ') : (value || '');
+      }
+    }
+
+    const sanitizedBody: any = {};
+    if (intercepted.body && typeof intercepted.body === 'object') {
+      if (intercepted.body.params && typeof intercepted.body.params === 'object') {
+        sanitizedBody.params = {};
+        // For tools/call, log arguments
+        if (intercepted.body.params.arguments && typeof intercepted.body.params.arguments === 'object') {
+          sanitizedBody.params.arguments = {};
+          for (const [key, value] of Object.entries(intercepted.body.params.arguments)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('password') || lowerKey.includes('token') || lowerKey.includes('secret')) {
+              sanitizedBody.params.arguments[key] = '[REDACTED]';
+            } else {
+              sanitizedBody.params.arguments[key] = value;
+            }
+          }
+        }
+        // Log other params
+        for (const [key, value] of Object.entries(intercepted.body.params)) {
+          if (key === 'arguments') continue;
+          sanitizedBody.params[key] = value;
+        }
+      }
+      sanitizedBody.method = intercepted.body.method;
+      sanitizedBody.id = intercepted.body.id;
+      sanitizedBody.jsonrpc = intercepted.body.jsonrpc;
+    }
+
+    logger.info("=== INCOMING REQUEST ===", {
+      type: "PROXY_REQUEST_INCOMING",
+      method: req.method,
+      url: req.url,
       btpDestination,
       mcpDestination,
       mcpUrl,
       sessionId: intercepted.sessionId,
+      headers: incomingHeaders,
+      body: sanitizedBody,
       mode: btpDestination ? "BTP authentication" : "Local testing (no BTP authentication)",
     });
 
@@ -364,12 +556,58 @@ export class McpAbapAdtProxyServer {
       }
 
       // Build MCP request from intercepted request
+      // Note: Use ?? instead of || to preserve falsy values like 0
+      const interceptedBodyId = intercepted.body?.id;
+      const interceptedBodyIdType = typeof interceptedBodyId;
+      const interceptedBodyIdUndefined = interceptedBodyId === undefined;
+      
+      logger.info("=== BEFORE BUILDING MCP REQUEST ===", {
+        type: "BEFORE_BUILD_MCP_REQUEST",
+        interceptedBodyId,
+        interceptedBodyIdType,
+        interceptedBodyIdUndefined,
+        interceptedBodyIdNull: interceptedBodyId === null,
+        interceptedBodyIdZero: interceptedBodyId === 0,
+        interceptedBodyIdFalsy: !interceptedBodyId,
+        fullInterceptedBody: JSON.stringify(intercepted.body),
+      });
+
+      // Preserve id correctly - 0 is a valid id value
+      const mcpRequestId = interceptedBodyId !== undefined ? interceptedBodyId : null;
+      
       const mcpRequest = {
-        method: intercepted.body?.method || "",
-        params: intercepted.body?.params || {},
-        id: intercepted.body?.id || null,
-        jsonrpc: intercepted.body?.jsonrpc || "2.0",
+        method: intercepted.body?.method ?? "",
+        params: intercepted.body?.params ?? {},
+        id: mcpRequestId,
+        jsonrpc: intercepted.body?.jsonrpc ?? "2.0",
       };
+
+      logger.info("=== MCP REQUEST BUILT ===", {
+        type: "MCP_REQUEST_BUILT",
+        originalId: interceptedBodyId,
+        originalIdType: interceptedBodyIdType,
+        mcpRequestId: mcpRequest.id,
+        mcpRequestIdType: typeof mcpRequest.id,
+        mcpRequestIdValue: mcpRequest.id,
+        fullMcpRequest: JSON.stringify(mcpRequest),
+      });
+
+      logger.info("=== FORWARDING REQUEST ===", {
+        type: "PROXY_REQUEST_FORWARDING",
+        interceptedBodyIdAtForward: intercepted.body?.id,
+        interceptedBodyIdTypeAtForward: typeof intercepted.body?.id,
+        mcpRequest: {
+          method: mcpRequest.method,
+          params: sanitizedBody.params,
+          id: mcpRequest.id,
+          jsonrpc: mcpRequest.jsonrpc,
+        },
+        routingDecision: {
+          btpDestination,
+          mcpDestination,
+          mcpUrl,
+        },
+      });
 
       // Proxy request to cloud-llm-hub
       const proxyResponse = await this.cloudLlmHubProxy.proxyRequest(
@@ -378,9 +616,37 @@ export class McpAbapAdtProxyServer {
         intercepted.headers
       );
 
+      // Log response
+      const sanitizedResponse: any = {
+        jsonrpc: proxyResponse.jsonrpc,
+        id: proxyResponse.id,
+      };
+      if (proxyResponse.result) {
+        sanitizedResponse.result = proxyResponse.result;
+      }
+      if (proxyResponse.error) {
+        sanitizedResponse.error = {
+          code: proxyResponse.error.code,
+          message: proxyResponse.error.message,
+          data: proxyResponse.error.data,
+        };
+      }
+
+      logger.info("=== RESPONSE FROM MCP SERVER ===", {
+        type: "PROXY_RESPONSE_RECEIVED",
+        response: sanitizedResponse,
+        hasResult: !!proxyResponse.result,
+        hasError: !!proxyResponse.error,
+      });
+
       // Send response back to client
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(proxyResponse));
+
+      logger.info("=== RESPONSE SENT TO CLIENT ===", {
+        type: "PROXY_RESPONSE_SENT",
+        statusCode: 200,
+      });
 
       logger.debug("Cloud-llm-hub proxy request completed", {
         type: "CLOUD_LLM_HUB_PROXY_COMPLETED",
@@ -463,14 +729,14 @@ export class McpAbapAdtProxyServer {
       }
       
       // Add config overrides if not present in headers
-      if (this.config.btpDestination && !headers["x-btp-destination"]) {
-        headers["x-btp-destination"] = this.config.btpDestination;
+      if (this.config.btpDestination && !headers[HEADER_BTP_DESTINATION]) {
+        headers[HEADER_BTP_DESTINATION] = this.config.btpDestination;
       }
-      if (this.config.mcpDestination && !headers["x-mcp-destination"]) {
-        headers["x-mcp-destination"] = this.config.mcpDestination;
+      if (this.config.mcpDestination && !headers[HEADER_MCP_DESTINATION]) {
+        headers[HEADER_MCP_DESTINATION] = this.config.mcpDestination;
       }
-      if (this.config.mcpUrl && !headers["x-mcp-url"]) {
-        headers["x-mcp-url"] = this.config.mcpUrl;
+      if (this.config.mcpUrl && !headers[HEADER_MCP_URL]) {
+        headers[HEADER_MCP_URL] = this.config.mcpUrl;
       }
 
       logger.debug("SSE request received", {
@@ -648,6 +914,23 @@ export class McpAbapAdtProxyServer {
               },
             })
           );
+          return;
+        }
+
+        // If no proxy headers, pass through request without modifications
+        if (intercepted.routingDecision.strategy === RoutingStrategy.PASSTHROUGH) {
+          try {
+            await this.handlePassthroughRequest(intercepted, req, res);
+          } catch (error) {
+            logger.error("Failed to process SSE passthrough request", {
+              type: "SSE_PASSTHROUGH_PROCESS_ERROR",
+              error: error instanceof Error ? error.message : String(error),
+            });
+            if (!res.headersSent) {
+              res.writeHead(500, { "Content-Type": "text/plain" });
+              res.end("Internal server error");
+            }
+          }
           return;
         }
 
