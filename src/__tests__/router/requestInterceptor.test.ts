@@ -16,14 +16,14 @@ import {
 } from "@mcp-abap-adt/interfaces";
 import { IncomingMessage } from "http";
 import { Socket } from "net";
-import { testLogger } from "../helpers/testLogger.js";
+import { testLogger } from "../helpers/testlogger?.js";
 
 describe("requestInterceptor", () => {
   describe("interceptRequest", () => {
     let mockReq: Partial<IncomingMessage>;
 
     beforeEach(() => {
-      testLogger.debug("Setting up requestInterceptor test");
+      testlogger?.debug("Setting up requestInterceptor test");
       
       const mockSocket = {
         remoteAddress: "127.0.0.1",
@@ -43,9 +43,9 @@ describe("requestInterceptor", () => {
     });
 
     it("should extract method and URL from request", () => {
-      testLogger.info("Test: should extract method and URL from request");
+      testlogger?.info("Test: should extract method and URL from request");
       
-      testLogger.info("Input request object - raw HTTP request from client", { 
+      testlogger?.info("Input request object - raw HTTP request from client", { 
         method: mockReq.method, 
         url: mockReq.url,
         headers: {
@@ -60,7 +60,7 @@ describe("requestInterceptor", () => {
         }
       });
 
-      testLogger.info("Calling interceptRequest - will extract and process request data", {
+      testlogger?.info("Calling interceptRequest - will extract and process request data", {
         function: "interceptRequest",
         willExtract: [
           "method from request.method",
@@ -72,7 +72,7 @@ describe("requestInterceptor", () => {
 
       const intercepted = interceptRequest(mockReq as IncomingMessage);
 
-      testLogger.info("Intercepted request result - processed request data", { 
+      testlogger?.info("Intercepted request result - processed request data", { 
         intercepted: {
           method: intercepted.method,
           url: intercepted.url,
@@ -101,9 +101,9 @@ describe("requestInterceptor", () => {
     });
 
     it("should extract headers from request", () => {
-      testLogger.info("Test: should extract headers from request");
+      testlogger?.info("Test: should extract headers from request");
       
-      testLogger.debug("Input request object", {
+      testlogger?.debug("Input request object", {
         method: mockReq.method,
         url: mockReq.url,
         headers: {
@@ -115,7 +115,7 @@ describe("requestInterceptor", () => {
         }
       });
 
-      testLogger.debug("Calling interceptRequest", {
+      testlogger?.debug("Calling interceptRequest", {
         function: "interceptRequest",
         parameter: {
           method: mockReq.method,
@@ -127,7 +127,7 @@ describe("requestInterceptor", () => {
 
       const intercepted = interceptRequest(mockReq as IncomingMessage);
 
-      testLogger.debug("Intercepted result object", { 
+      testlogger?.debug("Intercepted result object", { 
         intercepted: {
           method: intercepted.method,
           url: intercepted.url,
@@ -153,11 +153,11 @@ describe("requestInterceptor", () => {
     });
 
     it("should pass config overrides to header analyzer", () => {
-      testLogger.info("Test: should pass config overrides to header analyzer");
+      testlogger?.info("Test: should pass config overrides to header analyzer");
       
       const configOverrides = { btpDestination: "cli-btp", mcpDestination: "cli-mcp" };
       
-      testLogger.debug("Input parameters", {
+      testlogger?.debug("Input parameters", {
         request: {
           method: mockReq.method,
           url: mockReq.url,
@@ -176,7 +176,7 @@ describe("requestInterceptor", () => {
         expectedBehavior: "Config overrides should take precedence over headers"
       });
 
-      testLogger.debug("Calling interceptRequest with overrides", {
+      testlogger?.debug("Calling interceptRequest with overrides", {
         function: "interceptRequest",
         parameters: {
           request: mockReq,
@@ -187,7 +187,7 @@ describe("requestInterceptor", () => {
 
       const intercepted = interceptRequest(mockReq as IncomingMessage, undefined, configOverrides);
 
-      testLogger.debug("Intercepted result with routing decision", { 
+      testlogger?.debug("Intercepted result with routing decision", { 
         intercepted: {
           method: intercepted.method,
           url: intercepted.url,
@@ -214,14 +214,14 @@ describe("requestInterceptor", () => {
     });
 
     it("should include body if provided", () => {
-      testLogger.info("Test: should include body if provided");
+      testlogger?.info("Test: should include body if provided");
       
       const body = { method: "tools/list", params: {} };
-      testLogger.debug("Request body", body);
+      testlogger?.debug("Request body", body);
 
       const intercepted = interceptRequest(mockReq as IncomingMessage, body);
 
-      testLogger.debug("Intercepted body", { 
+      testlogger?.debug("Intercepted body", { 
         hasBody: !!intercepted.body,
         bodyKeys: intercepted.body ? Object.keys(intercepted.body) : []
       });

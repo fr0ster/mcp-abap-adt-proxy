@@ -6,7 +6,7 @@ The MCP ABAP ADT Proxy supports loading configuration from YAML or JSON files, p
 
 1. Copy the example configuration file:
    ```bash
-   cp doc/mcp-proxy-config.example.yaml mcp-proxy-config.yaml
+   cp docs/mcp-proxy-config.example.yaml mcp-proxy-config.yaml
    ```
    Or from the project root:
    ```bash

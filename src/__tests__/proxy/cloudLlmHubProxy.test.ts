@@ -14,7 +14,7 @@ import {
   AUTH_TYPE_JWT,
 } from "@mcp-abap-adt/interfaces";
 import axios, { AxiosInstance, AxiosResponse } from "axios";
-import { testLogger, getPackageLogger } from "../helpers/testLogger.js";
+import { testLogger, getPackageLogger } from "../helpers/testlogger?.js";
 
 // Mock axios
 jest.mock("axios");
@@ -50,7 +50,7 @@ describe("CloudLlmHubProxy", () => {
   let mockAxiosInstance: jest.Mocked<AxiosInstance>;
 
   beforeEach(() => {
-    testLogger.debug("Setting up CloudLlmHubProxy test");
+    testlogger?.debug("Setting up CloudLlmHubProxy test");
     
     // Reset mocks
     jest.clearAllMocks();
@@ -70,7 +70,7 @@ describe("CloudLlmHubProxy", () => {
     // Mock AuthBroker constructor to return appropriate mock based on browser parameter
     // In real tests, you would use: new AuthBroker(stores, browser, getPackageLogger('AUTH_BROKER'))
     (AuthBroker as jest.MockedClass<typeof AuthBroker>).mockImplementation((stores: any, browser?: string, logger?: any) => {
-      testLogger.debug(`Creating mock AuthBroker with browser=${browser}`, { browser, hasLogger: !!logger });
+      testlogger?.debug(`Creating mock AuthBroker with browser=${browser}`, { browser, hasLogger: !!logger });
       // Return BTP mock for XSUAA (browser === 'none') or ABAP mock for ABAP (browser === 'system')
       if (browser === 'none') {
         return mockBtpAuthBroker as any;
@@ -101,7 +101,7 @@ describe("CloudLlmHubProxy", () => {
 
   describe("buildProxyRequest", () => {
     it("should require btpDestination and add Authorization header", async () => {
-      testLogger.info("Test: should require btpDestination and add Authorization header");
+      testlogger?.info("Test: should require btpDestination and add Authorization header");
       
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
@@ -112,7 +112,7 @@ describe("CloudLlmHubProxy", () => {
       const request = { method: "tools/list" };
       const originalHeaders = {};
 
-      testLogger.info("Input parameters", { 
+      testlogger?.info("Input parameters", { 
         routingDecision: {
           strategy: routingDecision.strategy,
           btpDestination: routingDecision.btpDestination,
@@ -129,14 +129,14 @@ describe("CloudLlmHubProxy", () => {
       mockBtpAuthBroker.getToken.mockResolvedValue(mockToken);
       mockBtpAuthBroker.getConnectionConfig.mockResolvedValue(mockConnectionConfig);
 
-      testLogger.info("Mock configuration - simulating service key and token retrieval", { 
+      testlogger?.info("Mock configuration - simulating service key and token retrieval", { 
         btpDestination: "btp-cloud",
         mockToken,
         mockConnectionConfig,
         explanation: "Mocking AuthBroker.getToken() and getConnectionConfig() calls that would normally read from service key store"
       });
 
-      testLogger.info("Calling buildProxyRequest", {
+      testlogger?.info("Calling buildProxyRequest", {
         function: "buildProxyRequest",
         willCall: [
           "btpAuthBroker.getToken('btp-cloud')",
@@ -147,7 +147,7 @@ describe("CloudLlmHubProxy", () => {
       const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
       const config = await buildProxyRequest(request, routingDecision, originalHeaders);
 
-      testLogger.info("Proxy request config result", { 
+      testlogger?.info("Proxy request config result", { 
         url: config.url,
         method: config.method,
         headers: {
@@ -159,7 +159,7 @@ describe("CloudLlmHubProxy", () => {
         expectedAuth: `Bearer ${mockToken}`
       });
 
-      testLogger.info("Mock method calls executed", {
+      testlogger?.info("Mock method calls executed", {
         getToken: {
           called: mockBtpAuthBroker.getToken.mock.calls.length > 0,
           callCount: mockBtpAuthBroker.getToken.mock.calls.length,
@@ -182,7 +182,7 @@ describe("CloudLlmHubProxy", () => {
         }
       });
 
-      testLogger.info("Verifying assertions", {
+      testlogger?.info("Verifying assertions", {
         checking: [
           "Authorization header contains Bearer token",
           "URL is constructed from serviceUrl",
@@ -196,7 +196,7 @@ describe("CloudLlmHubProxy", () => {
       expect(mockBtpAuthBroker.getToken).toHaveBeenCalledWith("btp-cloud");
       expect(mockBtpAuthBroker.getConnectionConfig).toHaveBeenCalledWith("btp-cloud");
       
-      testLogger.info("All assertions passed", {
+      testlogger?.info("All assertions passed", {
         authorizationHeader: config.headers["Authorization"] === `Bearer ${mockToken}`,
         url: config.url === mockConnectionConfig.serviceUrl + "/mcp/stream/http",
         tokenRetrieved: true,
@@ -205,7 +205,7 @@ describe("CloudLlmHubProxy", () => {
     });
 
     it("should add SAP headers from x-mcp-destination", async () => {
-      testLogger.info("Test: should add SAP headers from x-mcp-destination");
+      testlogger?.info("Test: should add SAP headers from x-mcp-destination");
       
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
@@ -217,7 +217,7 @@ describe("CloudLlmHubProxy", () => {
       const request = { method: "tools/list" };
       const originalHeaders = {};
 
-      testLogger.debug("Input parameters", { 
+      testlogger?.debug("Input parameters", { 
         routingDecision: {
           strategy: routingDecision.strategy,
           btpDestination: routingDecision.btpDestination,
@@ -240,7 +240,7 @@ describe("CloudLlmHubProxy", () => {
       mockAbapAuthBroker.getToken.mockResolvedValue(abapToken);
       mockAbapAuthBroker.getConnectionConfig.mockResolvedValue(abapConnectionConfig);
 
-      testLogger.debug("Mock configuration", { 
+      testlogger?.debug("Mock configuration", { 
         btp: {
           destination: "btp-cloud",
           token: btpToken,
@@ -256,7 +256,7 @@ describe("CloudLlmHubProxy", () => {
       const buildProxyRequest = (proxy as any).buildProxyRequest.bind(proxy);
       const config = await buildProxyRequest(request, routingDecision, originalHeaders);
 
-      testLogger.debug("Proxy request config result", {
+      testlogger?.debug("Proxy request config result", {
         url: config.url,
         method: config.method,
         headers: {
@@ -272,7 +272,7 @@ describe("CloudLlmHubProxy", () => {
         }
       });
 
-      testLogger.debug("Mock method calls", {
+      testlogger?.debug("Mock method calls", {
         btpBroker: {
           getToken: {
             called: mockBtpAuthBroker.getToken.mock.calls.length > 0,
@@ -309,7 +309,7 @@ describe("CloudLlmHubProxy", () => {
       expect(mockBtpAuthBroker.getConnectionConfig).toHaveBeenCalledWith("btp-cloud");
       expect(mockAbapAuthBroker.getConnectionConfig).toHaveBeenCalledWith("sap-abap");
       
-      testLogger.debug("Assertions passed", {
+      testlogger?.debug("Assertions passed", {
         authorizationHeader: config.headers[HEADER_AUTHORIZATION] === `Bearer ${btpToken}`,
         sapJwtToken: config.headers[HEADER_SAP_JWT_TOKEN] === abapToken,
         sapUrl: config.headers[HEADER_SAP_URL] === abapConnectionConfig.serviceUrl,
@@ -495,7 +495,7 @@ describe("CloudLlmHubProxy", () => {
 
   describe("proxyRequest", () => {
     it("should successfully proxy request with both tokens", async () => {
-      testLogger.info("Test: should successfully proxy request with both tokens");
+      testlogger?.info("Test: should successfully proxy request with both tokens");
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
         btpDestination: "btp-cloud",
@@ -541,7 +541,7 @@ describe("CloudLlmHubProxy", () => {
     });
 
     it("should handle errors and return error response", async () => {
-      testLogger.info("Test: should handle errors and return error response");
+      testlogger?.info("Test: should handle errors and return error response");
       
       const routingDecision: RoutingDecision = {
         strategy: RoutingStrategy.PROXY,
@@ -549,7 +549,7 @@ describe("CloudLlmHubProxy", () => {
         reason: "Test",
       };
 
-      testLogger.debug("Routing decision", { routingDecision });
+      testlogger?.debug("Routing decision", { routingDecision });
 
       const request: ProxyRequest = {
         method: "tools/list",
@@ -558,14 +558,14 @@ describe("CloudLlmHubProxy", () => {
         jsonrpc: "2.0",
       };
 
-      testLogger.debug("Request", { request });
+      testlogger?.debug("Request", { request });
 
       const mockError = new Error("Network error");
       mockBtpAuthBroker.getToken.mockResolvedValue("btp-token-123");
       mockBtpAuthBroker.getConnectionConfig.mockResolvedValue({ serviceUrl: "https://target.example.com", authorizationToken: "" });
       mockAxiosInstance.request.mockRejectedValue(mockError);
 
-      testLogger.debug("Mock error setup", { 
+      testlogger?.debug("Mock error setup", { 
         error: {
           message: mockError.message,
           name: mockError.name,
@@ -573,7 +573,7 @@ describe("CloudLlmHubProxy", () => {
         }
       });
 
-      testLogger.debug("Calling proxy.proxyRequest", {
+      testlogger?.debug("Calling proxy.proxyRequest", {
         method: "proxyRequest",
         parameters: {
           request,
@@ -584,7 +584,7 @@ describe("CloudLlmHubProxy", () => {
 
       const response = await proxy.proxyRequest(request, routingDecision, {});
 
-      testLogger.debug("Error response received", { 
+      testlogger?.debug("Error response received", { 
         response: {
           jsonrpc: response.jsonrpc,
           id: response.id,
@@ -602,7 +602,7 @@ describe("CloudLlmHubProxy", () => {
         }
       });
 
-      testLogger.debug("Mock calls after error", {
+      testlogger?.debug("Mock calls after error", {
         getToken: {
           called: mockBtpAuthBroker.getToken.mock.calls.length > 0,
           calls: mockBtpAuthBroker.getToken.mock.calls

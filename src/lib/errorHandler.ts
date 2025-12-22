@@ -2,7 +2,7 @@
  * Error Handling & Resilience utilities
  */
 
-import { logger } from "./logger.js";
+import { logger } from "./logger?.js";
 import { AxiosError } from "axios";
 
 export interface RetryOptions {
@@ -69,7 +69,7 @@ export async function retryWithBackoff<T>(
 
       // Check if error is retryable
       if (!isRetryableError(error, retryableStatusCodes)) {
-        logger.debug("Error is not retryable, stopping retries", {
+        logger?.debug("Error is not retryable, stopping retries", {
           type: "RETRY_STOPPED",
           attempt,
           error: error instanceof Error ? error.message : String(error),
@@ -80,7 +80,7 @@ export async function retryWithBackoff<T>(
       // Calculate backoff delay (exponential backoff)
       const delay = retryDelay * Math.pow(2, attempt);
       
-      logger.warn("Retrying after error", {
+      logger?.warn("Retrying after error", {
         type: "RETRY_ATTEMPT",
         attempt: attempt + 1,
         maxRetries,
@@ -93,7 +93,7 @@ export async function retryWithBackoff<T>(
   }
 
   // All retries exhausted
-  logger.error("All retry attempts exhausted", {
+  logger?.error("All retry attempts exhausted", {
     type: "RETRY_EXHAUSTED",
     maxRetries,
     error: lastError instanceof Error ? lastError.message : String(lastError),
@@ -125,7 +125,7 @@ export class CircuitBreaker {
       // Check if timeout has passed
       if (now - this.lastFailureTime >= this.timeout) {
         this.state = "half-open";
-        logger.info("Circuit breaker entering half-open state", {
+        logger?.info("Circuit breaker entering half-open state", {
           type: "CIRCUIT_BREAKER_HALF_OPEN",
         });
         return true;
@@ -143,7 +143,7 @@ export class CircuitBreaker {
     if (this.state === "half-open") {
       this.state = "closed";
       this.failures = 0;
-      logger.info("Circuit breaker closed after successful request", {
+      logger?.info("Circuit breaker closed after successful request", {
         type: "CIRCUIT_BREAKER_CLOSED",
       });
     } else if (this.state === "closed") {
@@ -160,7 +160,7 @@ export class CircuitBreaker {
 
     if (this.failures >= this.threshold) {
       this.state = "open";
-      logger.error("Circuit breaker opened due to failures", {
+      logger?.error("Circuit breaker opened due to failures", {
         type: "CIRCUIT_BREAKER_OPENED",
         failures: this.failures,
         threshold: this.threshold,
@@ -182,7 +182,7 @@ export class CircuitBreaker {
     this.failures = 0;
     this.lastFailureTime = 0;
     this.state = "closed";
-    logger.info("Circuit breaker reset", {
+    logger?.info("Circuit breaker reset", {
       type: "CIRCUIT_BREAKER_RESET",
     });
   }

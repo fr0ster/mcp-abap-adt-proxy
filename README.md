@@ -47,14 +47,14 @@ mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe
 The proxy supports multiple configuration methods:
 
 - **Command-line parameters** (highest priority)
-- **YAML/JSON configuration files** - See [YAML Configuration Guide](./doc/YAML_CONFIG.md)
+- **YAML/JSON configuration files** - See [YAML Configuration Guide](./docs/YAML_CONFIG.md)
 - **Environment variables**
 - **Default values** (lowest priority)
 
 **Quick Example (YAML config)**:
 ```bash
 # Copy example config from documentation
-cp doc/mcp-proxy-config.example.yaml mcp-proxy-config.yaml
+cp docs/mcp-proxy-config.example.yaml mcp-proxy-config.yaml
 
 # Edit mcp-proxy-config.yaml with your settings
 
@@ -66,7 +66,7 @@ mcp-abap-adt-proxy -c mcp-proxy-config.yaml
 
 ### Client Configuration
 
-For detailed setup instructions for Cline and GitHub Copilot, see the **[Client Setup Guide](./doc/CLIENT_SETUP.md)**.
+For detailed setup instructions for Cline and GitHub Copilot, see the **[Client Setup Guide](./docs/CLIENT_SETUP.md)**.
 
 **Quick Example (Cline)**:
 
@@ -135,15 +135,15 @@ The proxy uses two separate authentication injectors:
 
 ## Documentation
 
-- **[Client Setup Guide](./doc/CLIENT_SETUP.md)** - Step-by-step setup for Cline and GitHub Copilot
-- **[Configuration Guide](./doc/CONFIGURATION.md)** - Complete configuration reference
-- **[YAML Configuration Guide](./doc/YAML_CONFIG.md)** - Using YAML/JSON configuration files
-- **[Usage Examples](./doc/USAGE.md)** - Practical usage examples and patterns
-- **[API Documentation](./doc/API.md)** - API reference and interfaces
-- **[Architecture](./doc/ARCHITECTURE.md)** - System architecture and design
-- **[Troubleshooting](./doc/TROUBLESHOOTING.md)** - Common issues and solutions
-- **[Routing Logic Specification](./doc/ROUTING_LOGIC.md)** - Detailed routing logic and scenarios
-- **[Implementation Analysis](./doc/IMPLEMENTATION_ANALYSIS.md)** - Current implementation analysis
+- **[Client Setup Guide](./docs/CLIENT_SETUP.md)** - Step-by-step setup for Cline and GitHub Copilot
+- **[Configuration Guide](./docs/CONFIGURATION.md)** - Complete configuration reference
+- **[YAML Configuration Guide](./docs/YAML_CONFIG.md)** - Using YAML/JSON configuration files
+- **[Usage Examples](./docs/USAGE.md)** - Practical usage examples and patterns
+- **[API Documentation](./docs/API.md)** - API reference and interfaces
+- **[Architecture](./docs/ARCHITECTURE.md)** - System architecture and design
+- **[Troubleshooting](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Routing Logic Specification](./docs/ROUTING_LOGIC.md)** - Detailed routing logic and scenarios
+- **[Implementation Analysis](./docs/IMPLEMENTATION_ANALYSIS.md)** - Current implementation analysis
 - **[Roadmap](./ROADMAP.md)** - Development roadmap and progress
 
 ## How It Works
@@ -207,7 +207,7 @@ Create `mcp-proxy-config.json`:
 - `unsafe: false` (default) - Session data stored in-memory (secure, lost on restart)
 - `unsafe: true` - Session data persisted to disk (tokens saved to `.env` files)
 
-See [Configuration Guide](./doc/CONFIGURATION.md) for complete options.
+See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 
 ## Error Handling & Resilience
 

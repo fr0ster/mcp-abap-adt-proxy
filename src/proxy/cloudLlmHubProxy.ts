@@ -23,7 +23,7 @@ import {
   HEADER_ACCEPT,
   AUTH_TYPE_JWT,
 } from "@mcp-abap-adt/interfaces";
-import { logger } from "../lib/logger.js";
+import { logger } from "../lib/logger?.js";
 import { RoutingDecision } from "../router/headerAnalyzer.js";
 import { loadConfig, ProxyConfig } from "../lib/config.js";
 import { getPlatformStores } from "../lib/stores.js";
@@ -32,10 +32,10 @@ import { getPlatformStores } from "../lib/stores.js";
  * Adapter to convert proxy Logger to ILogger interface expected by AuthBroker
  */
 const loggerAdapter: ILogger = {
-  debug: (message: string, meta?: any) => logger.debug(message, meta),
-  info: (message: string, meta?: any) => logger.info(message, meta),
-  warn: (message: string, meta?: any) => logger.warn(message, meta),
-  error: (message: string, meta?: any) => logger.error(message, meta),
+  debug: (message: string, meta?: any) => logger?.debug(message, meta),
+  info: (message: string, meta?: any) => logger?.info(message, meta),
+  warn: (message: string, meta?: any) => logger?.warn(message, meta),
+  error: (message: string, meta?: any) => logger?.error(message, meta),
 };
 import {
   retryWithBackoff,
@@ -111,7 +111,7 @@ export class CloudLlmHubProxy {
       // Config is already loaded from YAML (if --config) or CLI/ENV (if no --config)
       // No merging - use config as-is (mutually exclusive: either YAML or CLI/ENV)
       this.config = config as ProxyConfig;
-      logger.debug("Using provided config in CloudLlmHubProxy constructor", {
+      logger?.debug("Using provided config in CloudLlmHubProxy constructor", {
         type: "CONFIG_PROVIDED",
         browserAuthPort: this.config.browserAuthPort,
         hasBrowserAuthPort: this.config.browserAuthPort !== undefined,
@@ -124,7 +124,7 @@ export class CloudLlmHubProxy {
     } else {
       // Fallback: load from CLI/ENV (should not happen if called from index.ts)
       this.config = loadConfig();
-      logger.info("Using fallback config from CLI/ENV in CloudLlmHubProxy constructor", {
+      logger?.info("Using fallback config from CLI/ENV in CloudLlmHubProxy constructor", {
         type: "CONFIG_FALLBACK",
         browserAuthPort: this.config.browserAuthPort,
         hasBrowserAuthPort: this.config.browserAuthPort !== undefined,
@@ -156,7 +156,7 @@ export class CloudLlmHubProxy {
     // Add request interceptor for logging
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        logger.debug("Proxying request to cloud-llm-hub", {
+        logger?.debug("Proxying request to cloud-llm-hub", {
           type: "CLOUD_LLM_HUB_PROXY_REQUEST",
           method: config.method,
           url: config.url,
@@ -165,7 +165,7 @@ export class CloudLlmHubProxy {
         return config;
       },
       (error) => {
-        logger.error("Request interceptor error", {
+        logger?.error("Request interceptor error", {
           type: "CLOUD_LLM_HUB_PROXY_REQUEST_ERROR",
           error: error instanceof Error ? error.message : String(error),
         });
@@ -176,7 +176,7 @@ export class CloudLlmHubProxy {
     // Add response interceptor for logging
     this.axiosInstance.interceptors.response.use(
       (response) => {
-        logger.debug("Received response from cloud-llm-hub", {
+        logger?.debug("Received response from cloud-llm-hub", {
           type: "CLOUD_LLM_HUB_PROXY_RESPONSE",
           status: response.status,
           url: response.config.url,
@@ -184,7 +184,7 @@ export class CloudLlmHubProxy {
         return response;
       },
       (error) => {
-        logger.error("Response interceptor error", {
+        logger?.error("Response interceptor error", {
           type: "CLOUD_LLM_HUB_PROXY_RESPONSE_ERROR",
           error: error instanceof Error ? error.message : String(error),
           status: error.response?.status,
@@ -213,7 +213,7 @@ export class CloudLlmHubProxy {
     }
 
     // Create new broker for this destination
-    logger.info("Creating new BTP auth broker for destination", {
+    logger?.info("Creating new BTP auth broker for destination", {
       type: "BTP_BROKER_CREATE",
       destination,
     });
@@ -241,7 +241,7 @@ export class CloudLlmHubProxy {
         }
         
         await sessionStore.saveSession(destination, sessionData);
-        logger.debug("Created initial session for BTP destination", {
+        logger?.debug("Created initial session for BTP destination", {
           type: "BTP_SESSION_CREATED",
           destination,
           hasAuthConfig: !!authConfig,
@@ -251,7 +251,7 @@ export class CloudLlmHubProxy {
     } catch (error) {
       // If service key doesn't exist or can't be read, continue without initial session
       // AuthBroker will handle this case
-      logger.debug("Could not create initial session for BTP destination (service key may not exist)", {
+      logger?.debug("Could not create initial session for BTP destination (service key may not exist)", {
         type: "BTP_SESSION_CREATE_SKIPPED",
         destination,
         error: error instanceof Error ? error.message : String(error),
@@ -291,7 +291,7 @@ export class CloudLlmHubProxy {
     }
 
     // Create new broker for this destination
-    logger.info("Creating new ABAP auth broker for destination", {
+    logger?.info("Creating new ABAP auth broker for destination", {
       type: "ABAP_BROKER_CREATE",
       destination,
     });
@@ -301,7 +301,7 @@ export class CloudLlmHubProxy {
     // Create token provider BEFORE creating session
     // Use browserAuthPort from config if available, otherwise default to 3001
     const browserAuthPort = this.config.browserAuthPort;
-    logger.debug("Creating BtpTokenProvider with browserAuthPort", {
+    logger?.debug("Creating BtpTokenProvider with browserAuthPort", {
       type: "BTP_TOKEN_PROVIDER_CREATE",
       destination,
       browserAuthPort: browserAuthPort ?? 3001, // Show default if undefined
@@ -329,7 +329,7 @@ export class CloudLlmHubProxy {
         };
         
         await sessionStore.saveSession(destination, sessionData);
-        logger.debug("Created initial session for ABAP destination", {
+        logger?.debug("Created initial session for ABAP destination", {
           type: "ABAP_SESSION_CREATED",
           destination,
           hasAuthConfig: !!authConfig,
@@ -339,7 +339,7 @@ export class CloudLlmHubProxy {
     } catch (error) {
       // If service key doesn't exist or can't be read, continue without initial session
       // AuthBroker will handle this case
-      logger.debug("Could not create initial session for ABAP destination (service key may not exist)", {
+      logger?.debug("Could not create initial session for ABAP destination (service key may not exist)", {
         type: "ABAP_SESSION_CREATE_SKIPPED",
         destination,
         error: error instanceof Error ? error.message : String(error),
@@ -373,7 +373,7 @@ export class CloudLlmHubProxy {
     forceRefresh: boolean = false
   ): Promise<string> {
     // Log which broker we're using
-    logger.info("Getting JWT token", {
+    logger?.info("Getting JWT token", {
       type: "JWT_TOKEN_GET_START",
       destination,
       isBtpDestination,
@@ -387,7 +387,7 @@ export class CloudLlmHubProxy {
     
     // For ABAP destinations, log browser auth port if available
     if (!isBtpDestination) {
-      logger.debug("ABAP token retrieval - browser auth may be triggered", {
+      logger?.debug("ABAP token retrieval - browser auth may be triggered", {
         type: "ABAP_TOKEN_RETRIEVAL",
         destination,
         browserAuthPort: this.config.browserAuthPort ?? 3001,
@@ -399,7 +399,7 @@ export class CloudLlmHubProxy {
     if (!forceRefresh) {
       const cached = this.tokenCache.get(destination);
       if (cached && cached.expiresAt > Date.now()) {
-        logger.debug("Using cached JWT token", {
+        logger?.debug("Using cached JWT token", {
           type: "JWT_TOKEN_CACHE_HIT",
           destination,
         });
@@ -422,7 +422,7 @@ export class CloudLlmHubProxy {
         }
 
         // Log which broker and provider we're using
-        logger.debug("Getting JWT token from auth-broker", {
+        logger?.debug("Getting JWT token from auth-broker", {
           type: "JWT_TOKEN_REQUEST_START",
           destination,
           isBtpDestination,
@@ -441,7 +441,7 @@ export class CloudLlmHubProxy {
             const parser = serviceKeyStore['parser'];
             const parserType = parser?.constructor?.name || 'unknown';
             
-            logger.info("BTP service key check", {
+            logger?.info("BTP service key check", {
               type: "BTP_SERVICE_KEY_CHECK",
               destination,
               hasServiceKey: !!serviceKey,
@@ -457,7 +457,7 @@ export class CloudLlmHubProxy {
             
             // If authConfig is null, try to see what's in the raw service key
             if (!authConfig && serviceKey) {
-              logger.warn("BTP service key exists but authConfig is null", {
+              logger?.warn("BTP service key exists but authConfig is null", {
                 type: "BTP_AUTH_CONFIG_NULL",
                 destination,
                 serviceKeyKeys: Object.keys(serviceKey),
@@ -471,7 +471,7 @@ export class CloudLlmHubProxy {
             // Try to call XsuaaTokenProvider directly to see what happens
             if (authConfig && tokenProvider && tokenProvider.constructor.name === 'XsuaaTokenProvider') {
               try {
-                logger.info("Testing XsuaaTokenProvider directly", {
+                logger?.info("Testing XsuaaTokenProvider directly", {
                   type: "XSUAA_PROVIDER_TEST",
                   destination,
                   uaaUrl: authConfig.uaaUrl,
@@ -479,13 +479,13 @@ export class CloudLlmHubProxy {
                   hasClientSecret: !!authConfig.uaaClientSecret,
                 });
                 const testResult = await tokenProvider.getConnectionConfig(authConfig);
-                logger.info("XsuaaTokenProvider test successful", {
+                logger?.info("XsuaaTokenProvider test successful", {
                   type: "XSUAA_PROVIDER_TEST_SUCCESS",
                   destination,
                   hasToken: !!testResult.connectionConfig?.authorizationToken,
                 });
               } catch (error) {
-                logger.error("XsuaaTokenProvider test failed", {
+                logger?.error("XsuaaTokenProvider test failed", {
                   type: "XSUAA_PROVIDER_TEST_FAILED",
                   destination,
                   error: error instanceof Error ? error.message : String(error),
@@ -493,7 +493,7 @@ export class CloudLlmHubProxy {
                 });
               }
             } else {
-              logger.warn("Cannot test XsuaaTokenProvider", {
+              logger?.warn("Cannot test XsuaaTokenProvider", {
                 type: "XSUAA_PROVIDER_TEST_SKIPPED",
                 destination,
                 hasAuthConfig: !!authConfig,
@@ -502,7 +502,7 @@ export class CloudLlmHubProxy {
               });
             }
           } catch (error) {
-            logger.warn("Failed to check BTP service key", {
+            logger?.warn("Failed to check BTP service key", {
               type: "BTP_SERVICE_KEY_CHECK_ERROR",
               destination,
               error: error instanceof Error ? error.message : String(error),
@@ -520,7 +520,7 @@ export class CloudLlmHubProxy {
           expiresAt: Date.now() + this.TOKEN_CACHE_TTL,
         });
 
-        logger.debug("Retrieved JWT token from auth-broker", {
+        logger?.debug("Retrieved JWT token from auth-broker", {
           type: "JWT_TOKEN_RETRIEVED",
           destination,
           isBtpDestination,
@@ -560,7 +560,7 @@ export class CloudLlmHubProxy {
         }
       }
       
-      logger.error("Failed to get JWT token from auth-broker after retries", {
+      logger?.error("Failed to get JWT token from auth-broker after retries", {
         type: "JWT_TOKEN_ERROR",
         destination,
         error: errorMessage,
@@ -623,7 +623,7 @@ export class CloudLlmHubProxy {
     forceTokenRefresh: boolean = false
   ): Promise<AxiosRequestConfig> {
     // Log original request to verify id is preserved
-    logger.info("=== BUILD PROXY REQUEST - ORIGINAL ===", {
+    logger?.info("=== BUILD PROXY REQUEST - ORIGINAL ===", {
       type: "BUILD_PROXY_REQUEST_ORIGINAL",
       originalRequestId: originalRequest.id,
       originalRequestIdType: typeof originalRequest.id,
@@ -649,14 +649,14 @@ export class CloudLlmHubProxy {
     if (btpDestinationHeader) {
       // 1.1: Header exists - use it
       btpDestination = btpDestinationHeader;
-      logger.debug("Using x-btp-destination from header", {
+      logger?.debug("Using x-btp-destination from header", {
         type: "BTP_DESTINATION_FROM_HEADER",
         destination: btpDestination,
       });
     } else if (btpDestinationFromParam) {
       // 1.2: Header doesn't exist but parameter exists - use parameter
       btpDestination = btpDestinationFromParam;
-      logger.debug("Using x-btp-destination from parameter", {
+      logger?.debug("Using x-btp-destination from parameter", {
         type: "BTP_DESTINATION_FROM_PARAM",
         destination: btpDestination,
       });
@@ -677,7 +677,7 @@ export class CloudLlmHubProxy {
       // Add/replace Authorization header
       proxyHeaders[HEADER_AUTHORIZATION] = `Bearer ${authToken}`;
       
-      logger.debug(hasExistingAuth ? "Replaced existing Authorization header with BTP token" : "Added BTP Cloud authorization token", {
+      logger?.debug(hasExistingAuth ? "Replaced existing Authorization header with BTP token" : "Added BTP Cloud authorization token", {
         type: hasExistingAuth ? "BTP_AUTH_TOKEN_REPLACED" : "BTP_AUTH_TOKEN_ADDED",
         destination: btpDestination,
         hadExistingAuth: hasExistingAuth,
@@ -687,11 +687,11 @@ export class CloudLlmHubProxy {
       const existingSapJwtToken = this.getHeaderValue(originalHeaders[HEADER_SAP_JWT_TOKEN]);
       if (existingSapJwtToken) {
         proxyHeaders[HEADER_SAP_JWT_TOKEN] = existingSapJwtToken;
-        logger.debug("Preserved x-sap-jwt-token from original request (no BTP destination)", {
+        logger?.debug("Preserved x-sap-jwt-token from original request (no BTP destination)", {
           type: "SAP_JWT_TOKEN_PRESERVED",
         });
       } else {
-        logger.debug("No BTP destination and no x-sap-jwt-token in request", {
+        logger?.debug("No BTP destination and no x-sap-jwt-token in request", {
         type: "BTP_AUTH_SKIPPED",
       });
       }
@@ -709,7 +709,7 @@ export class CloudLlmHubProxy {
     if (mcpDestinationHeader) {
       // 2.1: Header exists - find broker in map, create if not found, save to map
       mcpDestination = mcpDestinationHeader;
-      logger.debug("Using x-mcp-destination from header", {
+      logger?.debug("Using x-mcp-destination from header", {
         type: "MCP_DESTINATION_FROM_HEADER",
         destination: mcpDestination,
       });
@@ -725,14 +725,14 @@ export class CloudLlmHubProxy {
         // Add/replace x-sap-jwt-token header
         proxyHeaders[HEADER_SAP_JWT_TOKEN] = sapToken;
         
-      logger.debug("Added/replaced x-sap-jwt-token from ABAP broker", {
+      logger?.debug("Added/replaced x-sap-jwt-token from ABAP broker", {
         type: "SAP_TOKEN_ADDED_FROM_BROKER",
         destination: mcpDestination,
         tokenLength: sapToken?.length || 0,
         hasToken: !!sapToken,
       });
       } catch (error) {
-        logger.error("Failed to get SAP ABAP token (continuing without token)", {
+        logger?.error("Failed to get SAP ABAP token (continuing without token)", {
           type: "SAP_TOKEN_SKIPPED",
           destination: mcpDestination,
           error: error instanceof Error ? error.message : String(error),
@@ -750,7 +750,7 @@ export class CloudLlmHubProxy {
     } else if (mcpDestinationFromParam) {
       // 2.2: Header doesn't exist but --mcp parameter exists - use default broker
       mcpDestination = mcpDestinationFromParam;
-      logger.debug("Using x-mcp-destination from parameter (default broker)", {
+      logger?.debug("Using x-mcp-destination from parameter (default broker)", {
         type: "MCP_DESTINATION_FROM_PARAM",
         destination: mcpDestination,
       });
@@ -768,7 +768,7 @@ export class CloudLlmHubProxy {
           const cached = this.tokenCache.get(mcpDestination);
           if (cached && cached.expiresAt > Date.now()) {
             sapToken = cached.token;
-            logger.debug("Using cached token from default broker", {
+            logger?.debug("Using cached token from default broker", {
               type: "SAP_TOKEN_CACHE_HIT_DEFAULT",
               destination: mcpDestination,
             });
@@ -793,12 +793,12 @@ export class CloudLlmHubProxy {
         // Add/replace x-sap-jwt-token header
         proxyHeaders[HEADER_SAP_JWT_TOKEN] = sapToken;
         
-        logger.debug("Added/replaced x-sap-jwt-token from default ABAP broker", {
+        logger?.debug("Added/replaced x-sap-jwt-token from default ABAP broker", {
           type: "SAP_TOKEN_ADDED_FROM_DEFAULT_BROKER",
           destination: mcpDestination,
         });
       } catch (error) {
-        logger.warn("Failed to get SAP ABAP token from default broker (continuing without token)", {
+        logger?.warn("Failed to get SAP ABAP token from default broker (continuing without token)", {
           type: "SAP_TOKEN_SKIPPED_DEFAULT",
           destination: mcpDestination,
           error: error instanceof Error ? error.message : String(error),
@@ -814,7 +814,7 @@ export class CloudLlmHubProxy {
       
     } else {
       // 2.3: Neither header nor parameter - don't modify request, just translate to mcp_url
-      logger.debug("No x-mcp-destination header or parameter - will translate to mcp_url only", {
+      logger?.debug("No x-mcp-destination header or parameter - will translate to mcp_url only", {
         type: "MCP_DESTINATION_SKIPPED",
     });
     }
@@ -857,7 +857,7 @@ export class CloudLlmHubProxy {
     if (mcpUrlHeader || mcpUrlFromParam) {
       // Priority 1: Use direct URL from x-mcp-url header or --mcp-url parameter
       baseUrl = mcpUrlHeader || mcpUrlFromParam;
-      logger.debug("Using MCP URL from x-mcp-url header or --mcp-url parameter", {
+      logger?.debug("Using MCP URL from x-mcp-url header or --mcp-url parameter", {
         type: "MCP_URL_FROM_HEADER",
         url: baseUrl,
         source: mcpUrlHeader ? "header" : "parameter",
@@ -869,19 +869,19 @@ export class CloudLlmHubProxy {
         const connConfig = await btpBroker.getConnectionConfig(btpDestination);
         baseUrl = connConfig?.serviceUrl;
         if (baseUrl) {
-          logger.debug("Using MCP URL from BTP destination service key", {
+          logger?.debug("Using MCP URL from BTP destination service key", {
             type: "MCP_URL_FROM_BTP_DESTINATION",
             destination: btpDestination,
             url: baseUrl,
           });
         } else {
-          logger.warn("BTP destination service key does not contain service URL", {
+          logger?.warn("BTP destination service key does not contain service URL", {
             type: "BTP_DESTINATION_NO_URL",
             destination: btpDestination,
           });
         }
       } catch (error) {
-        logger.warn("Failed to get URL from BTP destination service key", {
+        logger?.warn("Failed to get URL from BTP destination service key", {
           type: "BTP_DESTINATION_URL_ERROR",
           destination: btpDestination,
           error: error instanceof Error ? error.message : String(error),
@@ -896,19 +896,19 @@ export class CloudLlmHubProxy {
         const connConfig = await abapBroker.getConnectionConfig(mcpDestination);
         baseUrl = connConfig?.serviceUrl;
         if (baseUrl) {
-          logger.debug("Using MCP URL from MCP destination service key", {
+          logger?.debug("Using MCP URL from MCP destination service key", {
             type: "MCP_URL_FROM_MCP_DESTINATION",
             destination: mcpDestination,
             url: baseUrl,
           });
         } else {
-          logger.warn("MCP destination service key does not contain service URL", {
+          logger?.warn("MCP destination service key does not contain service URL", {
             type: "MCP_DESTINATION_NO_URL",
             destination: mcpDestination,
           });
         }
       } catch (error) {
-        logger.warn("Failed to get URL from MCP destination service key", {
+        logger?.warn("Failed to get URL from MCP destination service key", {
           type: "MCP_DESTINATION_URL_ERROR",
           destination: mcpDestination,
           error: error instanceof Error ? error.message : String(error),
@@ -928,7 +928,7 @@ export class CloudLlmHubProxy {
     if (baseUrl.includes("/mcp/") || baseUrl.endsWith("/mcp") || baseUrl.includes("/mcp/stream/")) {
       // URL already contains MCP path - use as-is (but remove trailing slash if present)
       fullUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-      logger.debug("Using MCP URL as-is (already contains path)", {
+      logger?.debug("Using MCP URL as-is (already contains path)", {
         type: "MCP_URL_AS_IS",
         original: baseUrl,
         final: fullUrl,
@@ -939,7 +939,7 @@ export class CloudLlmHubProxy {
       fullUrl = baseUrl.endsWith("/") 
         ? `${baseUrl.slice(0, -1)}${mcpPath}`
         : `${baseUrl}${mcpPath}`;
-      logger.debug("Appended MCP path to base URL", {
+      logger?.debug("Appended MCP path to base URL", {
         type: "MCP_URL_APPENDED",
         original: baseUrl,
         final: fullUrl,
@@ -975,7 +975,7 @@ export class CloudLlmHubProxy {
       }
     }
 
-    logger.info("=== BUILDING PROXY REQUEST ===", {
+    logger?.info("=== BUILDING PROXY REQUEST ===", {
       type: "PROXY_REQUEST_BUILT",
       btpDestination: btpDestination,
       mcpDestination: mcpDestination,
@@ -1002,7 +1002,7 @@ export class CloudLlmHubProxy {
       data: originalRequest,
     };
     
-    logger.debug("Axios request config", {
+    logger?.debug("Axios request config", {
       type: "AXIOS_REQUEST_CONFIG",
       method: axiosConfig.method,
       url: axiosConfig.url,
@@ -1023,7 +1023,7 @@ export class CloudLlmHubProxy {
   ): Promise<ProxyResponse> {
     // Check circuit breaker
     if (!this.circuitBreaker.canProceed()) {
-      logger.warn("Circuit breaker is open, rejecting request", {
+      logger?.warn("Circuit breaker is open, rejecting request", {
         type: "CIRCUIT_BREAKER_REJECTED",
         btpDestination: routingDecision.btpDestination,
         mcpDestination: routingDecision.mcpDestination,
@@ -1093,7 +1093,7 @@ export class CloudLlmHubProxy {
           sanitizedOutgoingBody.jsonrpc = proxyConfig.data.jsonrpc;
         }
 
-        logger.info("=== SENDING REQUEST TO MCP SERVER ===", {
+        logger?.info("=== SENDING REQUEST TO MCP SERVER ===", {
           type: "PROXY_REQUEST_SENDING",
           url: proxyConfig.url,
           method: proxyConfig.method,
@@ -1110,7 +1110,7 @@ export class CloudLlmHubProxy {
         const dataString = typeof response.data === 'string' ? (response.data as string).substring(0, 500) : undefined;
         const dataKeys = response.data && typeof response.data === 'object' && !Array.isArray(response.data) ? Object.keys(response.data) : undefined;
         
-        logger.info("=== RAW RESPONSE FROM MCP SERVER ===", {
+        logger?.info("=== RAW RESPONSE FROM MCP SERVER ===", {
           type: "RAW_RESPONSE_FROM_MCP_SERVER",
           status: response.status,
           statusText: response.statusText,
@@ -1144,7 +1144,7 @@ export class CloudLlmHubProxy {
           };
         }
 
-        logger.info("=== RESPONSE FROM MCP SERVER (AXIOS) ===", {
+        logger?.info("=== RESPONSE FROM MCP SERVER (AXIOS) ===", {
           type: "PROXY_RESPONSE_RECEIVED_AXIOS",
           response: sanitizedResponse,
           hasResult: !!response.data?.result,
@@ -1162,14 +1162,14 @@ export class CloudLlmHubProxy {
       // Log detailed error information (always log errors, but detailed info only in debug mode)
       if (error && typeof error === 'object' && 'response' in error) {
         const axiosError = error as any;
-        logger.error("Request failed", {
+        logger?.error("Request failed", {
           type: "PROXY_REQUEST_FAILED",
           status: axiosError.response?.status,
           statusText: axiosError.response?.statusText,
           url: axiosError.config?.url,
         });
         // Detailed error info only in debug mode
-        logger.debug("Axios error details", {
+        logger?.debug("Axios error details", {
           type: "AXIOS_ERROR_DETAILS",
           status: axiosError.response?.status,
           statusText: axiosError.response?.statusText,
@@ -1182,7 +1182,7 @@ export class CloudLlmHubProxy {
 
       // Handle token expiration
       if (isTokenExpirationError(error)) {
-        logger.warn("Token expiration detected, will retry with fresh token", {
+        logger?.warn("Token expiration detected, will retry with fresh token", {
           type: "TOKEN_EXPIRATION_DETECTED",
           btpDestination: routingDecision.btpDestination,
           mcpDestination: routingDecision.mcpDestination,
@@ -1201,7 +1201,7 @@ export class CloudLlmHubProxy {
           this.circuitBreaker.recordSuccess();
           return response.data;
         } catch (retryError) {
-          logger.error("Failed to retry with fresh token", {
+          logger?.error("Failed to retry with fresh token", {
             type: "TOKEN_REFRESH_RETRY_FAILED",
             error: retryError instanceof Error ? retryError.message : String(retryError),
           });
@@ -1213,7 +1213,7 @@ export class CloudLlmHubProxy {
         ? error.response.status 
         : undefined;
       
-      logger.error("Failed to proxy request to cloud-llm-hub", {
+      logger?.error("Failed to proxy request to cloud-llm-hub", {
         type: "PROXY_REQUEST_ERROR",
         error: errorMessage,
         status: statusCode,
@@ -1276,7 +1276,7 @@ export async function createCloudLlmHubProxy(
   // Create ABAP auth broker with BtpTokenProvider (for ABAP destinations)
   // Use browserAuthPort from config if available, otherwise default to 3001
   const browserAuthPort = config?.browserAuthPort;
-  logger.debug("Creating BtpTokenProvider in createCloudLlmHubProxy with browserAuthPort", {
+  logger?.debug("Creating BtpTokenProvider in createCloudLlmHubProxy with browserAuthPort", {
     type: "BTP_TOKEN_PROVIDER_CREATE_DEFAULT",
     browserAuthPort: browserAuthPort ?? 3001, // Show default if undefined
     hasBrowserAuthPort: browserAuthPort !== undefined,

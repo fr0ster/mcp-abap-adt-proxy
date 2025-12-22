@@ -221,15 +221,15 @@ if (hasTestLogs || hasPackageLogs) {
 
     // Note: testLogger and packageLogger now use process.stdout.write directly,
     // so they won't be intercepted here. This interceptor only handles logs from
-    // other sources (like logger.ts from packages)
+    // other sources (like logger?.ts from packages)
 
-    // Check if this looks like a log from our logger.ts (has timestamp and prefix pattern)
+    // Check if this looks like a log from our logger?.ts (has timestamp and prefix pattern)
     // Pattern: [timestamp] [PREFIX] message
     const logPattern = /^\[.*?\] \[(DEBUG|INFO|WARN|ERROR)\]/;
     const match = message.match(logPattern);
 
     if (match) {
-      // This is a log from our logger.ts
+      // This is a log from our logger?.ts
       const levelStr = match[1].toLowerCase() as 'debug' | 'info' | 'warn' | 'error';
       
       // Extract the actual message (everything after the prefix)
@@ -238,7 +238,7 @@ if (hasTestLogs || hasPackageLogs) {
 
       // Try to detect package name from message or use 'logger' as default
       // For now, we'll use 'logger' as default, but this can be enhanced
-      // by adding package name to log format in logger.ts
+      // by adding package name to log format in logger?.ts
       const packageName = 'logger';
       const logger = packageLoggers.get(packageName);
       

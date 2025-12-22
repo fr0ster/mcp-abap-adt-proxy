@@ -15,7 +15,7 @@ import {
   HEADER_MCP_SESSION_ID,
   HEADER_X_MCP_SESSION_ID,
 } from "@mcp-abap-adt/interfaces";
-import { logger } from "../lib/logger.js";
+import { logger } from "../lib/logger?.js";
 
 export interface InterceptedRequest {
   method: string;
@@ -49,13 +49,13 @@ export function interceptRequest(
   if (routingDecision.strategy !== RoutingStrategy.PASSTHROUGH) {
     const validation = validateProxyHeaders(req.headers);
     if (!validation.isValid && validation.errors.length > 0) {
-      logger.warn("Proxy header validation failed", {
+      logger?.warn("Proxy header validation failed", {
         type: "PROXY_HEADER_VALIDATION_ERROR",
         errors: validation.errors,
         warnings: validation.warnings,
       });
     } else if (validation.warnings.length > 0) {
-      logger.warn("Proxy header validation warnings", {
+      logger?.warn("Proxy header validation warnings", {
         type: "PROXY_HEADER_VALIDATION_WARNINGS",
         warnings: validation.warnings,
       });
@@ -72,7 +72,7 @@ export function interceptRequest(
   const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
 
   // Log intercepted request
-  logger.debug("Request intercepted", {
+  logger?.debug("Request intercepted", {
     type: "REQUEST_INTERCEPTED",
     method: req.method,
     url: req.url,

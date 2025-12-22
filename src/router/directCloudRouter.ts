@@ -8,7 +8,7 @@
 import { IncomingHttpHeaders } from "http";
 import { AuthBroker } from "@mcp-abap-adt/auth-broker";
 import { createAbapConnection, AbapConnection, FileSessionStorage } from "@mcp-abap-adt/connection";
-import { logger } from "../lib/logger.js";
+import { logger } from "../lib/logger?.js";
 import { RoutingDecision } from "./headerAnalyzer.js";
 
 export interface DirectCloudConfig {
@@ -35,7 +35,7 @@ export function createDirectCloudConfig(
   // Proxy validates only x-btp-destination and x-mcp-destination headers
   // This function is not used in the current proxy implementation
   // as proxy passes all other headers directly to MCP server
-  logger.warn("Direct cloud routing is not supported in proxy mode", {
+  logger?.warn("Direct cloud routing is not supported in proxy mode", {
     type: "DIRECT_CLOUD_CONFIG_ERROR",
     strategy: routingDecision.strategy,
   });
@@ -75,7 +75,7 @@ function cleanupConnectionCache(): void {
   for (const [key, entry] of connectionCache.entries()) {
     const age = now.getTime() - entry.lastUsed.getTime();
     if (age > maxAge) {
-      logger.debug("Cleaning up old connection cache entry", {
+      logger?.debug("Cleaning up old connection cache entry", {
         type: "CONNECTION_CACHE_CLEANUP",
         key: key.substring(0, 16),
       });
@@ -112,7 +112,7 @@ export async function getDirectCloudConnection(
       // For now, we'll rely on the token being valid and the URL being set from destination
       // The actual URL will be loaded when we create the connection
     } catch (error) {
-      logger.error("Failed to load destination config from AuthBroker", {
+      logger?.error("Failed to load destination config from AuthBroker", {
         type: "AUTH_BROKER_LOAD_ERROR",
         destination: config.destination,
         error: error instanceof Error ? error.message : String(error),
@@ -122,7 +122,7 @@ export async function getDirectCloudConnection(
   }
 
   if (!entry || entry.configSignature !== cacheKey) {
-    logger.debug("Creating new direct cloud connection", {
+    logger?.debug("Creating new direct cloud connection", {
       type: "DIRECT_CLOUD_CONNECTION_CREATE",
       sessionId: sessionId.substring(0, 8),
       destination: config.destination,
@@ -162,7 +162,7 @@ export async function getDirectCloudConnection(
     try {
       await connection.connect();
     } catch (error) {
-      logger.error("Failed to connect to cloud ABAP", {
+      logger?.error("Failed to connect to cloud ABAP", {
         type: "DIRECT_CLOUD_CONNECTION_ERROR",
         error: error instanceof Error ? error.message : String(error),
         destination: config.destination,
@@ -179,7 +179,7 @@ export async function getDirectCloudConnection(
     connectionCache.set(cacheKey, entry);
   } else {
     entry.lastUsed = new Date();
-    logger.debug("Reusing cached direct cloud connection", {
+    logger?.debug("Reusing cached direct cloud connection", {
       type: "DIRECT_CLOUD_CONNECTION_REUSE",
       sessionId: sessionId.substring(0, 8),
     });

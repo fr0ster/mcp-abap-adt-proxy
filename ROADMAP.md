@@ -237,7 +237,7 @@ Response back to Cline
 
 **Status**: ✅ Completed
 
-The routing logic has been simplified and clarified. See [Routing Logic Specification](./doc/ROUTING_LOGIC.md) for detailed documentation.
+The routing logic has been simplified and clarified. See [Routing Logic Specification](./docs/ROUTING_LOGIC.md) for detailed documentation.
 
 **Completed Changes:**
 1. ✅ **Simplified header validation**: Only `x-btp-destination` and `x-mcp-destination` headers are validated. All other headers are passed directly to MCP server.
@@ -250,7 +250,7 @@ The routing logic has been simplified and clarified. See [Routing Logic Specific
 - Connection configuration comes only from destinations (service key files) via auth-broker
 - No `.env` files are used for connection configuration (session stores may use `.env` for token storage, but that's separate)
 
-See [Routing Logic Specification](./doc/ROUTING_LOGIC.md) and [Implementation Analysis](./doc/IMPLEMENTATION_ANALYSIS.md) for complete details.
+See [Routing Logic Specification](./docs/ROUTING_LOGIC.md) and [Implementation Analysis](./docs/IMPLEMENTATION_ANALYSIS.md) for complete details.
 
 ## Notes
 

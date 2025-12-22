@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `btpAuthBroker` with `XsuaaTokenProvider` for BTP destinations (`--btp` or `x-btp-destination`)
   - `abapAuthBroker` with `BtpTokenProvider` for ABAP destinations (`--mcp` or `x-mcp-destination`)
   - Proper separation ensures correct token provider is used for each destination type
-- **Client Setup Guide** (`doc/CLIENT_SETUP.md`)
+- **Client Setup Guide** (`docs/CLIENT_SETUP.md`)
   - Step-by-step setup instructions for Cline and GitHub Copilot
   - Configuration examples for different scenarios (local MCP, BTP MCP, BTP + ABAP)
   - Troubleshooting section with common issues and solutions
@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Documentation for BTP-Only authentication mode**
-  - Added "Scenario 2: BTP Authentication Only (No SAP Configuration)" in `doc/USAGE.md`
+  - Added "Scenario 2: BTP Authentication Only (No SAP Configuration)" in `docs/USAGE.md`
   - Documented use case for connecting to any BTP service without SAP ABAP configuration
   - Explained that `x-mcp-destination` is optional when using `x-btp-destination` or `--btp`
   - Updated README.md with "BTP-Only Mode" section explaining behavior when only `--btp` is provided

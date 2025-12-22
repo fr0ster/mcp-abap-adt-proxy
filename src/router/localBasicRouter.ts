@@ -6,7 +6,7 @@
 
 import { IncomingHttpHeaders } from "http";
 import { createAbapConnection, AbapConnection, FileSessionStorage } from "@mcp-abap-adt/connection";
-import { logger } from "../lib/logger.js";
+import { logger } from "../lib/logger?.js";
 import { RoutingDecision } from "./headerAnalyzer.js";
 
 export interface LocalBasicConfig {
@@ -26,7 +26,7 @@ export function createLocalBasicConfig(
   // Proxy validates only x-btp-destination and x-mcp-destination headers
   // This function is not used in the current proxy implementation
   // as proxy passes all other headers directly to MCP server
-  logger.warn("Local basic routing is not supported in proxy mode", {
+  logger?.warn("Local basic routing is not supported in proxy mode", {
     type: "LOCAL_BASIC_CONFIG_ERROR",
     strategy: routingDecision.strategy,
   });
@@ -65,7 +65,7 @@ function cleanupConnectionCache(): void {
   for (const [key, entry] of connectionCache.entries()) {
     const age = now.getTime() - entry.lastUsed.getTime();
     if (age > maxAge) {
-      logger.debug("Cleaning up old local basic connection cache entry", {
+      logger?.debug("Cleaning up old local basic connection cache entry", {
         type: "LOCAL_BASIC_CACHE_CLEANUP",
         key: key.substring(0, 16),
       });
@@ -90,7 +90,7 @@ export async function getLocalBasicConnection(
   let entry = connectionCache.get(cacheKey);
 
   if (!entry || entry.configSignature !== cacheKey) {
-    logger.debug("Creating new local basic connection", {
+    logger?.debug("Creating new local basic connection", {
       type: "LOCAL_BASIC_CONNECTION_CREATE",
       sessionId: sessionId.substring(0, 8),
       sapUrl: config.sapUrl,
@@ -124,7 +124,7 @@ export async function getLocalBasicConnection(
     try {
       await connection.connect();
     } catch (error) {
-      logger.error("Failed to connect to ABAP with basic auth", {
+      logger?.error("Failed to connect to ABAP with basic auth", {
         type: "LOCAL_BASIC_CONNECTION_ERROR",
         error: error instanceof Error ? error.message : String(error),
         sapUrl: config.sapUrl,
@@ -141,7 +141,7 @@ export async function getLocalBasicConnection(
     connectionCache.set(cacheKey, entry);
   } else {
     entry.lastUsed = new Date();
-    logger.debug("Reusing cached local basic connection", {
+    logger?.debug("Reusing cached local basic connection", {
       type: "LOCAL_BASIC_CONNECTION_REUSE",
       sessionId: sessionId.substring(0, 8),
     });

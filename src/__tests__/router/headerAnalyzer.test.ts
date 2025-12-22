@@ -9,19 +9,19 @@ import {
   HEADER_MCP_URL,
 } from "@mcp-abap-adt/interfaces";
 import { IncomingHttpHeaders } from "http";
-import { testLogger } from "../helpers/testLogger.js";
+import { testLogger } from "../helpers/testlogger?.js";
 
 describe("headerAnalyzer", () => {
   describe("analyzeHeaders", () => {
     it("should return PROXY strategy when x-btp-destination is present", () => {
-      testLogger.info("Test: should return PROXY strategy when x-btp-destination is present");
+      testlogger?.info("Test: should return PROXY strategy when x-btp-destination is present");
       
       const headers: IncomingHttpHeaders = {
         [HEADER_BTP_DESTINATION]: "btp-cloud",
         [HEADER_MCP_DESTINATION]: "sap-abap",
       };
 
-      testLogger.info("Input headers object - HTTP headers from incoming request", { 
+      testlogger?.info("Input headers object - HTTP headers from incoming request", { 
         headers: {
           [HEADER_BTP_DESTINATION]: headers[HEADER_BTP_DESTINATION],
           [HEADER_MCP_DESTINATION]: headers[HEADER_MCP_DESTINATION],
@@ -32,7 +32,7 @@ describe("headerAnalyzer", () => {
         explanation: "Headers contain destination information for routing decision"
       });
 
-      testLogger.info("Calling analyzeHeaders - will analyze headers to determine routing strategy", {
+      testlogger?.info("Calling analyzeHeaders - will analyze headers to determine routing strategy", {
         function: "analyzeHeaders",
         willCheck: [
           "x-btp-destination header for BTP destination",
@@ -43,7 +43,7 @@ describe("headerAnalyzer", () => {
 
       const decision = analyzeHeaders(headers);
 
-      testLogger.info("Routing decision result - strategy determined from headers", { 
+      testlogger?.info("Routing decision result - strategy determined from headers", { 
         decision: {
           strategy: decision.strategy,
           btpDestination: decision.btpDestination,
@@ -74,17 +74,17 @@ describe("headerAnalyzer", () => {
     });
 
     it("should extract btp-destination from x-btp-destination header", () => {
-      testLogger.info("Test: should extract btp-destination from x-btp-destination header");
+      testlogger?.info("Test: should extract btp-destination from x-btp-destination header");
       
       const headers: IncomingHttpHeaders = {
         [HEADER_BTP_DESTINATION]: "btp-cloud",
       };
 
-      testLogger.debug("Input headers", { btpDestination: headers[HEADER_BTP_DESTINATION] });
+      testlogger?.debug("Input headers", { btpDestination: headers[HEADER_BTP_DESTINATION] });
 
       const decision = analyzeHeaders(headers);
 
-      testLogger.debug("Extracted destination", { 
+      testlogger?.debug("Extracted destination", { 
         strategy: decision.strategy,
         btpDestination: decision.btpDestination
       });

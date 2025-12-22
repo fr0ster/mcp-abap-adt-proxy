@@ -20,7 +20,7 @@ import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } f
 import axios from "axios";
 import { parseTransportConfig, TransportConfig } from "./lib/transportConfig.js";
 import { loadConfig, validateConfig } from "./lib/config.js";
-import { logger } from "./lib/logger.js";
+import { logger } from "./lib/logger?.js";
 import { interceptRequest, requiresSapConfig, sanitizeHeadersForLogging } from "./router/requestInterceptor.js";
 import { RoutingStrategy } from "./router/headerAnalyzer.js";
 import { createCloudLlmHubProxy, CloudLlmHubProxy, shouldWriteStderr } from "./proxy/cloudLlmHubProxy.js";
@@ -48,14 +48,14 @@ export class McpAbapAdtProxyServer {
     if (this.transportConfig.type === "streamable-http" || this.transportConfig.type === "sse") {
       const validation = validateConfig(this.config);
       if (!validation.valid) {
-        logger.error("Configuration validation failed", {
+        logger?.error("Configuration validation failed", {
           type: "CONFIG_VALIDATION_ERROR",
           errors: validation.errors,
         });
         throw new Error(`Configuration validation failed: ${validation.errors.join(", ")}`);
       }
       if (validation.warnings.length > 0) {
-        logger.warn("Configuration validation warnings", {
+        logger?.warn("Configuration validation warnings", {
           type: "CONFIG_VALIDATION_WARNINGS",
           warnings: validation.warnings,
         });
@@ -114,7 +114,7 @@ export class McpAbapAdtProxyServer {
 
     // Check if routing is valid
     if (routingDecision.strategy !== RoutingStrategy.PROXY) {
-      logger.error("Routing decision failed for stdio request", {
+      logger?.error("Routing decision failed for stdio request", {
         type: "STDIO_ROUTING_DECISION_FAILED",
         reason: routingDecision.reason,
       });
@@ -151,7 +151,7 @@ export class McpAbapAdtProxyServer {
       );
       return proxyResponse;
     } catch (error) {
-      logger.error("Failed to proxy stdio request", {
+      logger?.error("Failed to proxy stdio request", {
         type: "STDIO_PROXY_ERROR",
         error: error instanceof Error ? error.message : String(error),
       });
@@ -173,7 +173,7 @@ export class McpAbapAdtProxyServer {
     if (this.transportConfig.type === "stdio") {
       // Check if either --btp, --mcp, or --mcp-url parameter is provided (required for stdio)
       if (!this.config.btpDestination && !this.config.mcpDestination && !this.config.mcpUrl) {
-        logger.error("Either --btp, --mcp, or --mcp-url parameter is required for stdio transport", {
+        logger?.error("Either --btp, --mcp, or --mcp-url parameter is required for stdio transport", {
           type: "STDIO_DESTINATION_REQUIRED",
         });
         throw new Error("Either --btp, --mcp, or --mcp-url parameter is required for stdio transport. Use --btp=<destination> for BTP destination, --mcp=<destination> for MCP destination, or --mcp-url=<url> for direct MCP server URL (local testing).");
@@ -194,7 +194,7 @@ export class McpAbapAdtProxyServer {
       
       const transport = new StdioServerTransport();
       await this.server.server.connect(transport);
-      logger.info("MCP Proxy Server started (stdio transport)", {
+      logger?.info("MCP Proxy Server started (stdio transport)", {
         type: "SERVER_STARTED",
         transport: "stdio",
         btpDestination: this.config.btpDestination,
@@ -230,7 +230,7 @@ export class McpAbapAdtProxyServer {
       const debugEnabled = process.env.DEBUG === "true" || process.env.DEBUG_HTTP_REQUESTS === "true";
       const sanitizedHeaders = sanitizeHeadersForLogging(req.headers);
       
-      logger.info("=== HTTP REQUEST RECEIVED ===", {
+      logger?.info("=== HTTP REQUEST RECEIVED ===", {
         type: "HTTP_REQUEST_RECEIVED",
         method: req.method,
         url: req.url,
@@ -240,7 +240,7 @@ export class McpAbapAdtProxyServer {
 
       // Only handle POST requests
       if (req.method !== "POST") {
-        logger.warn("Non-POST request rejected", {
+        logger?.warn("Non-POST request rejected", {
           type: "NON_POST_REQUEST",
           method: req.method,
         });
@@ -258,7 +258,7 @@ export class McpAbapAdtProxyServer {
         }
         const bodyString = Buffer.concat(chunks).toString("utf-8");
         
-        logger.info("=== PARSING REQUEST BODY ===", {
+        logger?.info("=== PARSING REQUEST BODY ===", {
           type: "REQUEST_BODY_PARSING",
           bodyLength: bodyString.length,
           bodyPreview: bodyString.substring(0, 200),
@@ -292,12 +292,12 @@ export class McpAbapAdtProxyServer {
           }
         }
         
-        logger.info("=== REQUEST BODY PARSED ===", {
+        logger?.info("=== REQUEST BODY PARSED ===", {
           type: "REQUEST_BODY_PARSED",
           body: sanitizedBody,
         });
       } catch (error) {
-        logger.error("=== FAILED TO PARSE REQUEST BODY ===", {
+        logger?.error("=== FAILED TO PARSE REQUEST BODY ===", {
           type: "REQUEST_PARSE_ERROR",
           error: error instanceof Error ? error.message : String(error),
           errorStack: error instanceof Error ? error.stack : undefined,
@@ -315,14 +315,14 @@ export class McpAbapAdtProxyServer {
         mcpUrl: this.config.mcpUrl,
       };
       
-      logger.info("=== INTERCEPTING REQUEST ===", {
+      logger?.info("=== INTERCEPTING REQUEST ===", {
         type: "REQUEST_INTERCEPTING",
         configOverrides,
       });
       
       const intercepted = interceptRequest(req, body, configOverrides);
       
-      logger.info("=== REQUEST INTERCEPTED ===", {
+      logger?.info("=== REQUEST INTERCEPTED ===", {
         type: "REQUEST_INTERCEPTED",
         routingStrategy: intercepted.routingDecision.strategy,
         routingReason: intercepted.routingDecision.reason,
@@ -333,7 +333,7 @@ export class McpAbapAdtProxyServer {
 
       // Check routing decision
       if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
-        logger.error("Routing decision failed", {
+        logger?.error("Routing decision failed", {
           type: "ROUTING_DECISION_FAILED",
           reason: intercepted.routingDecision.reason,
         });
@@ -351,14 +351,14 @@ export class McpAbapAdtProxyServer {
 
       // If no proxy headers, pass through request without modifications
       if (intercepted.routingDecision.strategy === RoutingStrategy.PASSTHROUGH) {
-        logger.debug("Passing through request without modifications", {
+        logger?.debug("Passing through request without modifications", {
           type: "PASSTHROUGH_REQUEST",
           reason: intercepted.routingDecision.reason,
         });
         try {
           await this.handlePassthroughRequest(intercepted, req, res);
         } catch (error) {
-          logger.error("Failed to process passthrough request", {
+          logger?.error("Failed to process passthrough request", {
             type: "PASSTHROUGH_REQUEST_ERROR",
             error: error instanceof Error ? error.message : String(error),
           });
@@ -371,7 +371,7 @@ export class McpAbapAdtProxyServer {
       }
 
       // Log proxy request
-      logger.info("=== PROXYING REQUEST ===", {
+      logger?.info("=== PROXYING REQUEST ===", {
         type: "PROXY_REQUEST_START",
         btpDestination: intercepted.routingDecision.btpDestination,
         mcpDestination: intercepted.routingDecision.mcpDestination,
@@ -382,7 +382,7 @@ export class McpAbapAdtProxyServer {
       try {
         await this.handleProxyRequest(intercepted, req, res);
       } catch (error) {
-        logger.error("Failed to process request", {
+        logger?.error("Failed to process request", {
           type: "REQUEST_PROCESS_ERROR",
           error: error instanceof Error ? error.message : String(error),
           strategy: intercepted.routingDecision.strategy,
@@ -399,7 +399,7 @@ export class McpAbapAdtProxyServer {
 
     return new Promise((resolve, reject) => {
       this.httpServer!.listen(port, host, () => {
-        logger.info("MCP Proxy Server started (HTTP transport)", {
+        logger?.info("MCP Proxy Server started (HTTP transport)", {
           type: "SERVER_STARTED",
           transport: "streamable-http",
           host,
@@ -409,7 +409,7 @@ export class McpAbapAdtProxyServer {
       });
 
       this.httpServer!.on("error", (error) => {
-        logger.error("Failed to start HTTP server", {
+        logger?.error("Failed to start HTTP server", {
           type: "SERVER_START_ERROR",
           error: error.message,
         });
@@ -429,7 +429,7 @@ export class McpAbapAdtProxyServer {
     // Use mcpUrl from routing decision (from --mcp-url) or cloudLlmHubUrl from config as target URL
     const targetUrl = intercepted.routingDecision.mcpUrl || this.config.cloudLlmHubUrl;
     if (!targetUrl) {
-      logger.error("Cannot handle passthrough request: no target URL configured", {
+      logger?.error("Cannot handle passthrough request: no target URL configured", {
         type: "PASSTHROUGH_NO_URL",
       });
       res.writeHead(500, { "Content-Type": "application/json" });
@@ -444,7 +444,7 @@ export class McpAbapAdtProxyServer {
       return;
     }
 
-    logger.debug("Forwarding passthrough request", {
+    logger?.debug("Forwarding passthrough request", {
       type: "PASSTHROUGH_FORWARD",
       targetUrl,
       method: intercepted.method,
@@ -466,7 +466,7 @@ export class McpAbapAdtProxyServer {
       res.end(response.data);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error("Failed to forward passthrough request", {
+      logger?.error("Failed to forward passthrough request", {
         type: "PASSTHROUGH_FORWARD_ERROR",
         error: errorMessage,
       });
@@ -534,7 +534,7 @@ export class McpAbapAdtProxyServer {
       sanitizedBody.jsonrpc = intercepted.body.jsonrpc;
     }
 
-    logger.info("=== INCOMING REQUEST ===", {
+    logger?.info("=== INCOMING REQUEST ===", {
       type: "PROXY_REQUEST_INCOMING",
       method: req.method,
       url: req.url,
@@ -561,7 +561,7 @@ export class McpAbapAdtProxyServer {
       const interceptedBodyIdType = typeof interceptedBodyId;
       const interceptedBodyIdUndefined = interceptedBodyId === undefined;
       
-      logger.info("=== BEFORE BUILDING MCP REQUEST ===", {
+      logger?.info("=== BEFORE BUILDING MCP REQUEST ===", {
         type: "BEFORE_BUILD_MCP_REQUEST",
         interceptedBodyId,
         interceptedBodyIdType,
@@ -582,7 +582,7 @@ export class McpAbapAdtProxyServer {
         jsonrpc: intercepted.body?.jsonrpc ?? "2.0",
       };
 
-      logger.info("=== MCP REQUEST BUILT ===", {
+      logger?.info("=== MCP REQUEST BUILT ===", {
         type: "MCP_REQUEST_BUILT",
         originalId: interceptedBodyId,
         originalIdType: interceptedBodyIdType,
@@ -592,7 +592,7 @@ export class McpAbapAdtProxyServer {
         fullMcpRequest: JSON.stringify(mcpRequest),
       });
 
-      logger.info("=== FORWARDING REQUEST ===", {
+      logger?.info("=== FORWARDING REQUEST ===", {
         type: "PROXY_REQUEST_FORWARDING",
         interceptedBodyIdAtForward: intercepted.body?.id,
         interceptedBodyIdTypeAtForward: typeof intercepted.body?.id,
@@ -632,7 +632,7 @@ export class McpAbapAdtProxyServer {
         };
       }
 
-      logger.info("=== RESPONSE FROM MCP SERVER ===", {
+      logger?.info("=== RESPONSE FROM MCP SERVER ===", {
         type: "PROXY_RESPONSE_RECEIVED",
         response: sanitizedResponse,
         hasResult: !!proxyResponse.result,
@@ -643,19 +643,19 @@ export class McpAbapAdtProxyServer {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(proxyResponse));
 
-      logger.info("=== RESPONSE SENT TO CLIENT ===", {
+      logger?.info("=== RESPONSE SENT TO CLIENT ===", {
         type: "PROXY_RESPONSE_SENT",
         statusCode: 200,
       });
 
-      logger.debug("Cloud-llm-hub proxy request completed", {
+      logger?.debug("Cloud-llm-hub proxy request completed", {
         type: "CLOUD_LLM_HUB_PROXY_COMPLETED",
         hasResult: !!proxyResponse.result,
         hasError: !!proxyResponse.error,
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error("Failed to handle cloud-llm-hub proxy request", {
+      logger?.error("Failed to handle cloud-llm-hub proxy request", {
         type: "CLOUD_LLM_HUB_PROXY_ERROR",
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
@@ -705,7 +705,7 @@ export class McpAbapAdtProxyServer {
                      (remoteAddress && remoteAddress.startsWith("127."));
       
       if (!isLocal) {
-        logger.warn("SSE: Non-local connection rejected", {
+        logger?.warn("SSE: Non-local connection rejected", {
           type: "SSE_NON_LOCAL_REJECTED",
           remoteAddress,
         });
@@ -739,7 +739,7 @@ export class McpAbapAdtProxyServer {
         headers[HEADER_MCP_URL] = this.config.mcpUrl;
       }
 
-      logger.debug("SSE request received", {
+      logger?.debug("SSE request received", {
         type: "SSE_HTTP_REQUEST",
         method: req.method,
         pathname,
@@ -750,7 +750,7 @@ export class McpAbapAdtProxyServer {
       if (req.method === "GET" && streamPathMap.has(pathname)) {
         const postEndpoint = streamPathMap.get(pathname) ?? "/messages";
 
-        logger.debug("SSE client connecting", {
+        logger?.debug("SSE client connecting", {
           type: "SSE_CLIENT_CONNECTING",
           pathname,
           postEndpoint,
@@ -777,7 +777,7 @@ export class McpAbapAdtProxyServer {
         });
 
         const sessionId = transport.sessionId;
-        logger.info("New SSE session created", {
+        logger?.info("New SSE session created", {
           type: "SSE_SESSION_CREATED",
           sessionId,
           pathname,
@@ -786,14 +786,14 @@ export class McpAbapAdtProxyServer {
         // Connect transport to server
         try {
           await sessionServer.server.connect(transport);
-          logger.info("SSE transport connected", {
+          logger?.info("SSE transport connected", {
             type: "SSE_CONNECTION_READY",
             sessionId,
             pathname,
             postEndpoint,
           });
         } catch (error) {
-          logger.error("Failed to connect SSE transport", {
+          logger?.error("Failed to connect SSE transport", {
             type: "SSE_CONNECT_ERROR",
             error: error instanceof Error ? error.message : String(error),
             sessionId,
@@ -808,7 +808,7 @@ export class McpAbapAdtProxyServer {
 
         // Cleanup on connection close
         res.on("close", () => {
-          logger.info("SSE connection closed", {
+          logger?.info("SSE connection closed", {
             type: "SSE_CONNECTION_CLOSED",
             sessionId,
             pathname,
@@ -817,7 +817,7 @@ export class McpAbapAdtProxyServer {
         });
 
         transport.onerror = (error) => {
-          logger.error("SSE transport error", {
+          logger?.error("SSE transport error", {
             type: "SSE_TRANSPORT_ERROR",
             error: error instanceof Error ? error.message : String(error),
             sessionId,
@@ -837,14 +837,14 @@ export class McpAbapAdtProxyServer {
           sessionId = req.headers["x-session-id"] as string | undefined;
         }
 
-        logger.debug("SSE POST request received", {
+        logger?.debug("SSE POST request received", {
           type: "SSE_POST_REQUEST",
           sessionId,
           pathname,
         });
 
         if (!sessionId) {
-          logger.error("Missing sessionId in SSE POST request", {
+          logger?.error("Missing sessionId in SSE POST request", {
             type: "SSE_MISSING_SESSION_ID",
             pathname,
           });
@@ -873,7 +873,7 @@ export class McpAbapAdtProxyServer {
             body = JSON.parse(bodyString);
           }
         } catch (error) {
-          logger.error("Failed to parse SSE POST request body", {
+          logger?.error("Failed to parse SSE POST request body", {
             type: "SSE_POST_PARSE_ERROR",
             error: error instanceof Error ? error.message : String(error),
           });
@@ -900,7 +900,7 @@ export class McpAbapAdtProxyServer {
 
         // Check routing decision
         if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
-          logger.error("Routing decision failed for SSE POST", {
+          logger?.error("Routing decision failed for SSE POST", {
             type: "SSE_POST_ROUTING_FAILED",
             reason: intercepted.routingDecision.reason,
           });
@@ -922,7 +922,7 @@ export class McpAbapAdtProxyServer {
           try {
             await this.handlePassthroughRequest(intercepted, req, res);
           } catch (error) {
-            logger.error("Failed to process SSE passthrough request", {
+            logger?.error("Failed to process SSE passthrough request", {
               type: "SSE_PASSTHROUGH_PROCESS_ERROR",
               error: error instanceof Error ? error.message : String(error),
             });
@@ -938,7 +938,7 @@ export class McpAbapAdtProxyServer {
         try {
           await this.handleProxyRequest(intercepted, req, res);
         } catch (error) {
-          logger.error("Failed to process SSE POST request", {
+          logger?.error("Failed to process SSE POST request", {
             type: "SSE_POST_PROCESS_ERROR",
             error: error instanceof Error ? error.message : String(error),
           });
@@ -967,7 +967,7 @@ export class McpAbapAdtProxyServer {
 
     return new Promise((resolve, reject) => {
       httpServer.listen(port, host, () => {
-        logger.info("MCP Proxy Server started (SSE transport)", {
+        logger?.info("MCP Proxy Server started (SSE transport)", {
           type: "SERVER_STARTED",
           transport: "sse",
           host,
@@ -978,7 +978,7 @@ export class McpAbapAdtProxyServer {
       });
 
       httpServer.on("error", (error) => {
-        logger.error("Failed to start SSE server", {
+        logger?.error("Failed to start SSE server", {
           type: "SERVER_START_ERROR",
           error: error.message,
         });
@@ -994,7 +994,7 @@ export class McpAbapAdtProxyServer {
     try {
       await this.server.close();
     } catch (error) {
-      logger.error("Failed to close MCP server", {
+      logger?.error("Failed to close MCP server", {
         type: "SERVER_SHUTDOWN_ERROR",
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1003,7 +1003,7 @@ export class McpAbapAdtProxyServer {
     if (this.httpServer) {
       return new Promise((resolve) => {
         this.httpServer!.close(() => {
-          logger.info("HTTP server closed");
+          logger?.info("HTTP server closed");
           resolve();
         });
       });
@@ -1018,7 +1018,7 @@ export default McpAbapAdtProxyServer;
 if (process.env.MCP_SKIP_AUTO_START !== "true") {
   const server = new McpAbapAdtProxyServer();
   server.run().catch((error) => {
-    logger.error("Fatal error while running MCP proxy server", {
+    logger?.error("Fatal error while running MCP proxy server", {
       type: "SERVER_FATAL_ERROR",
       error: error instanceof Error ? error.message : String(error),
     });

@@ -8,7 +8,7 @@ import {
   HEADER_MCP_DESTINATION,
   HEADER_MCP_URL,
 } from "@mcp-abap-adt/interfaces";
-import { logger } from "../lib/logger.js";
+import { logger } from "../lib/logger?.js";
 
 export enum RoutingStrategy {
   /** Proxy request with JWT authentication */
@@ -107,7 +107,7 @@ export function analyzeHeaders(
   // This allows requests to be forwarded as-is without authentication headers
   // Note: --mcp-url is used as target URL for passthrough, but request is not modified
   if (!hasBtpInRequest && !hasMcpInRequest && !hasMcpUrlInRequest) {
-    logger.debug("No proxy headers found in request - passing through without modifications", {
+    logger?.debug("No proxy headers found in request - passing through without modifications", {
       type: "PASSTHROUGH_REQUEST",
       headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
       hasBtpConfigOverride: !!configOverrides?.btpDestination,
@@ -124,7 +124,7 @@ export function analyzeHeaders(
 
   // If only MCP URL is provided without destinations, that's OK - other headers will be passed directly
   if (!extractedBtpDestination && !extractedMcpDestination && extractedMcpUrl) {
-    logger.debug("Using MCP URL directly (no destinations - headers will be passed as-is)", {
+    logger?.debug("Using MCP URL directly (no destinations - headers will be passed as-is)", {
       type: "MCP_URL_DIRECT",
       mcpUrl: extractedMcpUrl,
     });
@@ -133,7 +133,7 @@ export function analyzeHeaders(
   // If x-btp-destination is present, we can proxy with BTP authentication (URL will be obtained from service key)
   // If only x-mcp-destination is present, we can proxy without BTP authentication (for local testing)
   // If x-mcp-url is provided, we can use it directly (for local testing)
-  logger.debug("Routing decision: PROXY", {
+  logger?.debug("Routing decision: PROXY", {
     btpDestination: extractedBtpDestination,
     mcpDestination: extractedMcpDestination,
     mcpUrl: extractedMcpUrl || "not provided",
