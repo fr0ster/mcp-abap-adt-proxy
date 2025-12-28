@@ -13,12 +13,12 @@ import {
   RoutingStrategy,
   shouldProxy,
 } from '../../router/headerAnalyzer.js';
-import { testLogger } from '../helpers/testlogger?.js';
+import { testLogger } from '../helpers/testLogger.js';
 
 describe('headerAnalyzer', () => {
   describe('analyzeHeaders', () => {
     it('should return PROXY strategy when x-btp-destination is present', () => {
-      testlogger?.info(
+      testLogger?.info(
         'Test: should return PROXY strategy when x-btp-destination is present',
       );
 
@@ -27,7 +27,7 @@ describe('headerAnalyzer', () => {
         [HEADER_MCP_DESTINATION]: 'sap-abap',
       };
 
-      testlogger?.info(
+      testLogger?.info(
         'Input headers object - HTTP headers from incoming request',
         {
           headers: {
@@ -45,7 +45,7 @@ describe('headerAnalyzer', () => {
         },
       );
 
-      testlogger?.info(
+      testLogger?.info(
         'Calling analyzeHeaders - will analyze headers to determine routing strategy',
         {
           function: 'analyzeHeaders',
@@ -59,7 +59,7 @@ describe('headerAnalyzer', () => {
 
       const decision = analyzeHeaders(headers);
 
-      testlogger?.info(
+      testLogger?.info(
         'Routing decision result - strategy determined from headers',
         {
           decision: {
@@ -98,7 +98,7 @@ describe('headerAnalyzer', () => {
     });
 
     it('should extract btp-destination from x-btp-destination header', () => {
-      testlogger?.info(
+      testLogger?.info(
         'Test: should extract btp-destination from x-btp-destination header',
       );
 
@@ -106,13 +106,13 @@ describe('headerAnalyzer', () => {
         [HEADER_BTP_DESTINATION]: 'btp-cloud',
       };
 
-      testlogger?.debug('Input headers', {
+      testLogger?.debug('Input headers', {
         btpDestination: headers[HEADER_BTP_DESTINATION],
       });
 
       const decision = analyzeHeaders(headers);
 
-      testlogger?.debug('Extracted destination', {
+      testLogger?.debug('Extracted destination', {
         strategy: decision.strategy,
         btpDestination: decision.btpDestination,
       });

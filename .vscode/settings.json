@@ -8,13 +8,14 @@
       "!**"
     ],
     "cSpell.words": [
-        "dedupe",
-        "EADDRINUSE",
-        "findstr",
-        "loglevel",
-        "retryable",
-        "softprops",
-        "streamable",
-        "USERPROFILE"
+      "chrono",
+      "dedupe",
+      "EADDRINUSE",
+      "findstr",
+      "loglevel",
+      "retryable",
+      "softprops",
+      "streamable",
+      "USERPROFILE"
     ]
 }
