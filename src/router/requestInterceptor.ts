@@ -2,20 +2,24 @@
  * Request Interceptor - Intercepts and analyzes MCP requests
  */
 
-import { IncomingMessage } from "http";
-import { analyzeHeaders, RoutingDecision, RoutingStrategy } from "./headerAnalyzer.js";
-import { validateProxyHeaders } from "@mcp-abap-adt/header-validator";
+import type { IncomingMessage } from 'node:http';
+import { validateProxyHeaders } from '@mcp-abap-adt/header-validator';
 import {
-  HEADER_SAP_JWT_TOKEN,
-  HEADER_SAP_REFRESH_TOKEN,
-  HEADER_SAP_PASSWORD,
-  HEADER_SAP_UAA_CLIENT_SECRET,
   HEADER_AUTHORIZATION,
-  HEADER_SESSION_ID,
   HEADER_MCP_SESSION_ID,
+  HEADER_SAP_JWT_TOKEN,
+  HEADER_SAP_PASSWORD,
+  HEADER_SAP_REFRESH_TOKEN,
+  HEADER_SAP_UAA_CLIENT_SECRET,
+  HEADER_SESSION_ID,
   HEADER_X_MCP_SESSION_ID,
-} from "@mcp-abap-adt/interfaces";
-import { logger } from "../lib/logger?.js";
+} from '@mcp-abap-adt/interfaces';
+import { logger } from '../lib/logger.js';
+import {
+  analyzeHeaders,
+  type RoutingDecision,
+  RoutingStrategy,
+} from './headerAnalyzer.js';
 
 export interface InterceptedRequest {
   method: string;
@@ -33,7 +37,11 @@ export interface InterceptedRequest {
 export function interceptRequest(
   req: IncomingMessage,
   body?: any,
-  configOverrides?: { btpDestination?: string; mcpDestination?: string; mcpUrl?: string }
+  configOverrides?: {
+    btpDestination?: string;
+    mcpDestination?: string;
+    mcpUrl?: string;
+  },
 ): InterceptedRequest {
   // Extract headers
   const headers: Record<string, string | string[] | undefined> = {};
@@ -49,31 +57,30 @@ export function interceptRequest(
   if (routingDecision.strategy !== RoutingStrategy.PASSTHROUGH) {
     const validation = validateProxyHeaders(req.headers);
     if (!validation.isValid && validation.errors.length > 0) {
-      logger?.warn("Proxy header validation failed", {
-        type: "PROXY_HEADER_VALIDATION_ERROR",
+      logger?.warn('Proxy header validation failed', {
+        type: 'PROXY_HEADER_VALIDATION_ERROR',
         errors: validation.errors,
         warnings: validation.warnings,
       });
     } else if (validation.warnings.length > 0) {
-      logger?.warn("Proxy header validation warnings", {
-        type: "PROXY_HEADER_VALIDATION_WARNINGS",
+      logger?.warn('Proxy header validation warnings', {
+        type: 'PROXY_HEADER_VALIDATION_WARNINGS',
         warnings: validation.warnings,
       });
     }
   }
 
   // Extract session ID if present
-  const sessionId = 
-    (req.headers[HEADER_SESSION_ID] || 
-     req.headers[HEADER_MCP_SESSION_ID] || 
-     req.headers[HEADER_X_MCP_SESSION_ID]) as string | undefined;
+  const sessionId = (req.headers[HEADER_SESSION_ID] ||
+    req.headers[HEADER_MCP_SESSION_ID] ||
+    req.headers[HEADER_X_MCP_SESSION_ID]) as string | undefined;
 
   // Generate client ID
   const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
 
   // Log intercepted request
-  logger?.debug("Request intercepted", {
-    type: "REQUEST_INTERCEPTED",
+  logger?.debug('Request intercepted', {
+    type: 'REQUEST_INTERCEPTED',
     method: req.method,
     url: req.url,
     clientId,
@@ -83,8 +90,8 @@ export function interceptRequest(
   });
 
   return {
-    method: req.method || "GET",
-    url: req.url || "/",
+    method: req.method || 'GET',
+    url: req.url || '/',
     headers,
     body,
     routingDecision,
@@ -98,19 +105,19 @@ export function interceptRequest(
  * Only tools/call requires SAP config - all other methods don't
  */
 export function requiresSapConfig(body: any): boolean {
-  if (!body || typeof body !== "object") {
+  if (!body || typeof body !== 'object') {
     return false;
   }
 
   const method = body.method;
-  return method === "tools/call";
+  return method === 'tools/call';
 }
 
 /**
  * Sanitize headers for logging (remove sensitive data)
  */
 export function sanitizeHeadersForLogging(
-  headers: Record<string, string | string[] | undefined>
+  headers: Record<string, string | string[] | undefined>,
 ): Record<string, string> {
   const sanitized: Record<string, string> = {};
   const sensitiveKeys = [
@@ -119,18 +126,15 @@ export function sanitizeHeadersForLogging(
     HEADER_SAP_REFRESH_TOKEN,
     HEADER_SAP_PASSWORD,
     HEADER_SAP_UAA_CLIENT_SECRET,
-  ].map(k => k.toLowerCase());
+  ].map((k) => k.toLowerCase());
 
   for (const [key, value] of Object.entries(headers)) {
     if (sensitiveKeys.includes(key.toLowerCase())) {
-      sanitized[key] = "[REDACTED]";
+      sanitized[key] = '[REDACTED]';
     } else {
-      sanitized[key] = Array.isArray(value) 
-        ? value.join(", ") 
-        : (value || "");
+      sanitized[key] = Array.isArray(value) ? value.join(', ') : value || '';
     }
   }
 
   return sanitized;
 }
-

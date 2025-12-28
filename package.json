@@ -7,7 +7,11 @@
   "scripts": {
     "chrono": "./tools/version-stats.sh",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
-    "build": "npx tsc -p tsconfig.json",
+    "lint": "npx biome check --write src",
+    "lint:check": "npx biome check src",
+    "format": "npx biome format --write src",
+    "build": "npm run --silent clean && npx biome check src --diagnostic-level=error && npx tsc -p tsconfig.json",
+    "build:fast": "npx tsc -p tsconfig.json",
     "start": "node ./bin/mcp-abap-adt-proxy.js",
     "start:http": "node ./bin/mcp-abap-adt-proxy.js --transport streamable-http",
     "start:sse": "node ./bin/mcp-abap-adt-proxy.js --transport sse",
@@ -39,7 +43,8 @@
     "access": "public"
   },
   "devDependencies": {
-    "@modelcontextprotocol/inspector": "^0.17.2",
+    "@biomejs/biome": "^2.3.10",
+    "@modelcontextprotocol/inspector": "^0.18.0",
     "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.2.1",
@@ -53,14 +58,14 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@mcp-abap-adt/auth-broker": "^0.1.12",
-    "@mcp-abap-adt/auth-providers": "^0.2.1",
-    "@mcp-abap-adt/auth-stores": "^0.1.7",
-    "@mcp-abap-adt/connection": "^0.1.15",
-    "@mcp-abap-adt/header-validator": "^0.1.7",
-    "@mcp-abap-adt/interfaces": "^0.1.3",
-    "@mcp-abap-adt/logger": "^0.1.1",
-    "@modelcontextprotocol/sdk": "^1.23.0",
+    "@mcp-abap-adt/auth-broker": "^0.2.14",
+    "@mcp-abap-adt/auth-providers": "^0.2.10",
+    "@mcp-abap-adt/auth-stores": "^0.2.10",
+    "@mcp-abap-adt/connection": "^0.2.9",
+    "@mcp-abap-adt/header-validator": "^0.1.8",
+    "@mcp-abap-adt/interfaces": "^0.2.14",
+    "@mcp-abap-adt/logger": "^0.1.4",
+    "@modelcontextprotocol/sdk": "^1.25.1",
     "axios": "^1.11.0",
     "js-yaml": "^4.1.1",
     "zod": "^3.25.76"

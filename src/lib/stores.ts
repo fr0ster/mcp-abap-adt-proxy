@@ -4,34 +4,31 @@
  * depending on the unsafe configuration parameter
  */
 
-import { 
-  AbapServiceKeyStore,
-  XsuaaServiceKeyStore,
-  AbapSessionStore, 
-  SafeAbapSessionStore,
-  SafeXsuaaSessionStore,
-  XsuaaSessionStore
-} from "@mcp-abap-adt/auth-stores";
-import type { 
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type {
   IServiceKeyStore,
   ISessionStore,
-  IAuthorizationConfig,
-  IConnectionConfig,
-  IConfig
-} from "@mcp-abap-adt/auth-broker";
-import * as path from "path";
-import * as os from "os";
+} from '@mcp-abap-adt/auth-broker';
+import {
+  AbapServiceKeyStore,
+  AbapSessionStore,
+  SafeAbapSessionStore,
+  SafeXsuaaSessionStore,
+  XsuaaServiceKeyStore,
+  XsuaaSessionStore,
+} from '@mcp-abap-adt/auth-stores';
 
 /**
  * Get platform-specific default paths for service keys and sessions
- * 
+ *
  * Priority (matching mcp-abap-adt logic):
  * 1. AUTH_BROKER_PATH environment variable
  * 2. Platform-specific standard paths (only if no env paths were found):
  *    - Unix: ~/.config/mcp-abap-adt/{subfolder}
  *    - Windows: %USERPROFILE%\Documents\mcp-abap-adt\{subfolder}
  * 3. Current working directory (process.cwd())
- * 
+ *
  * @param subfolder Subfolder name ('service-keys' or 'sessions')
  * @returns Array of resolved absolute paths
  */
@@ -43,8 +40,11 @@ function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
   const envPath = process.env.AUTH_BROKER_PATH;
   if (envPath) {
     // Support both colon (Unix) and semicolon (Windows) separators
-    const envPaths = envPath.split(/[:;]/).map(p => p.trim()).filter(p => p.length > 0);
-    paths.push(...envPaths.map(p => path.resolve(p)));
+    const envPaths = envPath
+      .split(/[:;]/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    paths.push(...envPaths.map((p) => path.resolve(p)));
   }
 
   // Priority 2: Platform-specific standard paths
@@ -101,7 +101,7 @@ function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
  */
 export async function getPlatformStores(
   unsafe: boolean = false,
-  useXsuaaStore: boolean = false
+  useXsuaaStore: boolean = false,
 ): Promise<{
   serviceKeyStore: IServiceKeyStore;
   sessionStore: ISessionStore;
@@ -109,30 +109,31 @@ export async function getPlatformStores(
   // Get platform-specific paths for service keys and sessions
   const serviceKeyPaths = getPlatformPaths('service-keys');
   const sessionPaths = getPlatformPaths('sessions');
-  
+
   // Stores only support a single directory, use the first path
   const firstServiceKeyPath = serviceKeyPaths[0] || process.cwd();
   const firstSessionPath = sessionPaths[0] || process.cwd();
-  
+
   // Use separate stores: XSUAA store for BTP, ABAP store for ABAP
   const serviceKeyStore = useXsuaaStore
     ? new XsuaaServiceKeyStore(firstServiceKeyPath)
     : new AbapServiceKeyStore(firstServiceKeyPath);
-  
+
   // Use appropriate session store based on store type
   // For XSUAA destinations: use SafeXsuaaSessionStore or XsuaaSessionStore
   // For ABAP destinations: use SafeAbapSessionStore or AbapSessionStore
+  // Note: XSUAA stores require defaultServiceUrl (cannot be obtained from service key)
+  // For now, we use empty string as placeholder - it will be set when session is created
   const sessionStore = unsafe
-    ? (useXsuaaStore 
-        ? new XsuaaSessionStore(firstSessionPath)
-        : new AbapSessionStore(firstSessionPath))
-    : (useXsuaaStore
-        ? new SafeXsuaaSessionStore()
-        : new SafeAbapSessionStore());
-  
+    ? useXsuaaStore
+      ? new XsuaaSessionStore(firstSessionPath, '')
+      : new AbapSessionStore(firstSessionPath)
+    : useXsuaaStore
+      ? new SafeXsuaaSessionStore('')
+      : new SafeAbapSessionStore();
+
   return {
     serviceKeyStore,
     sessionStore,
   };
 }
-

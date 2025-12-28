@@ -24,12 +24,18 @@ class SimpleLogger implements Logger {
     this.level = level;
     // DEBUG logs are only shown if MCP_PROXY_VERBOSE or DEBUG environment variable is set
     // INFO, WARN, and ERROR logs are always shown (even without verbose mode)
-    this.verbose = process.env.MCP_PROXY_VERBOSE === "true" || 
-                   process.env.DEBUG === "true" || 
-                   process.env.DEBUG?.includes("mcp-proxy") === true;
+    this.verbose =
+      process.env.MCP_PROXY_VERBOSE === 'true' ||
+      process.env.DEBUG === 'true' ||
+      process.env.DEBUG?.includes('mcp-proxy') === true;
   }
 
-  private log(level: LogLevel, prefix: string, message: string, meta?: Record<string, unknown>): void {
+  private log(
+    level: LogLevel,
+    prefix: string,
+    message: string,
+    meta?: Record<string, unknown>,
+  ): void {
     // Always output INFO, WARN, and ERROR logs (even without verbose mode)
     // Only suppress DEBUG logs in non-verbose mode
     if (level === LogLevel.DEBUG && !this.verbose) {
@@ -65,8 +71,8 @@ class SimpleLogger implements Logger {
 
 // Default logger instance
 export const logger: Logger = new SimpleLogger(
-  process.env.LOG_LEVEL?.toUpperCase() 
-    ? (LogLevel[process.env.LOG_LEVEL.toUpperCase() as keyof typeof LogLevel] ?? LogLevel.INFO)
-    : LogLevel.INFO
+  process.env.LOG_LEVEL?.toUpperCase()
+    ? (LogLevel[process.env.LOG_LEVEL.toUpperCase() as keyof typeof LogLevel] ??
+        LogLevel.INFO)
+    : LogLevel.INFO,
 );
-

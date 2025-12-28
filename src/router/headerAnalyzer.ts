@@ -2,21 +2,21 @@
  * Header Analyzer - Analyzes HTTP headers to determine routing strategy
  */
 
-import { IncomingHttpHeaders } from "http";
+import type { IncomingHttpHeaders } from 'node:http';
 import {
   HEADER_BTP_DESTINATION,
   HEADER_MCP_DESTINATION,
   HEADER_MCP_URL,
-} from "@mcp-abap-adt/interfaces";
-import { logger } from "../lib/logger?.js";
+} from '@mcp-abap-adt/interfaces';
+import { logger } from '../lib/logger.js';
 
 export enum RoutingStrategy {
   /** Proxy request with JWT authentication */
-  PROXY = "proxy",
+  PROXY = 'proxy',
   /** Pass through request without modifications (no proxy headers) */
-  PASSTHROUGH = "passthrough",
+  PASSTHROUGH = 'passthrough',
   /** Unknown/unsupported - should not route */
-  UNKNOWN = "unknown",
+  UNKNOWN = 'unknown',
 }
 
 export interface RoutingDecision {
@@ -29,31 +29,35 @@ export interface RoutingDecision {
 
 /**
  * Analyze headers and extract routing information
- * 
+ *
  * Proxy validates only two headers:
  * - x-btp-destination (or --btp): destination for BTP Cloud authorization token (Authorization: Bearer) and MCP server URL
  * - x-mcp-destination (or --mcp): destination for SAP ABAP connection (SAP headers)
- * 
+ *
  * Also supports:
  * - x-mcp-url (or --mcp-url): direct MCP server URL (optional, for local testing)
- * 
+ *
  * Command-line overrides (take precedence over headers):
  * - --btp=<destination>: overrides x-btp-destination header
  * - --mcp=<destination>: overrides x-mcp-destination header
  * - --mcp-url=<url>: overrides x-mcp-url header
- * 
+ *
  * Other headers (x-sap-url, x-sap-jwt-token, etc.) are passed directly to MCP server without validation.
- * 
+ *
  * MCP server URL is obtained from:
  * - x-mcp-url header or --mcp-url parameter (if provided) - takes precedence
  * - service key for x-btp-destination (via auth-broker) if BTP destination is present
  * - service key for x-mcp-destination (via auth-broker) if only MCP destination is present
- * 
+ *
  * Note: Proxy does NOT use .env files for connection configuration. Only destinations via auth-broker (service key files) are used.
  */
 export function analyzeHeaders(
   headers: IncomingHttpHeaders,
-  configOverrides?: { btpDestination?: string; mcpDestination?: string; mcpUrl?: string }
+  configOverrides?: {
+    btpDestination?: string;
+    mcpDestination?: string;
+    mcpUrl?: string;
+  },
 ): RoutingDecision {
   // Note: Proxy does NOT validate headers (except for routing decision)
   // Proxy only modifies headers related to BTP/MCP destinations
@@ -72,27 +76,27 @@ export function analyzeHeaders(
     if (Array.isArray(headerValue)) {
       return headerValue[0]?.trim();
     }
-    return typeof headerValue === "string" ? headerValue.trim() : undefined;
+    return typeof headerValue === 'string' ? headerValue.trim() : undefined;
   };
 
   // Extract authorization destination for BTP Cloud (x-btp-destination)
   // Command-line parameter --btp takes precedence over header
   const btpDestinationHeader = getHeaderValue(HEADER_BTP_DESTINATION);
-  const extractedBtpDestination = configOverrides?.btpDestination 
+  const extractedBtpDestination = configOverrides?.btpDestination
     ? configOverrides.btpDestination
     : btpDestinationHeader;
 
   // Extract destination for SAP ABAP connection (x-mcp-destination)
   // Command-line parameter --mcp takes precedence over header
   const mcpDestinationHeader = getHeaderValue(HEADER_MCP_DESTINATION);
-  const extractedMcpDestination = configOverrides?.mcpDestination 
+  const extractedMcpDestination = configOverrides?.mcpDestination
     ? configOverrides.mcpDestination
     : mcpDestinationHeader;
 
   // Extract direct MCP server URL (x-mcp-url)
   // Command-line parameter --mcp-url takes precedence over header
   const mcpUrlHeader = getHeaderValue(HEADER_MCP_URL);
-  const extractedMcpUrl = configOverrides?.mcpUrl 
+  const extractedMcpUrl = configOverrides?.mcpUrl
     ? configOverrides.mcpUrl
     : mcpUrlHeader;
 
@@ -107,43 +111,52 @@ export function analyzeHeaders(
   // This allows requests to be forwarded as-is without authentication headers
   // Note: --mcp-url is used as target URL for passthrough, but request is not modified
   if (!hasBtpInRequest && !hasMcpInRequest && !hasMcpUrlInRequest) {
-    logger?.debug("No proxy headers found in request - passing through without modifications", {
-      type: "PASSTHROUGH_REQUEST",
-      headers: Object.keys(headers).filter(k => k.toLowerCase().startsWith("x-")),
-      hasBtpConfigOverride: !!configOverrides?.btpDestination,
-      hasMcpConfigOverride: !!configOverrides?.mcpDestination,
-      hasMcpUrlConfigOverride: !!configOverrides?.mcpUrl,
-    });
+    logger?.debug(
+      'No proxy headers found in request - passing through without modifications',
+      {
+        type: 'PASSTHROUGH_REQUEST',
+        headers: Object.keys(headers).filter((k) =>
+          k.toLowerCase().startsWith('x-'),
+        ),
+        hasBtpConfigOverride: !!configOverrides?.btpDestination,
+        hasMcpConfigOverride: !!configOverrides?.mcpDestination,
+        hasMcpUrlConfigOverride: !!configOverrides?.mcpUrl,
+      },
+    );
 
     return {
       strategy: RoutingStrategy.PASSTHROUGH,
       mcpUrl: extractedMcpUrl, // Use --mcp-url as target URL for passthrough
-      reason: "No proxy headers found in request - request will be passed through without modifications",
+      reason:
+        'No proxy headers found in request - request will be passed through without modifications',
     };
   }
 
   // If only MCP URL is provided without destinations, that's OK - other headers will be passed directly
   if (!extractedBtpDestination && !extractedMcpDestination && extractedMcpUrl) {
-    logger?.debug("Using MCP URL directly (no destinations - headers will be passed as-is)", {
-      type: "MCP_URL_DIRECT",
-      mcpUrl: extractedMcpUrl,
-    });
+    logger?.debug(
+      'Using MCP URL directly (no destinations - headers will be passed as-is)',
+      {
+        type: 'MCP_URL_DIRECT',
+        mcpUrl: extractedMcpUrl,
+      },
+    );
   }
 
   // If x-btp-destination is present, we can proxy with BTP authentication (URL will be obtained from service key)
   // If only x-mcp-destination is present, we can proxy without BTP authentication (for local testing)
   // If x-mcp-url is provided, we can use it directly (for local testing)
-  logger?.debug("Routing decision: PROXY", {
+  logger?.debug('Routing decision: PROXY', {
     btpDestination: extractedBtpDestination,
     mcpDestination: extractedMcpDestination,
-    mcpUrl: extractedMcpUrl || "not provided",
+    mcpUrl: extractedMcpUrl || 'not provided',
   });
 
   const reason = extractedBtpDestination
     ? `Proxying to MCP server from BTP destination "${extractedBtpDestination}"${extractedMcpDestination ? ` with MCP destination "${extractedMcpDestination}"` : ''}`
     : extractedMcpUrl
-    ? `Proxying to MCP server at "${extractedMcpUrl}" (no BTP authentication - local testing mode)${extractedMcpDestination ? ` with MCP destination "${extractedMcpDestination}"` : ''}`
-    : `Proxying to MCP server with MCP destination "${extractedMcpDestination}" (no BTP authentication - local testing mode)`;
+      ? `Proxying to MCP server at "${extractedMcpUrl}" (no BTP authentication - local testing mode)${extractedMcpDestination ? ` with MCP destination "${extractedMcpDestination}"` : ''}`
+      : `Proxying to MCP server with MCP destination "${extractedMcpDestination}" (no BTP authentication - local testing mode)`;
 
   return {
     strategy: RoutingStrategy.PROXY,

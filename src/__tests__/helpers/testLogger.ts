@@ -1,17 +1,16 @@
 /**
  * Test logger utilities for controlling debug output during tests
  * Based on @mcp-abap-adt/logger package
- * 
+ *
  * Environment variables:
  * - DEBUG_TESTS=true - Enable logs from tests (INFO, WARN, ERROR)
  * - DEBUG_TESTS=verbose - Enable verbose test logs (includes DEBUG level)
  * - DEBUG_PACKAGE_<NAME>=true - Enable logs from specific package (INFO, WARN, ERROR)
  * - DEBUG_PACKAGE_<NAME>=verbose - Enable verbose logs for specific package (includes DEBUG)
  * - DEBUG_VERBOSE=true - Global verbose flag (applies to all enabled loggers)
- * 
+ *
  * Available package names: AUTH_BROKER, AUTH_PROVIDERS, AUTH_STORES, CONNECTION, HEADER_VALIDATOR, LOGGER
  */
-
 
 import { LogLevel } from '@mcp-abap-adt/logger';
 
@@ -26,7 +25,10 @@ function getTestLogLevel(verbose: boolean): LogLevel {
  * Check if value indicates verbose mode
  */
 function isVerbose(value: string | undefined): boolean {
-  return value === 'verbose' || value === 'true' && process.env.DEBUG_VERBOSE === 'true';
+  return (
+    value === 'verbose' ||
+    (value === 'true' && process.env.DEBUG_VERBOSE === 'true')
+  );
 }
 
 /**
@@ -59,12 +61,19 @@ class TestLoggerImpl implements ILogger {
     return level <= this.testLogLevel;
   }
 
-  private log(level: LogLevel, levelStr: string, message: string, meta?: any): void {
+  private log(
+    level: LogLevel,
+    levelStr: string,
+    message: string,
+    meta?: any,
+  ): void {
     if (this.shouldLog(level)) {
       const timestamp = new Date().toISOString();
       const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
       // Use process.stdout.write to avoid Jest stack trace
-      process.stdout.write(`[${timestamp}] [TEST] [${levelStr}] ${message}${metaStr}\n`);
+      process.stdout.write(
+        `[${timestamp}] [TEST] [${levelStr}] ${message}${metaStr}\n`,
+      );
     }
   }
 
@@ -118,12 +127,19 @@ class PackageLoggerImpl implements ILogger {
     return level <= this.packageLogLevel;
   }
 
-  private log(level: LogLevel, levelStr: string, message: string, meta?: any): void {
+  private log(
+    level: LogLevel,
+    levelStr: string,
+    message: string,
+    meta?: any,
+  ): void {
     if (this.shouldLog(level)) {
       const timestamp = new Date().toISOString();
       const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
       // Use process.stdout.write to avoid Jest stack trace
-      process.stdout.write(`[${timestamp}] [PKG:${this.packageName}] [${levelStr}] ${message}${metaStr}\n`);
+      process.stdout.write(
+        `[${timestamp}] [PKG:${this.packageName}] [${levelStr}] ${message}${metaStr}\n`,
+      );
     }
   }
 
@@ -149,16 +165,20 @@ export const testLogger: ILogger = new TestLoggerImpl();
 
 // Export loggers for each package
 export const authBrokerLogger: ILogger = new PackageLoggerImpl('AUTH_BROKER');
-export const authProvidersLogger: ILogger = new PackageLoggerImpl('AUTH_PROVIDERS');
+export const authProvidersLogger: ILogger = new PackageLoggerImpl(
+  'AUTH_PROVIDERS',
+);
 export const authStoresLogger: ILogger = new PackageLoggerImpl('AUTH_STORES');
 export const connectionLogger: ILogger = new PackageLoggerImpl('CONNECTION');
-export const headerValidatorLogger: ILogger = new PackageLoggerImpl('HEADER_VALIDATOR');
+export const headerValidatorLogger: ILogger = new PackageLoggerImpl(
+  'HEADER_VALIDATOR',
+);
 export const loggerPackageLogger: ILogger = new PackageLoggerImpl('LOGGER');
 
 /**
  * Helper function to get logger for a specific package
  * Use this in tests when creating package instances
- * 
+ *
  * @example
  * const logger = getPackageLogger('AUTH_BROKER');
  * const broker = new AuthBroker(stores, 'none', logger);
@@ -199,7 +219,7 @@ const packageLoggers: Map<string, ILogger> = new Map([
  */
 function isAnyPackageLoggerEnabled(): boolean {
   return Array.from(packageLoggers.values()).some(
-    (logger) => (logger as PackageLoggerImpl)['enabled']
+    (logger) => (logger as PackageLoggerImpl).enabled,
   );
 }
 
@@ -209,15 +229,16 @@ function isAnyPackageLoggerEnabled(): boolean {
 const originalError = console.error;
 
 // Only intercept if at least one package logger is enabled or test logger is enabled
-const hasTestLogs = process.env.DEBUG_TESTS !== undefined && process.env.DEBUG_TESTS !== 'false';
+const hasTestLogs =
+  process.env.DEBUG_TESTS !== undefined && process.env.DEBUG_TESTS !== 'false';
 const hasPackageLogs = isAnyPackageLoggerEnabled();
 
 if (hasTestLogs || hasPackageLogs) {
   // Intercept console.error
   console.error = (...args: unknown[]) => {
-    const message = args.map(arg => 
-      typeof arg === 'string' ? arg : JSON.stringify(arg)
-    ).join(' ');
+    const message = args
+      .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg)))
+      .join(' ');
 
     // Note: testLogger and packageLogger now use process.stdout.write directly,
     // so they won't be intercepted here. This interceptor only handles logs from
@@ -230,8 +251,12 @@ if (hasTestLogs || hasPackageLogs) {
 
     if (match) {
       // This is a log from our logger?.ts
-      const levelStr = match[1].toLowerCase() as 'debug' | 'info' | 'warn' | 'error';
-      
+      const levelStr = match[1].toLowerCase() as
+        | 'debug'
+        | 'info'
+        | 'warn'
+        | 'error';
+
       // Extract the actual message (everything after the prefix)
       const messageMatch = message.match(/^\[.*?\] \[.*?\] (.*)$/);
       const actualMessage = messageMatch ? messageMatch[1] : message;
@@ -241,7 +266,7 @@ if (hasTestLogs || hasPackageLogs) {
       // by adding package name to log format in logger?.ts
       const packageName = 'logger';
       const logger = packageLoggers.get(packageName);
-      
+
       if (logger) {
         // Route through appropriate package logger
         logger[levelStr](actualMessage);
