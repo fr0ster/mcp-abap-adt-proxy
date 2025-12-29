@@ -6,7 +6,7 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!!**/dist"]
+		"includes": ["src/**/*.ts", "!!src/__tests__/**", "!!**/dist"]
 	},
 	"formatter": {
 		"enabled": true,

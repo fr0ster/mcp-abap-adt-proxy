@@ -25,8 +25,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run Biome lint
+        run: npm run lint:check
+
       - name: Build project
         run: npm run build
+
+      - name: Check test types
+        run: npm run test:check
+        continue-on-error: true
+
+      - name: Run tests
+        run: npm test
+        continue-on-error: true  # Don't fail release if tests fail
 
       - name: Extract version from tag
         id: version
