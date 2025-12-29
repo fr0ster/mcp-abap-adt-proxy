@@ -95,7 +95,7 @@ export function shouldWriteStderr(): boolean {
 
 export interface ProxyRequest {
   method: string;
-  params?: any;
+  params?: unknown;
   id?: string | number | null;
   jsonrpc?: string;
 }
@@ -103,11 +103,11 @@ export interface ProxyRequest {
 export interface ProxyResponse {
   jsonrpc: string;
   id?: string | number | null;
-  result?: any;
+  result?: unknown;
   error?: {
     code: number;
     message: string;
-    data?: any;
+    data?: unknown;
   };
 }
 
@@ -295,7 +295,10 @@ export class CloudLlmHubProxy {
 
       if (authConfig) {
         // For XSUAA: create session with authConfig and placeholder token
-        const sessionData: any = {
+        const sessionData: IAuthorizationConfig & {
+          jwtToken: string;
+          serviceUrl?: string;
+        } = {
           ...authConfig,
           jwtToken: 'placeholder', // Placeholder to pass validation, will be replaced by AuthBroker
         };
@@ -420,7 +423,12 @@ export class CloudLlmHubProxy {
 
       if (authConfig && connConfig && connConfig.serviceUrl) {
         // For ABAP: create session with serviceUrl and placeholder token
-        const sessionData: any = {
+        const sessionData: IAuthorizationConfig & {
+          serviceUrl: string;
+          jwtToken: string;
+          sapClient?: string;
+          language?: string;
+        } = {
           ...authConfig,
           serviceUrl: connConfig.serviceUrl,
           jwtToken: 'placeholder', // Placeholder to pass validation, will be replaced by AuthBroker
@@ -1089,29 +1097,37 @@ export class CloudLlmHubProxy {
       }
     }
 
-    const sanitizedRequestParams: any = {};
-    if (originalRequest.params && typeof originalRequest.params === 'object') {
+    const sanitizedRequestParams: Record<string, unknown> = {};
+    if (
+      originalRequest.params &&
+      typeof originalRequest.params === 'object' &&
+      originalRequest.params !== null
+    ) {
+      const params = originalRequest.params as Record<string, unknown>;
       if (
-        originalRequest.params.arguments &&
-        typeof originalRequest.params.arguments === 'object'
+        params.arguments &&
+        typeof params.arguments === 'object' &&
+        params.arguments !== null
       ) {
         sanitizedRequestParams.arguments = {};
-        for (const [key, value] of Object.entries(
-          originalRequest.params.arguments,
-        )) {
+        const sanitizedArgs = sanitizedRequestParams.arguments as Record<
+          string,
+          unknown
+        >;
+        for (const [key, value] of Object.entries(params.arguments)) {
           const lowerKey = key.toLowerCase();
           if (
             lowerKey.includes('password') ||
             lowerKey.includes('token') ||
             lowerKey.includes('secret')
           ) {
-            sanitizedRequestParams.arguments[key] = '[REDACTED]';
+            sanitizedArgs[key] = '[REDACTED]';
           } else {
-            sanitizedRequestParams.arguments[key] = value;
+            sanitizedArgs[key] = value;
           }
         }
       }
-      for (const [key, value] of Object.entries(originalRequest.params)) {
+      for (const [key, value] of Object.entries(params)) {
         if (key === 'arguments') continue;
         sanitizedRequestParams[key] = value;
       }
@@ -1225,40 +1241,47 @@ export class CloudLlmHubProxy {
           }
         }
 
-        const sanitizedOutgoingBody: any = {};
+        const sanitizedOutgoingBody: Record<string, unknown> = {};
         if (proxyConfig.data && typeof proxyConfig.data === 'object') {
           if (
             proxyConfig.data.params &&
-            typeof proxyConfig.data.params === 'object'
+            typeof proxyConfig.data.params === 'object' &&
+            proxyConfig.data.params !== null
           ) {
+            const params = proxyConfig.data.params as Record<string, unknown>;
             sanitizedOutgoingBody.params = {};
+            const sanitizedParams = sanitizedOutgoingBody.params as Record<
+              string,
+              unknown
+            >;
             // For tools/call, log arguments
             if (
-              proxyConfig.data.params.arguments &&
-              typeof proxyConfig.data.params.arguments === 'object'
+              params.arguments &&
+              typeof params.arguments === 'object' &&
+              params.arguments !== null
             ) {
-              sanitizedOutgoingBody.params.arguments = {};
-              for (const [key, value] of Object.entries(
-                proxyConfig.data.params.arguments,
-              )) {
+              sanitizedParams.arguments = {};
+              const sanitizedArgs = sanitizedParams.arguments as Record<
+                string,
+                unknown
+              >;
+              for (const [key, value] of Object.entries(params.arguments)) {
                 const lowerKey = key.toLowerCase();
                 if (
                   lowerKey.includes('password') ||
                   lowerKey.includes('token') ||
                   lowerKey.includes('secret')
                 ) {
-                  sanitizedOutgoingBody.params.arguments[key] = '[REDACTED]';
+                  sanitizedArgs[key] = '[REDACTED]';
                 } else {
-                  sanitizedOutgoingBody.params.arguments[key] = value;
+                  sanitizedArgs[key] = value;
                 }
               }
             }
             // Log other params
-            for (const [key, value] of Object.entries(
-              proxyConfig.data.params,
-            )) {
+            for (const [key, value] of Object.entries(params)) {
               if (key === 'arguments') continue;
-              sanitizedOutgoingBody.params[key] = value;
+              sanitizedParams[key] = value;
             }
           }
           sanitizedOutgoingBody.method = proxyConfig.data.method;
@@ -1307,7 +1330,7 @@ export class CloudLlmHubProxy {
         });
 
         // Log response details
-        const sanitizedResponse: any = {
+        const sanitizedResponse: Record<string, unknown> = {
           status: response.status,
           statusText: response.statusText,
           jsonrpc: response.data?.jsonrpc,
@@ -1344,7 +1367,15 @@ export class CloudLlmHubProxy {
 
       // Log detailed error information (always log errors, but detailed info only in debug mode)
       if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as any;
+        const axiosError = error as {
+          response?: {
+            status?: number;
+            statusText?: string;
+            data?: unknown;
+            headers?: Record<string, unknown>;
+          };
+          config?: { url?: string; method?: string };
+        };
         logger?.error('Request failed', {
           type: 'PROXY_REQUEST_FAILED',
           status: axiosError.response?.status,
