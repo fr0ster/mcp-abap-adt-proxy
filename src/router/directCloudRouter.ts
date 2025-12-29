@@ -160,16 +160,17 @@ export async function getDirectCloudConnection(
     // Create connection
     const connectionSessionId = `mcp-proxy-direct-${sessionId}`;
     // Create token refresher from AuthBroker if available
-    const tokenRefresher = authBroker && config.destination
-      ? {
-          getToken: async () => {
-            return await authBroker.getToken(config.destination!);
-          },
-          refreshToken: async () => {
-            return await authBroker.getToken(config.destination!);
-          },
-        }
-      : undefined;
+    const tokenRefresher =
+      authBroker && config.destination
+        ? {
+            getToken: async () => {
+              return await authBroker.getToken(config.destination!);
+            },
+            refreshToken: async () => {
+              return await authBroker.getToken(config.destination!);
+            },
+          }
+        : undefined;
     const connection = createAbapConnection(
       sapConfig,
       logger, // Use our logger

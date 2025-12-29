@@ -10,6 +10,7 @@ import {
   AuthorizationCodeProvider,
   ClientCredentialsProvider,
 } from '@mcp-abap-adt/auth-providers';
+import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces';
 import {
   AUTH_TYPE_JWT,
   HEADER_ACCEPT,
@@ -236,7 +237,7 @@ export class CloudLlmHubProxy {
 
     // Create token provider BEFORE creating session
     // Load auth config from service key store to create provider with correct config
-    let authConfig;
+    let authConfig: IAuthorizationConfig | null = null;
     try {
       authConfig = await serviceKeyStore.getAuthorizationConfig(destination);
     } catch (error) {
@@ -346,7 +347,7 @@ export class CloudLlmHubProxy {
 
     // Create token provider BEFORE creating session
     // Load auth config from service key store to create provider with correct config
-    let authConfig;
+    let authConfig: IAuthorizationConfig | null = null;
     try {
       authConfig = await serviceKeyStore.getAuthorizationConfig(destination);
     } catch (error) {
@@ -1486,9 +1487,5 @@ export async function createCloudLlmHubProxy(
     loggerAdapter, // Pass logger adapter to AuthBroker for debugging
   );
 
-  return new CloudLlmHubProxy(
-    btpAuthBroker,
-    abapAuthBroker,
-    config,
-  );
+  return new CloudLlmHubProxy(btpAuthBroker, abapAuthBroker, config);
 }

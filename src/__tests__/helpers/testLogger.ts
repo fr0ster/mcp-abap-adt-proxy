@@ -12,7 +12,7 @@
  * Available package names: AUTH_BROKER, AUTH_PROVIDERS, AUTH_STORES, CONNECTION, HEADER_VALIDATOR, LOGGER
  */
 
-import { LogLevel, type ILogger } from '@mcp-abap-adt/logger';
+import { type ILogger, LogLevel } from '@mcp-abap-adt/logger';
 
 /**
  * Get log level based on verbose flag

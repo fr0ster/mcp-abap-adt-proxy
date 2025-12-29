@@ -104,15 +104,11 @@ describe('CloudLlmHubProxy', () => {
     mockedAxios.create = jest.fn().mockReturnValue(mockAxiosInstance);
 
     // Create proxy instance with both BTP and ABAP auth brokers
-    proxy = new CloudLlmHubProxy(
-      mockBtpAuthBroker,
-      mockAbapAuthBroker,
-      {
-        maxRetries: 2,
-        retryDelay: 100,
-        requestTimeout: 5000,
-      },
-    );
+    proxy = new CloudLlmHubProxy(mockBtpAuthBroker, mockAbapAuthBroker, {
+      maxRetries: 2,
+      retryDelay: 100,
+      requestTimeout: 5000,
+    });
   });
 
   describe('buildProxyRequest', () => {
