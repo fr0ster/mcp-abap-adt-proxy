@@ -228,14 +228,14 @@ export function createErrorResponse(
   id: string | number | null,
   code: number,
   message: string,
-  data?: any,
+  data?: unknown,
 ): {
   jsonrpc: string;
   id: string | number | null;
   error: {
     code: number;
     message: string;
-    data?: any;
+    data?: unknown;
   };
 } {
   return {

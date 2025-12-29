@@ -89,7 +89,7 @@ export function shouldWriteStderr(): boolean {
   const isTestEnv =
     process.env.NODE_ENV === 'test' ||
     process.env.JEST_WORKER_ID !== undefined ||
-    typeof (globalThis as any).jest !== 'undefined';
+    typeof (globalThis as { jest?: unknown }).jest !== 'undefined';
   return verboseMode && !isTestEnv;
 }
 
