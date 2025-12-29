@@ -7,6 +7,7 @@
   "scripts": {
     "chrono": "./tools/version-stats.sh",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
+    "test:check": "npx tsc --noEmit --project tsconfig.test.json",
     "lint": "npx biome check --write src",
     "lint:check": "npx biome check src",
     "format": "npx biome format --write src",
