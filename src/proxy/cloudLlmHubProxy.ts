@@ -39,10 +39,34 @@ import type { RoutingDecision } from '../router/headerAnalyzer.js';
  * Adapter to convert proxy Logger to ILogger interface expected by AuthBroker
  */
 const loggerAdapter: ILogger = {
-  debug: (message: string, meta?: any) => logger?.debug(message, meta),
-  info: (message: string, meta?: any) => logger?.info(message, meta),
-  warn: (message: string, meta?: any) => logger?.warn(message, meta),
-  error: (message: string, meta?: any) => logger?.error(message, meta),
+  debug: (message: string, meta?: unknown) =>
+    logger?.debug(
+      message,
+      meta && typeof meta === 'object' && meta !== null
+        ? (meta as Record<string, unknown>)
+        : undefined,
+    ),
+  info: (message: string, meta?: unknown) =>
+    logger?.info(
+      message,
+      meta && typeof meta === 'object' && meta !== null
+        ? (meta as Record<string, unknown>)
+        : undefined,
+    ),
+  warn: (message: string, meta?: unknown) =>
+    logger?.warn(
+      message,
+      meta && typeof meta === 'object' && meta !== null
+        ? (meta as Record<string, unknown>)
+        : undefined,
+    ),
+  error: (message: string, meta?: unknown) =>
+    logger?.error(
+      message,
+      meta && typeof meta === 'object' && meta !== null
+        ? (meta as Record<string, unknown>)
+        : undefined,
+    ),
 };
 
 import {

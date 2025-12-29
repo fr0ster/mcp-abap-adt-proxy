@@ -104,12 +104,13 @@ export function interceptRequest(
  * Check if request requires SAP configuration
  * Only tools/call requires SAP config - all other methods don't
  */
-export function requiresSapConfig(body: any): boolean {
-  if (!body || typeof body !== 'object') {
+export function requiresSapConfig(body: unknown): boolean {
+  if (!body || typeof body !== 'object' || body === null) {
     return false;
   }
 
-  const method = body.method;
+  const bodyObj = body as Record<string, unknown>;
+  const method = bodyObj.method;
   return method === 'tools/call';
 }
 

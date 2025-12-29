@@ -18,3 +18,4 @@ mcp-proxy-config.yml
 mcp-proxy-config.json
 .mcp-proxy-config.json
 
+src/index.ts

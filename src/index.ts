@@ -47,6 +47,16 @@ import {
 } from './router/requestInterceptor.js';
 
 /**
+ * Safely extract id from unknown body object
+ */
+function getBodyId(body: unknown): unknown {
+  if (body && typeof body === 'object' && body !== null && 'id' in body) {
+    return (body as { id: unknown }).id;
+  }
+  return null;
+}
+
+/**
  * MCP ABAP ADT Proxy Server
  */
 export class McpAbapAdtProxyServer {
@@ -204,7 +214,7 @@ export class McpAbapAdtProxyServer {
       }
 
       // Read request body
-      let body: any;
+      let body: unknown;
       try {
         const chunks: Buffer[] = [];
         for await (const chunk of req) {
@@ -221,36 +231,49 @@ export class McpAbapAdtProxyServer {
         body = JSON.parse(bodyString);
 
         // Sanitize body for logging
-        const sanitizedBody: any = {};
-        if (body && typeof body === 'object') {
-          sanitizedBody.method = body.method;
-          sanitizedBody.id = body.id;
-          sanitizedBody.jsonrpc = body.jsonrpc;
-          if (body.params && typeof body.params === 'object') {
+        const sanitizedBody: Record<string, unknown> = {};
+        if (body && typeof body === 'object' && body !== null) {
+          const bodyObj = body as Record<string, unknown>;
+          sanitizedBody.method = bodyObj.method;
+          sanitizedBody.id = bodyObj.id;
+          sanitizedBody.jsonrpc = bodyObj.jsonrpc;
+          if (
+            bodyObj.params &&
+            typeof bodyObj.params === 'object' &&
+            bodyObj.params !== null
+          ) {
+            const params = bodyObj.params as Record<string, unknown>;
             sanitizedBody.params = {};
+            const sanitizedParams = sanitizedBody.params as Record<
+              string,
+              unknown
+            >;
             if (
-              body.params.arguments &&
-              typeof body.params.arguments === 'object'
+              params.arguments &&
+              typeof params.arguments === 'object' &&
+              params.arguments !== null
             ) {
-              sanitizedBody.params.arguments = {};
-              for (const [key, value] of Object.entries(
-                body.params.arguments,
-              )) {
+              sanitizedParams.arguments = {};
+              const sanitizedArgs = sanitizedParams.arguments as Record<
+                string,
+                unknown
+              >;
+              for (const [key, value] of Object.entries(params.arguments)) {
                 const lowerKey = key.toLowerCase();
                 if (
                   lowerKey.includes('password') ||
                   lowerKey.includes('token') ||
                   lowerKey.includes('secret')
                 ) {
-                  sanitizedBody.params.arguments[key] = '[REDACTED]';
+                  sanitizedArgs[key] = '[REDACTED]';
                 } else {
-                  sanitizedBody.params.arguments[key] = value;
+                  sanitizedArgs[key] = value;
                 }
               }
             }
-            for (const [key, value] of Object.entries(body.params)) {
+            for (const [key, value] of Object.entries(params)) {
               if (key === 'arguments') continue;
-              sanitizedBody.params[key] = value;
+              sanitizedParams[key] = value;
             }
           }
         }
@@ -301,10 +324,14 @@ export class McpAbapAdtProxyServer {
           reason: intercepted.routingDecision.reason,
         });
         res.writeHead(400, { 'Content-Type': 'application/json' });
+        const bodyId =
+          body && typeof body === 'object' && body !== null && 'id' in body
+            ? (body as { id: unknown }).id
+            : null;
         res.end(
           JSON.stringify({
             jsonrpc: '2.0',
-            id: body?.id || null,
+            id: bodyId || null,
             error: {
               code: -32602,
               message: intercepted.routingDecision.reason,
@@ -407,7 +434,7 @@ export class McpAbapAdtProxyServer {
       res.end(
         JSON.stringify({
           jsonrpc: '2.0',
-          id: intercepted.body?.id || null,
+          id: getBodyId(intercepted.body) || null,
           error: {
             code: -32000,
             message: 'Target URL not configured',
@@ -452,7 +479,7 @@ export class McpAbapAdtProxyServer {
         res.end(
           JSON.stringify({
             jsonrpc: '2.0',
-            id: intercepted.body?.id || null,
+            id: getBodyId(intercepted.body) || null,
             error: {
               code: -32000,
               message: errorMessage,
@@ -493,43 +520,54 @@ export class McpAbapAdtProxyServer {
       }
     }
 
-    const sanitizedBody: any = {};
-    if (intercepted.body && typeof intercepted.body === 'object') {
+    const sanitizedBody: Record<string, unknown> = {};
+    if (
+      intercepted.body &&
+      typeof intercepted.body === 'object' &&
+      intercepted.body !== null
+    ) {
+      const bodyObj = intercepted.body as Record<string, unknown>;
       if (
-        intercepted.body.params &&
-        typeof intercepted.body.params === 'object'
+        bodyObj.params &&
+        typeof bodyObj.params === 'object' &&
+        bodyObj.params !== null
       ) {
+        const params = bodyObj.params as Record<string, unknown>;
         sanitizedBody.params = {};
+        const sanitizedParams = sanitizedBody.params as Record<string, unknown>;
         // For tools/call, log arguments
         if (
-          intercepted.body.params.arguments &&
-          typeof intercepted.body.params.arguments === 'object'
+          params.arguments &&
+          typeof params.arguments === 'object' &&
+          params.arguments !== null
         ) {
-          sanitizedBody.params.arguments = {};
-          for (const [key, value] of Object.entries(
-            intercepted.body.params.arguments,
-          )) {
+          sanitizedParams.arguments = {};
+          const sanitizedArgs = sanitizedParams.arguments as Record<
+            string,
+            unknown
+          >;
+          for (const [key, value] of Object.entries(params.arguments)) {
             const lowerKey = key.toLowerCase();
             if (
               lowerKey.includes('password') ||
               lowerKey.includes('token') ||
               lowerKey.includes('secret')
             ) {
-              sanitizedBody.params.arguments[key] = '[REDACTED]';
+              sanitizedArgs[key] = '[REDACTED]';
             } else {
-              sanitizedBody.params.arguments[key] = value;
+              sanitizedArgs[key] = value;
             }
           }
         }
         // Log other params
-        for (const [key, value] of Object.entries(intercepted.body.params)) {
+        for (const [key, value] of Object.entries(params)) {
           if (key === 'arguments') continue;
-          sanitizedBody.params[key] = value;
+          sanitizedParams[key] = value;
         }
       }
-      sanitizedBody.method = intercepted.body.method;
-      sanitizedBody.id = intercepted.body.id;
-      sanitizedBody.jsonrpc = intercepted.body.jsonrpc;
+      sanitizedBody.method = bodyObj.method;
+      sanitizedBody.id = bodyObj.id;
+      sanitizedBody.jsonrpc = bodyObj.jsonrpc;
     }
 
     logger?.info('=== INCOMING REQUEST ===', {
@@ -561,7 +599,7 @@ export class McpAbapAdtProxyServer {
 
       // Build MCP request from intercepted request
       // Note: Use ?? instead of || to preserve falsy values like 0
-      const interceptedBodyId = intercepted.body?.id;
+      const interceptedBodyId = getBodyId(intercepted.body);
       const interceptedBodyIdType = typeof interceptedBodyId;
       const interceptedBodyIdUndefined = interceptedBodyId === undefined;
 
@@ -577,8 +615,17 @@ export class McpAbapAdtProxyServer {
       });
 
       // Preserve id correctly - 0 is a valid id value
-      const mcpRequestId =
-        interceptedBodyId !== undefined ? interceptedBodyId : null;
+      let mcpRequestId: string | number | null | undefined;
+      if (interceptedBodyId === undefined) {
+        mcpRequestId = null;
+      } else if (
+        typeof interceptedBodyId === 'string' ||
+        typeof interceptedBodyId === 'number'
+      ) {
+        mcpRequestId = interceptedBodyId;
+      } else {
+        mcpRequestId = null;
+      }
 
       const mcpRequest = {
         method: intercepted.body?.method ?? '',
@@ -599,8 +646,8 @@ export class McpAbapAdtProxyServer {
 
       logger?.info('=== FORWARDING REQUEST ===', {
         type: 'PROXY_REQUEST_FORWARDING',
-        interceptedBodyIdAtForward: intercepted.body?.id,
-        interceptedBodyIdTypeAtForward: typeof intercepted.body?.id,
+        interceptedBodyIdAtForward: getBodyId(intercepted.body),
+        interceptedBodyIdTypeAtForward: typeof getBodyId(intercepted.body),
         mcpRequest: {
           method: mcpRequest.method,
           params: sanitizedBody.params,
@@ -622,7 +669,7 @@ export class McpAbapAdtProxyServer {
       );
 
       // Log response
-      const sanitizedResponse: any = {
+      const sanitizedResponse: Record<string, unknown> = {
         jsonrpc: proxyResponse.jsonrpc,
         id: proxyResponse.id,
       };
@@ -679,7 +726,7 @@ export class McpAbapAdtProxyServer {
         res.end(
           JSON.stringify({
             jsonrpc: '2.0',
-            id: intercepted.body?.id || null,
+            id: getBodyId(intercepted.body) || null,
             error: {
               code: -32000,
               message: errorMessage,
@@ -878,7 +925,7 @@ export class McpAbapAdtProxyServer {
         }
 
         // Read request body
-        let body: any;
+        let body: unknown;
         try {
           const chunks: Buffer[] = [];
           for await (const chunk of req) {
@@ -923,7 +970,7 @@ export class McpAbapAdtProxyServer {
           res.writeHead(400, { 'Content-Type': 'application/json' }).end(
             JSON.stringify({
               jsonrpc: '2.0',
-              id: body?.id || null,
+              id: getBodyId(body) || null,
               error: {
                 code: -32602,
                 message: intercepted.routingDecision.reason,
@@ -965,7 +1012,7 @@ export class McpAbapAdtProxyServer {
             res.end(
               JSON.stringify({
                 jsonrpc: '2.0',
-                id: body?.id || null,
+                id: getBodyId(body) || null,
                 error: {
                   code: -32000,
                   message:

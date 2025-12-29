@@ -64,7 +64,7 @@
     "@mcp-abap-adt/auth-stores": "^0.2.10",
     "@mcp-abap-adt/connection": "^0.2.9",
     "@mcp-abap-adt/header-validator": "^0.1.8",
-    "@mcp-abap-adt/interfaces": "^0.2.14",
+    "@mcp-abap-adt/interfaces": "^0.2.15",
     "@mcp-abap-adt/logger": "^0.1.4",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "axios": "^1.11.0",
