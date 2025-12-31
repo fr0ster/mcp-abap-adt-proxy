@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2025-12-31
+
+### Changed
+- **@mcp-abap-adt/auth-broker**: bumped to `^0.3.0` - auto-detect service key format, credentials wrapper support, debug logging
+- **@mcp-abap-adt/auth-stores**: bumped to `^0.3.0`
+
 ## [0.1.6] - 2025-12-07
 
 ### Added
