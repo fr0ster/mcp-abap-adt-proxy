@@ -52,15 +52,10 @@ Options:
   --sse-host=<host>       SSE server host (default: 0.0.0.0)
   --cloud-llm-hub-url     Cloud LLM Hub URL (default: from env CLOUD_LLM_HUB_URL)
   --btp=<destination>     Override x-btp-destination header (for BTP Cloud authorization)
-                           Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
-  --mcp=<destination>      Override x-mcp-destination header (for SAP ABAP connection)
-                           Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
-                           Can be used without --btp for local testing (no BTP authentication)
+                           Either --btp or --mcp-url is required for stdio/SSE transports
   --mcp-url=<url>         Direct MCP server URL (for local testing without BTP)
-                           Optional: either --btp, --mcp, or --mcp-url is required for stdio/SSE transports
+                           Either --btp or --mcp-url is required for stdio/SSE transports
                            Used for local testing without authentication
-  --browser-auth-port=<port>  OAuth callback port for browser authentication (default: 3001)
-                              Use different port (e.g., 3101) to avoid conflicts when proxy runs on port 3001
   --config=<file>, -c     Load configuration from YAML or JSON file
                            Alternative to command-line parameters
   --unsafe                 Enable file-based session storage (persists tokens to disk)
@@ -75,25 +70,19 @@ Environment Variables:
   MCP_SSE_HOST            SSE server host (default: 0.0.0.0)
   MCP_TRANSPORT           Transport type (stdio|http|sse)
   MCP_PROXY_UNSAFE        Enable file-based session storage (set to "true")
-  MCP_BROWSER_AUTH_PORT   OAuth callback port for browser authentication (default: 3001)
 
 Examples:
   mcp-abap-adt-proxy                                    # Use default transport
   mcp-abap-adt-proxy --transport=stdio --btp=ai         # Use stdio transport with --btp
-  mcp-abap-adt-proxy --transport=stdio --mcp=trial      # Use stdio with --mcp only (local testing, no BTP auth)
   mcp-abap-adt-proxy --transport=stdio --mcp-url=http://localhost:3000/mcp  # Use stdio with direct MCP URL (local testing)
-  mcp-abap-adt-proxy --transport=stdio --btp=ai --mcp=trial  # Use stdio with both destinations
   mcp-abap-adt-proxy --transport=http                   # HTTP mode (port 3001)
   mcp-abap-adt-proxy --transport=http --http-port=8080  # HTTP mode on custom port
-  mcp-abap-adt-proxy --transport=sse --btp=ai --mcp=trial  # SSE mode with destinations
-  mcp-abap-adt-proxy --transport=sse --mcp=trial        # SSE mode with --mcp only (local testing)
+  mcp-abap-adt-proxy --transport=sse --btp=ai           # SSE mode with BTP destination
   mcp-abap-adt-proxy --transport=sse --mcp-url=http://localhost:3000/mcp  # SSE mode with direct MCP URL
   mcp-abap-adt-proxy --transport=sse --sse-port=3002     # SSE mode on port 3002
-  mcp-abap-adt-proxy --btp=ai --mcp=trial               # With destination overrides
-  mcp-abap-adt-proxy --mcp=trial                        # Local testing mode (no BTP authentication)
+  mcp-abap-adt-proxy --btp=ai                           # With BTP destination override
   mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp  # Local testing with direct MCP URL (no authentication)
-  mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe      # With file-based session storage
-  mcp-abap-adt-proxy --browser-auth-port=3101           # Use custom OAuth callback port (avoids conflict with proxy on 3001)
+  mcp-abap-adt-proxy --btp=ai --unsafe                  # With file-based session storage
   mcp-abap-adt-proxy --config=proxy-config.yaml         # Load configuration from YAML file
   mcp-abap-adt-proxy -c proxy-config.yml                # Load configuration from YAML file (short form)
 
@@ -107,42 +96,32 @@ Usage Modes:
 1. BTP Authentication Mode (with --btp):
    - Adds Authorization: Bearer <token> header from BTP destination
    - Gets MCP server URL from BTP destination service key
-   - Works with any BTP service, not just SAP ABAP
+   - Works with any BTP service
    Example: mcp-abap-adt-proxy --btp=ai
 
-2. BTP + SAP Configuration Mode (--btp + --mcp):
-   - Adds Authorization: Bearer <token> header from BTP destination
-   - Adds SAP headers (x-sap-jwt-token, x-sap-url, etc.) from MCP destination
-   - Gets MCP server URL from BTP destination service key
-   - Suitable for SAP ABAP systems that require both BTP and SAP authentication
-   Example: mcp-abap-adt-proxy --btp=ai --mcp=trial
-
-3. Local Testing Mode (only --mcp or --mcp-url):
-   - No BTP authentication required
-   - Gets MCP server URL from MCP destination service key (--mcp) or uses direct URL (--mcp-url)
-   - Optional SAP token (won't fail if unavailable)
+2. Local Testing Mode (with --mcp-url):
+   - No authentication required
+   - Uses direct MCP server URL
    - Enables local integration testing without BTP authentication
-   Example: mcp-abap-adt-proxy --mcp=trial
    Example: mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp
 
 Headers (for HTTP/SSE transports):
   - x-btp-destination: Destination for BTP Cloud authorization (optional if --btp is used)
-  - x-mcp-destination: Destination for SAP ABAP connection (optional if --mcp is used)
   - x-mcp-url: Direct MCP server URL (optional if --mcp-url is used)
-  
-  At least one of the above headers (or corresponding --btp/--mcp/--mcp-url parameter) is required.
+
+  At least one of the above headers (or corresponding --btp/--mcp-url parameter) is required.
 
 Service Keys:
   Service keys should be placed in:
   - Unix: ~/.config/mcp-abap-adt/service-keys/<destination>.json
   - Windows: %USERPROFILE%\\Documents\\mcp-abap-adt\\service-keys\\<destination>.json
-  
+
   For BTP destination, service key should contain:
   {
     "uaa": { "url": "...", "clientid": "...", "clientsecret": "..." },
     "abap": { "url": "https://your-mcp-server.com" }
   }
-  
+
   The "abap.url" field is used as the MCP server URL (even for non-SAP services).
 
 For more information, see: https://github.com/fr0ster/mcp-abap-adt-proxy
@@ -251,4 +230,3 @@ function main() {
 
 // Run launcher
 main();
-

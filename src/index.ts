@@ -6,11 +6,11 @@
  * Proxies local MCP requests to MCP servers with optional JWT authentication.
  * Routes requests based on authentication headers:
  * - x-btp-destination (or --btp): BTP Cloud authorization with JWT token
- * - x-mcp-destination (or --mcp): SAP ABAP connection configuration
+ * - x-mcp-url (or --mcp-url): Direct MCP server URL (no authentication)
  *
  * Supports two modes:
  * 1. BTP authentication mode: Requires x-btp-destination or --btp parameter
- * 2. Local testing mode: Works with only x-mcp-destination or --mcp parameter (no BTP authentication)
+ * 2. Local testing mode: Works with --mcp-url parameter (no BTP authentication)
  */
 
 import {
@@ -21,7 +21,6 @@ import {
 } from 'node:http';
 import {
   HEADER_BTP_DESTINATION,
-  HEADER_MCP_DESTINATION,
   HEADER_MCP_URL,
 } from '@mcp-abap-adt/interfaces';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -42,7 +41,6 @@ import {
 import { RoutingStrategy } from './router/headerAnalyzer.js';
 import {
   interceptRequest,
-  requiresSapConfig,
   sanitizeHeadersForLogging,
 } from './router/requestInterceptor.js';
 
@@ -122,20 +120,19 @@ export class McpAbapAdtProxyServer {
    */
   async run(): Promise<void> {
     if (this.transportConfig.type === 'stdio') {
-      // Check if either --btp, --mcp, or --mcp-url parameter is provided (required for stdio)
+      // Check if either --btp or --mcp-url parameter is provided (required for stdio)
       if (
         !this.config.btpDestination &&
-        !this.config.mcpDestination &&
         !this.config.mcpUrl
       ) {
         logger?.error(
-          'Either --btp, --mcp, or --mcp-url parameter is required for stdio transport',
+          'Either --btp or --mcp-url parameter is required for stdio transport',
           {
             type: 'STDIO_DESTINATION_REQUIRED',
           },
         );
         throw new Error(
-          'Either --btp, --mcp, or --mcp-url parameter is required for stdio transport. Use --btp=<destination> for BTP destination, --mcp=<destination> for MCP destination, or --mcp-url=<url> for direct MCP server URL (local testing).',
+          'Either --btp or --mcp-url parameter is required for stdio transport. Use --btp=<destination> for BTP destination or --mcp-url=<url> for direct MCP server URL (local testing).',
         );
       }
 
@@ -158,9 +155,8 @@ export class McpAbapAdtProxyServer {
         type: 'SERVER_STARTED',
         transport: 'stdio',
         btpDestination: this.config.btpDestination,
-        mcpDestination: this.config.mcpDestination,
         mcpUrl: this.config.mcpUrl,
-        note: 'For stdio transport, --btp, --mcp, and/or --mcp-url parameters are used as default destinations',
+        note: 'For stdio transport, --btp and/or --mcp-url parameters are used as default destinations',
         mode: this.config.btpDestination
           ? 'BTP authentication'
           : 'Local testing (no BTP authentication)',
@@ -294,10 +290,9 @@ export class McpAbapAdtProxyServer {
       }
 
       // Intercept and analyze request
-      // Pass config overrides (--btp, --mcp, and --mcp-url) to header analyzer
+      // Pass config overrides (--btp and --mcp-url) to header analyzer
       const configOverrides = {
         btpDestination: this.config.btpDestination,
-        mcpDestination: this.config.mcpDestination,
         mcpUrl: this.config.mcpUrl,
       };
 
@@ -313,7 +308,6 @@ export class McpAbapAdtProxyServer {
         routingStrategy: intercepted.routingDecision.strategy,
         routingReason: intercepted.routingDecision.reason,
         btpDestination: intercepted.routingDecision.btpDestination,
-        mcpDestination: intercepted.routingDecision.mcpDestination,
         mcpUrl: intercepted.routingDecision.mcpUrl,
       });
 
@@ -368,8 +362,6 @@ export class McpAbapAdtProxyServer {
       logger?.info('=== PROXYING REQUEST ===', {
         type: 'PROXY_REQUEST_START',
         btpDestination: intercepted.routingDecision.btpDestination,
-        mcpDestination: intercepted.routingDecision.mcpDestination,
-        requiresSapConfig: requiresSapConfig(body),
       });
 
       // Handle proxy request - add JWT and forward to x-mcp-url
@@ -499,7 +491,6 @@ export class McpAbapAdtProxyServer {
     res: ServerResponse,
   ): Promise<void> {
     const btpDestination = intercepted.routingDecision.btpDestination;
-    const mcpDestination = intercepted.routingDecision.mcpDestination;
     const mcpUrl = intercepted.routingDecision.mcpUrl;
 
     // Log incoming request details
@@ -575,7 +566,6 @@ export class McpAbapAdtProxyServer {
       method: req.method,
       url: req.url,
       btpDestination,
-      mcpDestination,
       mcpUrl,
       sessionId: intercepted.sessionId,
       headers: incomingHeaders,
@@ -591,10 +581,7 @@ export class McpAbapAdtProxyServer {
         // Use default base URL from config as fallback (actual URL comes from service key)
         const baseUrl =
           this.config.cloudLlmHubUrl || 'https://default.example.com';
-        this.cloudLlmHubProxy = await createCloudLlmHubProxy(
-          baseUrl,
-          this.config,
-        );
+        this.cloudLlmHubProxy = await createCloudLlmHubProxy(this.config);
       }
 
       // Build MCP request from intercepted request
@@ -656,7 +643,6 @@ export class McpAbapAdtProxyServer {
         },
         routingDecision: {
           btpDestination,
-          mcpDestination,
           mcpUrl,
         },
       });
@@ -794,9 +780,6 @@ export class McpAbapAdtProxyServer {
       // Add config overrides if not present in headers
       if (this.config.btpDestination && !headers[HEADER_BTP_DESTINATION]) {
         headers[HEADER_BTP_DESTINATION] = this.config.btpDestination;
-      }
-      if (this.config.mcpDestination && !headers[HEADER_MCP_DESTINATION]) {
-        headers[HEADER_MCP_DESTINATION] = this.config.mcpDestination;
       }
       if (this.config.mcpUrl && !headers[HEADER_MCP_URL]) {
         headers[HEADER_MCP_URL] = this.config.mcpUrl;
@@ -956,7 +939,6 @@ export class McpAbapAdtProxyServer {
         // Intercept and analyze request with config overrides
         const configOverrides = {
           btpDestination: this.config.btpDestination,
-          mcpDestination: this.config.mcpDestination,
           mcpUrl: this.config.mcpUrl,
         };
         const intercepted = interceptRequest(req, body, configOverrides);

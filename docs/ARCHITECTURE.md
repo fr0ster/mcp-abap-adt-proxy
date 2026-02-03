@@ -4,7 +4,7 @@ This document describes the architecture of `@mcp-abap-adt/proxy`.
 
 ## Overview
 
-The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clients (like Cline) and any MCP server. It adds JWT authentication tokens to requests and forwards them to the target MCP server specified in the `x-mcp-url` header.
+The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clients (like Cline) and any MCP server. It adds JWT authentication tokens to requests and forwards them to the target MCP server.
 
 ## System Architecture
 
@@ -15,22 +15,22 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 └────────┬─────────┘
          │
          │ HTTP/SSE/Stdio
-         │ (with x-mcp-url header)
+         │ (with x-btp-destination header)
          │
 ┌────────▼─────────────────────────────────────┐
 │     MCP ABAP ADT Proxy                       │
 │                                               │
 │  ┌──────────────────────────────────────┐   │
 │  │   Request Interceptor                │   │
-│  │   - Extract x-mcp-url                │   │
-│  │   - Extract destination              │   │
+│  │   - Extract x-btp-destination        │   │
+│  │   - Extract x-mcp-url               │   │
 │  └──────────────┬───────────────────────┘   │
 │                 │                             │
 │  ┌──────────────▼───────────────────────┐   │
 │  │   Proxy Client                        │   │
 │  │   - Get JWT Token (AuthBroker)        │   │
 │  │   - Add Authorization Header          │   │
-│  │   - Forward to x-mcp-url             │   │
+│  │   - Forward to MCP server            │   │
 │  │   - Error Handling                    │   │
 │  └───────────────────────────────────────┘   │
 └───────────────────────────────────────────────┘
@@ -40,8 +40,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
          │
 ┌────────▼─────────────────────────────────────┐
 │     Target MCP Server                        │
-│     (from x-mcp-url header)                  │
-│     e.g., cloud-llm-hub                      │
+│     (URL from service key or x-mcp-url)      │
 └───────────────────────────────────────────────┘
 ```
 
@@ -59,33 +58,32 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 
 **Key Functions:**
 - `interceptRequest()` - Main interception function
-- `requiresSapConfig()` - Check if request needs SAP config
-- `sanitizeHeadersForLogging()` - Remove sensitive data
+- `sanitizeHeadersForLogging()` - Remove sensitive data from headers for safe logging
 
 ### 2. Header Analyzer
 
 **Location:** `src/router/headerAnalyzer.ts`
 
 **Responsibilities:**
-- Extract `x-mcp-url` header (required)
-- Extract `x-sap-destination` header (optional, default: "sk")
+- Extract `x-btp-destination` header (for BTP authentication)
+- Extract `x-mcp-url` header (for direct MCP server URL)
 - Determine routing decision
 
 **Key Functions:**
-- `analyzeHeaders()` - Main analysis function, extracts MCP URL and destination
+- `analyzeHeaders()` - Main analysis function, extracts routing info and returns `RoutingDecision`
 - `shouldProxy()` - Check if request should be proxied
 
 **Routing Strategy:**
-- `PROXY` - Proxy request with JWT authentication
-- `UNKNOWN` - x-mcp-url header missing
+- `PROXY` - Proxy request with JWT authentication (when `x-btp-destination` or `x-mcp-url` is present)
+- `PASSTHROUGH` - No proxy headers found, forward unchanged
 
 ### 3. Proxy Client
 
 **Location:** `src/proxy/cloudLlmHubProxy.ts`
 
 **Responsibilities:**
-- Proxy requests to target MCP server (from `x-mcp-url`)
-- Manage JWT tokens via AuthBroker
+- Proxy requests to target MCP server
+- Manage JWT tokens via AuthBroker (BTP/XSUAA ClientCredentials)
 - Handle retries and error recovery
 - Implement circuit breaker pattern
 
@@ -94,14 +92,13 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 - Automatic retry with exponential backoff
 - Circuit breaker for resilience
 - Token expiration handling
-- Support for full URLs or relative paths in `x-mcp-url`
 
 **Flow:**
-1. Receive MCP request with `x-mcp-url` header
+1. Receive MCP request with `x-btp-destination` header
 2. Get JWT token from AuthBroker for destination (with caching)
-3. Build proxy request with JWT token in Authorization header
-4. Preserve all original headers
-5. Forward to URL specified in `x-mcp-url`
+3. Get MCP server URL from service key for destination
+4. Build proxy request with JWT token in Authorization header
+5. Forward to MCP server URL
 6. Handle response or errors
 7. Return MCP-formatted response
 
@@ -140,15 +137,15 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 ### Proxy Request Flow
 
 ```
-1. Client Request (with x-mcp-url header)
+1. Client Request (with x-btp-destination header)
    ↓
 2. Request Interceptor
    - Extract headers
    - Parse request body
    ↓
 3. Header Analyzer
-   - Extract x-mcp-url (required)
-   - Extract x-sap-destination (optional, default: "sk")
+   - Extract x-btp-destination (for BTP auth)
+   - Extract x-mcp-url (for direct URL)
    ↓
 4. Proxy Client
    ↓
@@ -158,8 +155,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
    ↓
 7. Build Proxy Request
    - Add JWT to Authorization header
-   - Preserve all original headers
-   - Use x-mcp-url as target URL
+   - Get MCP server URL from service key
    ↓
 8. Forward to Target MCP Server (with retry)
    ↓
@@ -172,12 +168,11 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 
 ### Token Caching
 
-JWT tokens are cached by:
-- Destination name (from `x-sap-destination` header)
+JWT tokens are cached by BTP destination name.
 
 **Cache Key:**
 ```typescript
-destination // e.g., "sk", "S4HANA_E19"
+btpDestination // e.g., "btp-cloud", "ai"
 ```
 
 **Cache TTL:**
@@ -187,7 +182,7 @@ destination // e.g., "sk", "S4HANA_E19"
 
 ### Token Lifecycle
 
-1. **Retrieval**: Get token from AuthBroker for destination
+1. **Retrieval**: Get token from AuthBroker for BTP destination
 2. **Caching**: Cache token with expiration time
 3. **Usage**: Reuse cached token for subsequent requests
 4. **Refresh**: Automatically refresh on expiration or error
@@ -262,13 +257,13 @@ Sensitive headers are sanitized in logs:
 
 ### Horizontal Scaling
 
-- Stateless design (except connection cache)
+- Stateless design (except token cache)
 - Multiple instances can run in parallel
 - Load balancer can distribute requests
 
 ### Vertical Scaling
 
-- Connection caching reduces memory usage
+- Token caching reduces memory usage
 - Efficient error handling reduces CPU usage
 - Circuit breaker prevents resource exhaustion
 
@@ -284,7 +279,7 @@ Sensitive headers are sanitized in logs:
 
 - Request count by strategy
 - Circuit breaker state
-- Connection cache size
+- Token cache size
 - Token refresh count
 - Error rates
 
@@ -303,4 +298,3 @@ Token management can be extended by:
 1. Implementing custom AuthBroker integration
 2. Adding custom token caching strategies
 3. Supporting additional authentication methods
-

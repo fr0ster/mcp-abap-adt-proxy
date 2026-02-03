@@ -15,12 +15,9 @@ export interface ProxyConfig {
   logLevel: string;
   // Destination overrides from command line
   btpDestination?: string; // Overrides x-btp-destination header
-  mcpDestination?: string; // Overrides x-mcp-destination header
   mcpUrl?: string; // Direct MCP server URL (for local testing without BTP)
-  // Browser auth port for OAuth callback (default: 3001)
-  browserAuthPort?: number;
   // Session storage mode
-  unsafe?: boolean; // If true, use AbapSessionStore (persists to disk). If false, use SafeAbapSessionStore (in-memory).
+  unsafe?: boolean; // If true, use XsuaaSessionStore (persists to disk). If false, use SafeXsuaaSessionStore (in-memory).
   // Error handling & resilience
   maxRetries?: number;
   retryDelay?: number;
@@ -45,13 +42,9 @@ export function loadConfig(configPath?: string): ProxyConfig {
   // If --config is provided, load ONLY from that file (no merge with command line params)
   if (finalConfigPath) {
     // Warn if other CLI parameters are also provided (they will be ignored)
-    const conflictingParams = [
-      '--btp',
-      '--mcp',
-      '--mcp-url',
-      '--browser-auth-port',
-      '--unsafe',
-    ].filter((param) => hasArg(param));
+    const conflictingParams = ['--btp', '--mcp-url', '--unsafe'].filter(
+      (param) => hasArg(param),
+    );
 
     if (conflictingParams.length > 0) {
       console.warn(
@@ -98,25 +91,6 @@ function loadConfigFile(filePath: string): Partial<ProxyConfig> {
  * Apply default values to partial config (used when loading from file)
  */
 function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
-  // Ensure browserAuthPort is a number if provided
-  let browserAuthPort: number | undefined;
-  if (
-    fileConfig.browserAuthPort !== undefined &&
-    fileConfig.browserAuthPort !== null
-  ) {
-    if (typeof fileConfig.browserAuthPort === 'string') {
-      browserAuthPort = parseInt(fileConfig.browserAuthPort, 10);
-      if (Number.isNaN(browserAuthPort)) {
-        console.warn(
-          `[CONFIG] Invalid browserAuthPort value: "${fileConfig.browserAuthPort}", ignoring`,
-        );
-        browserAuthPort = undefined;
-      }
-    } else if (typeof fileConfig.browserAuthPort === 'number') {
-      browserAuthPort = fileConfig.browserAuthPort;
-    }
-  }
-
   const result: ProxyConfig = {
     cloudLlmHubUrl: fileConfig.cloudLlmHubUrl || '',
     httpPort: fileConfig.httpPort ?? 3001,
@@ -125,9 +99,7 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
     sseHost: fileConfig.sseHost || '0.0.0.0',
     logLevel: fileConfig.logLevel || 'info',
     btpDestination: fileConfig.btpDestination,
-    mcpDestination: fileConfig.mcpDestination,
     mcpUrl: fileConfig.mcpUrl,
-    browserAuthPort: browserAuthPort,
     unsafe: fileConfig.unsafe ?? false,
     maxRetries: fileConfig.maxRetries ?? 3,
     retryDelay: fileConfig.retryDelay ?? 1000,
@@ -143,11 +115,9 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
  * Load configuration from environment variables and command line
  */
 function loadFromEnv(): ProxyConfig {
-  // Parse command line arguments for --btp, --mcp, --mcp-url, --browser-auth-port, and --unsafe
+  // Parse command line arguments for --btp, --mcp-url, and --unsafe
   const btpDestination = getArgValue('--btp');
-  const mcpDestination = getArgValue('--mcp');
   const mcpUrl = getArgValue('--mcp-url');
-  const browserAuthPortArg = getArgValue('--browser-auth-port');
   const unsafe = hasArg('--unsafe') || process.env.MCP_PROXY_UNSAFE === 'true';
 
   return {
@@ -158,13 +128,7 @@ function loadFromEnv(): ProxyConfig {
     sseHost: process.env.MCP_SSE_HOST || '0.0.0.0',
     logLevel: process.env.LOG_LEVEL || 'info',
     btpDestination,
-    mcpDestination,
     mcpUrl: mcpUrl || process.env.MCP_URL,
-    browserAuthPort: browserAuthPortArg
-      ? parseInt(browserAuthPortArg, 10)
-      : process.env.MCP_BROWSER_AUTH_PORT
-        ? parseInt(process.env.MCP_BROWSER_AUTH_PORT, 10)
-        : undefined,
     unsafe,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || '3', 10),
     retryDelay: parseInt(process.env.MCP_PROXY_RETRY_DELAY || '1000', 10),
@@ -239,14 +203,12 @@ export function validateConfig(config: ProxyConfig): {
     }
   }
 
-  // Cloud LLM Hub URL is only required if we're not using BTP/MCP destinations
-  // If --btp, --mcp, or --mcp-url is provided, URL will be obtained from service keys
-  const hasDestination =
-    config.btpDestination || config.mcpDestination || config.mcpUrl;
+  // Cloud LLM Hub URL is only required if we're not using BTP destination or direct URL
+  const hasDestination = config.btpDestination || config.mcpUrl;
 
   if (!config.cloudLlmHubUrl && !hasDestination) {
     warnings.push(
-      'CLOUD_LLM_HUB_URL is not set and no destination provided (--btp, --mcp, or --mcp-url) - proxy will not work without a destination',
+      'CLOUD_LLM_HUB_URL is not set and no destination provided (--btp or --mcp-url) - proxy will not work without a destination',
     );
   } else if (config.cloudLlmHubUrl) {
     try {

@@ -69,11 +69,7 @@ sseHost: "0.0.0.0"
 # Uses service key from ~/.config/mcp-abap-adt/service-keys/<btpDestination>.json
 btpDestination: "btp"
 
-# MCP destination for SAP ABAP connection (x-sap-jwt-token, x-sap-url, etc.)
-# Uses service key from ~/.config/mcp-abap-adt/service-keys/<mcpDestination>.json
-mcpDestination: "mcp"
-
-# Direct MCP server URL (alternative to mcpDestination, for local testing)
+# Direct MCP server URL (alternative to btpDestination, for local testing)
 # mcpUrl: "https://your-mcp-server.com/mcp/stream/http"
 
 # Session storage mode
@@ -101,7 +97,6 @@ logLevel: "info"  # debug | info | warn | error
 transport: http
 httpPort: 3001
 btpDestination: "btp"
-mcpUrl: "https://your-mcp-server.com/mcp/stream/http"
 ```
 
 Run with:
@@ -109,40 +104,24 @@ Run with:
 mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
 ```
 
-### Example 2: BTP + SAP ABAP Mode
+### Example 2: Local Testing Mode (No BTP)
 
 ```yaml
 transport: http
 httpPort: 3001
-btpDestination: "btp"
-mcpDestination: "mcp"
+mcpUrl: "http://localhost:3000/mcp/stream/http"
 ```
 
-This configuration:
-- Uses BTP destination `btp` for Cloud authorization (injects `Authorization: Bearer <token>`)
-- Uses MCP destination `mcp` for SAP ABAP connection (injects `x-sap-jwt-token`, `x-sap-url`, etc.)
-
-### Example 3: Local Testing Mode (No BTP)
-
-```yaml
-transport: http
-httpPort: 3001
-mcpDestination: "local"
-# Or use direct URL:
-# mcpUrl: "http://localhost:3000/mcp/stream/http"
-```
-
-### Example 4: SSE Transport
+### Example 3: SSE Transport
 
 ```yaml
 transport: sse
 ssePort: 3002
 sseHost: "0.0.0.0"
 btpDestination: "btp"
-mcpDestination: "mcp"
 ```
 
-### Example 5: Custom Error Handling
+### Example 4: Custom Error Handling
 
 ```yaml
 transport: http
@@ -172,8 +151,7 @@ circuitBreakerTimeout: 120000
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `btpDestination` | `string` | `undefined` | BTP destination name (for Cloud authorization) |
-| `mcpDestination` | `string` | `undefined` | MCP destination name (for SAP ABAP connection) |
-| `mcpUrl` | `string` | `undefined` | Direct MCP server URL (alternative to `mcpDestination`) |
+| `mcpUrl` | `string` | `undefined` | Direct MCP server URL (for local testing without authentication) |
 
 ### Session Storage
 
@@ -213,7 +191,7 @@ You can use YAML configuration files when debugging in VS Code. The `launch.json
   "console": "integratedTerminal",
   "env": {
     "NODE_ENV": "development",
-    "MCP_PROXY_VERBOSE": "true"
+    "LOG_LEVEL": "debug"
   }
 }
 ```
@@ -253,4 +231,3 @@ If you get YAML parsing errors:
 - [Configuration Guide](./CONFIGURATION.md) - General configuration documentation
 - [Usage Guide](./USAGE.md) - Command-line usage examples
 - [Client Setup Guide](./CLIENT_SETUP.md) - Setting up clients like Cline
-

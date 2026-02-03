@@ -1,6 +1,6 @@
 # @mcp-abap-adt/proxy
 
-MCP proxy server for SAP ABAP ADT - proxies local requests to cloud-llm-hub with JWT authentication.
+MCP proxy server for SAP ABAP ADT - proxies local requests to MCP servers with JWT authentication.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This package acts as a simple proxy between local MCP clients (like Cline) and a
 
 ## Purpose
 
-Enable local MCP clients to connect to remote MCP servers (like `cloud-llm-hub`) with automatic JWT token management via `@mcp-abap-adt/auth-broker`. The proxy adds authentication headers and forwards requests transparently.
+Enable local MCP clients to connect to remote MCP servers with automatic JWT token management via `@mcp-abap-adt/auth-broker`. The proxy adds authentication headers and forwards requests transparently.
 
 ## Features
 
@@ -32,14 +32,14 @@ npm install -g @mcp-abap-adt/proxy
 # Start proxy server (in-memory session storage, secure)
 mcp-abap-adt-proxy
 
-# With command line overrides
-mcp-abap-adt-proxy --btp=ai --mcp=trial
+# With BTP destination
+mcp-abap-adt-proxy --btp=ai
+
+# With direct MCP URL (local testing)
+mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp
 
 # Enable file-based session storage (persists tokens to disk)
-mcp-abap-adt-proxy --unsafe
-
-# With all options
-mcp-abap-adt-proxy --btp=ai --mcp=trial --unsafe
+mcp-abap-adt-proxy --btp=ai --unsafe
 ```
 
 ### Configuration
@@ -79,8 +79,7 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
-        "x-btp-destination": "btp-cloud",
-        "x-mcp-destination": "sap-abap"
+        "x-btp-destination": "btp-cloud"
       }
     }
   }
@@ -88,50 +87,31 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
 ```
 
 **Required Headers (one of the following):**
-- `x-btp-destination` - Destination name for BTP Cloud authorization token and MCP server URL (for BTP authentication mode)
-- `x-mcp-destination` - Destination name for SAP ABAP connection (for local testing mode without BTP)
+- `x-btp-destination` - Destination name for BTP Cloud authorization token and MCP server URL
 - `x-mcp-url` - Direct MCP server URL (for local testing mode without authentication)
-
-**Optional Headers:**
-- `x-mcp-destination` - Destination name for SAP ABAP connection (optional, provides SAP token and configuration when used with BTP)
 
 **Command Line Overrides:**
 - `--btp=<destination>` - Overrides `x-btp-destination` header (for BTP authentication mode, takes precedence)
-- `--mcp=<destination>` - Overrides `x-mcp-destination` header (for local testing or SAP config, takes precedence)
 - `--mcp-url=<url>` - Direct MCP server URL (for local testing without authentication, takes precedence)
-- `--browser-auth-port=<port>` - OAuth callback port for browser authentication (default: 3001). Use different port (e.g., 3101) to avoid conflicts when proxy runs on port 3001
 - `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
 **How It Works:**
 
-The proxy uses two separate authentication injectors:
+The proxy uses BTP/XSUAA authentication:
 
-1. **XSUAA Block** (if `--btp` or `x-btp-destination` is present):
-   - Uses `btpAuthBroker` with `XsuaaTokenProvider` (client_credentials grant type)
+1. **BTP/XSUAA Authentication** (if `--btp` or `x-btp-destination` is present):
+   - Uses `btpAuthBroker` with `ClientCredentialsProvider` (client_credentials grant type)
    - Injects/overwrites `Authorization: Bearer <token>` header
-   - Service key format: XSUAA format (url, clientid, clientsecret at root level)
-
-2. **ABAP Block** (if `--mcp` or `x-mcp-destination` is present):
-   - Uses `abapAuthBroker` with `BtpTokenProvider` (browser OAuth2 or refresh token flow)
-   - Injects/overwrites `x-sap-jwt-token: <token>` header
-   - Adds `x-sap-url` and other SAP configuration headers
-   - Service key format: ABAP format (nested uaa object)
+   - MCP server URL obtained from BTP destination service key
+   - Service key format: contains `uaa` (url, clientid, clientsecret) and `abap.url` (MCP server URL)
 
 **BTP Authentication Mode** (with `x-btp-destination` or `--btp`):
-1. `x-btp-destination` (or `--btp`) → Gets JWT token from `btpAuthBroker` (XsuaaTokenProvider) → Adds `Authorization: Bearer <token>` header
-2. `x-mcp-destination` (or `--mcp`) → Gets JWT token and SAP config from `abapAuthBroker` (BtpTokenProvider) → Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) - **optional**
-3. MCP server URL obtained from service key for `x-btp-destination`
+1. `x-btp-destination` (or `--btp`) → Gets JWT token from `btpAuthBroker` → Adds `Authorization: Bearer <token>` header
+2. MCP server URL obtained from service key for `x-btp-destination`
 
-**BTP-Only Mode** (with only `x-btp-destination`/`--btp`, without `x-mcp-destination`):
-- Works with any BTP service, not just SAP ABAP
-- Only adds `Authorization: Bearer <token>` header (no SAP headers)
-- MCP server URL obtained from BTP destination service key
-- Suitable for BTP services that don't require SAP ABAP configuration
-
-**Local Testing Mode** (with only `x-mcp-destination`/`--mcp` or `x-mcp-url`/`--mcp-url`):
+**Local Testing Mode** (with `x-mcp-url` or `--mcp-url`):
 1. `x-mcp-url` (or `--mcp-url`) → Direct URL to MCP server (no authentication)
-2. `x-mcp-destination` (or `--mcp`) → Gets MCP server URL from service key for MCP destination (optional token)
-3. No BTP authentication required - enables local integration testing
+2. No BTP authentication required - enables local integration testing
 
 ## Documentation
 
@@ -150,29 +130,23 @@ The proxy uses two separate authentication injectors:
 
 The proxy performs the following steps for each request:
 
-1. **Extract Headers**: Reads `x-btp-destination`, `x-mcp-destination`, and `x-mcp-url` headers
-2. **Apply Command Line Overrides**: `--btp`, `--mcp`, and `--mcp-url` parameters override headers (if provided)
-3. **Validate Routing Requirements**: Requires at least one of: `x-btp-destination/--btp`, `x-mcp-destination/--mcp`, or `x-mcp-url/--mcp-url`
-4. **XSUAA Block** (if `x-btp-destination` or `--btp` is provided):
-   - Uses `btpAuthBroker` with `XsuaaTokenProvider` (client_credentials grant type)
-   - Retrieves JWT token from BTP destination service key (XSUAA format)
+1. **Extract Headers**: Reads `x-btp-destination` and `x-mcp-url` headers
+2. **Apply Command Line Overrides**: `--btp` and `--mcp-url` parameters override headers (if provided)
+3. **Validate Routing Requirements**: Requires at least one of: `x-btp-destination/--btp` or `x-mcp-url/--mcp-url`
+4. **BTP Authentication** (if `x-btp-destination` or `--btp` is provided):
+   - Uses `btpAuthBroker` with `ClientCredentialsProvider` (client_credentials grant type)
+   - Retrieves JWT token from BTP destination service key
    - Injects/overwrites `Authorization: Bearer <token>` header
-5. **ABAP Block** (if `x-mcp-destination` or `--mcp` is provided):
-   - Uses `abapAuthBroker` with `BtpTokenProvider` (browser OAuth2 or refresh token flow)
-   - Retrieves JWT token and SAP configuration from ABAP destination service key
-   - Injects/overwrites `x-sap-jwt-token: <token>` header
-   - Adds `x-sap-url` and other SAP configuration headers
-6. **Get MCP Server URL** (priority order):
+5. **Get MCP Server URL** (priority order):
    - From `x-mcp-url` header or `--mcp-url` parameter (direct URL)
    - From service key for `x-btp-destination` (if provided)
-   - From service key for `x-mcp-destination` (if only MCP destination is provided)
-7. **Forward Request**: Sends request to MCP server URL with all injected headers
-8. **Return Response**: Forwards the response back to the client
+6. **Forward Request**: Sends request to MCP server URL with all injected headers
+7. **Return Response**: Forwards the response back to the client
 
 ### Example Request Flow
 
 ```
-Cline → Proxy (adds BTP token + SAP config) → Target MCP Server → Proxy → Cline
+Cline → Proxy (adds BTP token) → Target MCP Server → Proxy → Cline
 ```
 
 The proxy is transparent - it only adds authentication headers and forwards requests.
@@ -235,9 +209,6 @@ npm run test:servers
 # Direct execution
 node tools/start-servers.js
 
-# With MCP destination (local testing)
-node tools/start-servers.js --mcp=trial
-
 # With SSE transport
 node tools/start-servers.js --transport=sse
 ```
@@ -281,6 +252,4 @@ MIT
 - **Issues**: https://github.com/fr0ster/mcp-abap-adt-proxy/issues
 - **Related Packages**:
   - [@mcp-abap-adt/auth-broker](https://github.com/fr0ster/mcp-abap-adt-auth-broker)
-  - [@mcp-abap-adt/connection](https://github.com/fr0ster/mcp-abap-adt-connection)
   - [@mcp-abap-adt/header-validator](https://github.com/fr0ster/mcp-abap-adt-header-validator)
-

@@ -1,6 +1,6 @@
 /**
  * Platform-specific stores for proxy
- * Uses AbapServiceKeyStore/XsuaaServiceKeyStore and either AbapSessionStore or SafeAbapSessionStore
+ * Uses XsuaaServiceKeyStore and either XsuaaSessionStore or SafeXsuaaSessionStore
  * depending on the unsafe configuration parameter
  */
 
@@ -11,9 +11,6 @@ import type {
   ISessionStore,
 } from '@mcp-abap-adt/auth-broker';
 import {
-  AbapServiceKeyStore,
-  AbapSessionStore,
-  SafeAbapSessionStore,
   SafeXsuaaSessionStore,
   XsuaaServiceKeyStore,
   XsuaaSessionStore,
@@ -88,21 +85,15 @@ function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
   return uniquePaths;
 }
 
-// No CombinedServiceKeyStore needed - we use separate stores for BTP and ABAP
-
 /**
  * Get platform-specific stores
- * Returns stores based on configuration:
- * - If unsafe=true: uses AbapSessionStore (persists to disk)
- * - If unsafe=false: uses SafeAbapSessionStore (in-memory, secure)
- * - Service key store: Separate stores - XSUAA store for BTP, ABAP store for ABAP
- * @param unsafe If true, use AbapSessionStore. If false, use SafeAbapSessionStore (default).
- * @param useXsuaaStore If true, use XsuaaServiceKeyStore (for BTP destinations). If false, use AbapServiceKeyStore (for ABAP destinations).
+ * Returns XSUAA stores for BTP authentication:
+ * - If unsafe=true: uses XsuaaSessionStore (persists to disk)
+ * - If unsafe=false: uses SafeXsuaaSessionStore (in-memory, secure)
+ * - Service key store: XsuaaServiceKeyStore
+ * @param unsafe If true, use XsuaaSessionStore. If false, use SafeXsuaaSessionStore (default).
  */
-export async function getPlatformStores(
-  unsafe: boolean = false,
-  useXsuaaStore: boolean = false,
-): Promise<{
+export async function getPlatformStores(unsafe: boolean = false): Promise<{
   serviceKeyStore: IServiceKeyStore;
   sessionStore: ISessionStore;
 }> {
@@ -114,23 +105,13 @@ export async function getPlatformStores(
   const firstServiceKeyPath = serviceKeyPaths[0] || process.cwd();
   const firstSessionPath = sessionPaths[0] || process.cwd();
 
-  // Use separate stores: XSUAA store for BTP, ABAP store for ABAP
-  const serviceKeyStore = useXsuaaStore
-    ? new XsuaaServiceKeyStore(firstServiceKeyPath)
-    : new AbapServiceKeyStore(firstServiceKeyPath);
+  const serviceKeyStore = new XsuaaServiceKeyStore(firstServiceKeyPath);
 
-  // Use appropriate session store based on store type
-  // For XSUAA destinations: use SafeXsuaaSessionStore or XsuaaSessionStore
-  // For ABAP destinations: use SafeAbapSessionStore or AbapSessionStore
   // Note: XSUAA stores require defaultServiceUrl (cannot be obtained from service key)
   // For now, we use empty string as placeholder - it will be set when session is created
   const sessionStore = unsafe
-    ? useXsuaaStore
-      ? new XsuaaSessionStore(firstSessionPath, '')
-      : new AbapSessionStore(firstSessionPath)
-    : useXsuaaStore
-      ? new SafeXsuaaSessionStore('')
-      : new SafeAbapSessionStore();
+    ? new XsuaaSessionStore(firstSessionPath, '')
+    : new SafeXsuaaSessionStore('');
 
   return {
     serviceKeyStore,

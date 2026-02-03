@@ -39,7 +39,6 @@ export function interceptRequest(
   body?: any,
   configOverrides?: {
     btpDestination?: string;
-    mcpDestination?: string;
     mcpUrl?: string;
   },
 ): InterceptedRequest {
@@ -98,20 +97,6 @@ export function interceptRequest(
     sessionId,
     clientId,
   };
-}
-
-/**
- * Check if request requires SAP configuration
- * Only tools/call requires SAP config - all other methods don't
- */
-export function requiresSapConfig(body: unknown): boolean {
-  if (!body || typeof body !== 'object' || body === null) {
-    return false;
-  }
-
-  const bodyObj = body as Record<string, unknown>;
-  const method = bodyObj.method;
-  return method === 'tools/call';
 }
 
 /**
