@@ -153,10 +153,12 @@ The proxy is transparent - it only adds authentication headers and forwards requ
 
 ## Configuration
 
+### Configuration
+
 ### Environment Variables
 
 ```bash
-export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
+export MCP_DEFAULT_URL="https://my-mcp-server.example.com"
 export MCP_HTTP_PORT=3001
 export LOG_LEVEL=info
 export MCP_PROXY_UNSAFE=true  # Enable file-based session storage (optional)
@@ -168,7 +170,7 @@ Create `mcp-proxy-config.json`:
 
 ```json
 {
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
+  "defaultMcpUrl": "https://my-mcp-server.example.com",
   "httpPort": 3001,
   "logLevel": "info",
   "maxRetries": 3,

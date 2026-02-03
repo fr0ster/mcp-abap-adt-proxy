@@ -34,10 +34,10 @@ import {
   type TransportConfig,
 } from './lib/transportConfig.js';
 import {
-  type CloudLlmHubProxy,
-  createCloudLlmHubProxy,
+  type BtpProxy,
+  createBtpProxy,
   shouldWriteStderr,
-} from './proxy/cloudLlmHubProxy.js';
+} from './proxy/btpProxy.js';
 import { RoutingStrategy } from './router/headerAnalyzer.js';
 import {
   interceptRequest,
@@ -62,7 +62,7 @@ export class McpAbapAdtProxyServer {
   private transportConfig: TransportConfig;
   private config: ReturnType<typeof loadConfig>;
   private httpServer?: HttpServer;
-  private cloudLlmHubProxy?: CloudLlmHubProxy;
+  private btpProxy?: BtpProxy;
 
   constructor(transportConfig?: TransportConfig, configPath?: string) {
     this.transportConfig = transportConfig || parseTransportConfig();
@@ -138,7 +138,7 @@ export class McpAbapAdtProxyServer {
 
       // For stdio, we need to register a proxy tool that forwards all requests
       // Since we can't intercept all requests directly, we'll register a tool
-      // that the client can call, which will proxy to cloud-llm-hub
+      // that the client can call, which will proxy to BtpProxy
       // Note: This requires the client to know about the proxy tool
       // Alternatively, we could use a custom transport wrapper
 
@@ -414,7 +414,7 @@ export class McpAbapAdtProxyServer {
   ): Promise<void> {
     // Use mcpUrl from routing decision (from --mcp-url) or cloudLlmHubUrl from config as target URL
     const targetUrl =
-      intercepted.routingDecision.mcpUrl || this.config.cloudLlmHubUrl;
+      intercepted.routingDecision.mcpUrl || this.config.defaultMcpUrl;
     if (!targetUrl) {
       logger?.error(
         'Cannot handle passthrough request: no target URL configured',
@@ -577,11 +577,11 @@ export class McpAbapAdtProxyServer {
 
     try {
       // Ensure proxy is initialized (URL will be obtained from service key for btpDestination or mcpDestination)
-      if (!this.cloudLlmHubProxy) {
+      if (!this.btpProxy) {
         // Use default base URL from config as fallback (actual URL comes from service key)
         const baseUrl =
-          this.config.cloudLlmHubUrl || 'https://default.example.com';
-        this.cloudLlmHubProxy = await createCloudLlmHubProxy(this.config);
+          this.config.defaultMcpUrl || 'https://default.example.com';
+        this.btpProxy = await createBtpProxy(this.config);
       }
 
       // Build MCP request from intercepted request
@@ -647,8 +647,8 @@ export class McpAbapAdtProxyServer {
         },
       });
 
-      // Proxy request to cloud-llm-hub
-      const proxyResponse = await this.cloudLlmHubProxy.proxyRequest(
+      // Proxy request to BtpProxy
+      const proxyResponse = await this.btpProxy.proxyRequest(
         mcpRequest,
         intercepted.routingDecision,
         intercepted.headers,
@@ -686,16 +686,16 @@ export class McpAbapAdtProxyServer {
         statusCode: 200,
       });
 
-      logger?.debug('Cloud-llm-hub proxy request completed', {
-        type: 'CLOUD_LLM_HUB_PROXY_COMPLETED',
+      logger?.debug('BtpProxy request completed', {
+        type: 'BTP_PROXY_COMPLETED',
         hasResult: !!proxyResponse.result,
         hasError: !!proxyResponse.error,
       });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logger?.error('Failed to handle cloud-llm-hub proxy request', {
-        type: 'CLOUD_LLM_HUB_PROXY_ERROR',
+      logger?.error('Failed to handle BtpProxy request', {
+        type: 'BTP_PROXY_ERROR',
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
       });
@@ -760,9 +760,9 @@ export class McpAbapAdtProxyServer {
 
       const requestUrl = req.url
         ? new URL(
-            req.url,
-            `http://${req.headers.host ?? `${sseConfig.host}:${sseConfig.port}`}`,
-          )
+          req.url,
+          `http://${req.headers.host ?? `${sseConfig.host}:${sseConfig.port}`}`,
+        )
         : undefined;
       let pathname = requestUrl?.pathname ?? '/';
       if (pathname.length > 1 && pathname.endsWith('/')) {

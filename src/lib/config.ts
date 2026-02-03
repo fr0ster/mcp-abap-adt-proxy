@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import * as yaml from 'js-yaml';
 
 export interface ProxyConfig {
-  cloudLlmHubUrl: string;
+  defaultMcpUrl: string;
   httpPort: number;
   ssePort: number;
   httpHost: string;
@@ -92,7 +92,7 @@ function loadConfigFile(filePath: string): Partial<ProxyConfig> {
  */
 function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
   const result: ProxyConfig = {
-    cloudLlmHubUrl: fileConfig.cloudLlmHubUrl || '',
+    defaultMcpUrl: fileConfig.defaultMcpUrl || '',
     httpPort: fileConfig.httpPort ?? 3001,
     ssePort: fileConfig.ssePort ?? 3002,
     httpHost: fileConfig.httpHost || '0.0.0.0',
@@ -121,7 +121,8 @@ function loadFromEnv(): ProxyConfig {
   const unsafe = hasArg('--unsafe') || process.env.MCP_PROXY_UNSAFE === 'true';
 
   return {
-    cloudLlmHubUrl: process.env.CLOUD_LLM_HUB_URL || '',
+    defaultMcpUrl:
+      process.env.MCP_DEFAULT_URL || process.env.CLOUD_LLM_HUB_URL || '',
     httpPort: parseInt(process.env.MCP_HTTP_PORT || '3001', 10),
     ssePort: parseInt(process.env.MCP_SSE_PORT || '3002', 10),
     httpHost: process.env.MCP_HTTP_HOST || '0.0.0.0',
@@ -203,18 +204,18 @@ export function validateConfig(config: ProxyConfig): {
     }
   }
 
-  // Cloud LLM Hub URL is only required if we're not using BTP destination or direct URL
+  // Default MCP URL is only required if we're not using BTP destination or direct URL
   const hasDestination = config.btpDestination || config.mcpUrl;
 
-  if (!config.cloudLlmHubUrl && !hasDestination) {
+  if (!config.defaultMcpUrl && !hasDestination) {
     warnings.push(
-      'CLOUD_LLM_HUB_URL is not set and no destination provided (--btp or --mcp-url) - proxy will not work without a destination',
+      'MCP_DEFAULT_URL is not set and no destination provided (--btp or --mcp-url) - proxy will not work without a destination',
     );
-  } else if (config.cloudLlmHubUrl) {
+  } else if (config.defaultMcpUrl) {
     try {
-      new URL(config.cloudLlmHubUrl);
+      new URL(config.defaultMcpUrl);
     } catch {
-      errors.push('CLOUD_LLM_HUB_URL must be a valid URL');
+      errors.push('MCP_DEFAULT_URL must be a valid URL');
     }
   }
 
