@@ -52,15 +52,18 @@ jest.mock('../../lib/config', () => ({
 }));
 
 jest.mock('../../lib/stores', () => ({
-    getPlatformStores: jest.fn().mockResolvedValue({
-        serviceKeyStore: {
-            getAuthorizationConfig: jest.fn(),
-            getConnectionConfig: jest.fn(),
-        },
-        sessionStore: {
-            saveSession: jest.fn(),
-        },
-    }),
+    getPlatformStores: jest.fn().mockReturnValue(
+        Promise.resolve({
+            serviceKeyStore: {
+                getAuthorizationConfig: jest.fn(),
+                getConnectionConfig: jest.fn(),
+            },
+            sessionStore: {
+                saveSession: jest.fn(),
+                getAuthorizationConfig: jest.fn(),
+            },
+        }),
+    ),
 }));
 
 // Mock axios
@@ -120,7 +123,7 @@ describe('BtpProxy', () => {
         );
 
         // Mock getToken
-        mockAuthBroker.getToken = jest.fn().mockResolvedValue('mock-jwt-token');
+        mockAuthBroker.getToken = (jest.fn() as any).mockResolvedValue('mock-jwt-token');
 
         // Create proxy instance
         btpProxy = new BtpProxy(mockAuthBroker, {
@@ -233,7 +236,7 @@ describe('BtpProxy', () => {
             };
 
             // Mock service key getting URL
-            mockAuthBroker.getConnectionConfig = jest.fn().mockResolvedValue({
+            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
                 serviceUrl: 'https://btp-mcp.example.com',
             });
 
@@ -269,7 +272,7 @@ describe('BtpProxy', () => {
                 btpDestination: 'test-dest',
             };
 
-            mockAuthBroker.getConnectionConfig = jest.fn().mockResolvedValue({
+            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
                 serviceUrl: 'https://btp-mcp.example.com',
             });
 
