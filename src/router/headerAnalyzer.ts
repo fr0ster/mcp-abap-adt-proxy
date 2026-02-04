@@ -17,6 +17,7 @@ export enum RoutingStrategy {
 export interface RoutingDecision {
   strategy: RoutingStrategy;
   btpDestination?: string; // Destination for BTP Cloud authorization (x-btp-destination)
+  targetUrl?: string; // Explicit target URL (x-target-url)
 
   reason: string;
 }
@@ -44,6 +45,7 @@ export function analyzeHeaders(
   headers: IncomingHttpHeaders,
   configOverrides?: {
     btpDestination?: string;
+    targetUrl?: string;
   },
 ): RoutingDecision {
   // Helper function to extract string value from header (handles arrays and case-insensitive lookup)
@@ -73,8 +75,15 @@ export function analyzeHeaders(
   //   ? configOverrides.mcpUrl
   //   : mcpUrlHeader;
 
+  // Extract target URL (x-target-url)
+  // Command-line parameter --target-url takes precedence over header
+  const targetUrlHeader = getHeaderValue('x-target-url');
+  const extractedTargetUrl = configOverrides?.targetUrl
+    ? configOverrides.targetUrl
+    : targetUrlHeader;
+
   // Check if proxy headers exist in the actual HTTP request (not in config overrides)
-  const hasBtpInRequest = !!btpDestinationHeader;
+  const _hasBtpInRequest = !!btpDestinationHeader;
 
   // If no proxy headers in the actual request, default to what's available or error out
   if (!extractedBtpDestination) {
@@ -96,6 +105,7 @@ export function analyzeHeaders(
   return {
     strategy: RoutingStrategy.PROXY,
     btpDestination: extractedBtpDestination,
+    targetUrl: extractedTargetUrl,
     reason,
   };
 }

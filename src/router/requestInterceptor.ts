@@ -15,17 +15,13 @@ import {
   HEADER_X_MCP_SESSION_ID,
 } from '@mcp-abap-adt/interfaces';
 import { logger } from '../lib/logger.js';
-import {
-  analyzeHeaders,
-  type RoutingDecision,
-  RoutingStrategy,
-} from './headerAnalyzer.js';
+import { analyzeHeaders, type RoutingDecision } from './headerAnalyzer.js';
 
 export interface InterceptedRequest {
   method: string;
   url: string;
   headers: Record<string, string | string[] | undefined>;
-  body?: any;
+  body?: unknown;
   routingDecision: RoutingDecision;
   sessionId?: string;
   clientId?: string;
@@ -36,9 +32,10 @@ export interface InterceptedRequest {
  */
 export function interceptRequest(
   req: IncomingMessage,
-  body?: any,
+  body?: unknown,
   configOverrides?: {
     btpDestination?: string;
+    targetUrl?: string;
   },
 ): InterceptedRequest {
   // Extract headers

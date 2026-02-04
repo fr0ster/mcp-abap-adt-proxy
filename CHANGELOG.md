@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-02-05
+
+### Added
+- **Browser-based Authentication (Authorization Code)**
+  - Enforced `AuthorizationCodeProvider` as the sole authentication method for BTP destinations.
+  - Added CLI options `--browser`, `--browser-auth-port` (default: 3333).
+- **Eager Authentication**
+  - Proxy now initiates authentication (opens browser) immediately on startup if `--btp` is provided.
+- **Service URL Injection**
+  - Added support for `--url` parameter to inject MCP server URL when missing from service key.
+  - Added placeholders for missing auth config to allow manual URL injection.
+
+### Fixed
+- **Port Conflict**: Changed default browser callback port to 3333 (was 3001) to avoid conflict with proxy server.
+- **Service Key Loading**: Fixed issue where `AuthorizationCodeProvider` was initialized with empty config, causing validation errors.
+- **JSON-RPC ID Handling**: Fixed schema validation issue where backend returning `id: null` caused client errors (proxy now restores original ID).
+
 ## [0.1.7] - 2025-12-31
 
 ### Changed

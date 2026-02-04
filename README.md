@@ -88,21 +88,26 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
 
 **Command Line Overrides:**
 - `--btp=<destination>` - Overrides `x-btp-destination` header (takes precedence)
+- `--url=<url>` - Overrides MCP server URL (required if service key lacks URL)
+- `--browser=<browser>` - Browser to use: `system` (default), `chrome`, `edge`, `firefox`, `headless`
+- `--browser-auth-port=<port>` - Port for OAuth2 callback (default: 3333)
 - `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
 **How It Works:**
 
 The proxy uses BTP/XSUAA authentication:
 
-1. **BTP/XSUAA Authentication** (if `--btp` or `x-btp-destination` is present):
-   - Uses `btpAuthBroker` with `ClientCredentialsProvider` (client_credentials grant type)
+1. **BTP Authentication** (if `--btp` or `x-btp-destination` is present):
+   - Uses `AuthorizationCodeProvider` (browser-based OAuth2 flow)
+   - **Eager Authentication**: Opens browser immediately on startup to get token
    - Injects/overwrites `Authorization: Bearer <token>` header
-   - MCP server URL obtained from BTP destination service key
-   - Service key format: contains `uaa` (url, clientid, clientsecret) and `abap.url` (MCP server URL)
+   - MCP server URL obtained from BTP destination service key OR injected via `--url`
+   - Service key format: contains `uaa` (url, clientid, clientsecret)
 
-**BTP Authentication Mode** (with `x-btp-destination` or `--btp`):
-1. `x-btp-destination` (or `--btp`) → Gets JWT token from `btpAuthBroker` → Adds `Authorization: Bearer <token>` header
-2. MCP server URL obtained from service key for `x-btp-destination`
+**BTP Authentication Mode** (with `--btp`):
+1. Proxy starts → Opens browser for login (Eager Auth) → Gets/Refreshes JWT token
+2. `x-btp-destination` (or `--btp`) → Adds `Authorization: Bearer <token>` header
+3. MCP server URL obtained from service key OR `--url` parameter
 
 ## Documentation
 
@@ -125,8 +130,9 @@ The proxy performs the following steps for each request:
 2. **Apply Command Line Overrides**: `--btp` parameter overrides header (if provided)
 3. **Validate Routing Requirements**: Requires `x-btp-destination/--btp`
 4. **BTP Authentication** (if `x-btp-destination` or `--btp` is provided):
-   - Uses `btpAuthBroker` with `ClientCredentialsProvider` (client_credentials grant type)
-   - Retrieves JWT token from BTP destination service key
+   - Uses `AuthorizationCodeProvider` (browser-based login)
+   - **Eagerly** obtains token on startup (if configured via `--btp`)
+   - Retrieves JWT token using cached refresh token or opens browser
    - Injects/overwrites `Authorization: Bearer <token>` header
 5. **Get MCP Server URL**:
    - From service key for `x-btp-destination`

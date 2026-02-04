@@ -6,7 +6,7 @@
  */
 
 import { AuthBroker, type ILogger } from '@mcp-abap-adt/auth-broker';
-import { ClientCredentialsProvider } from '@mcp-abap-adt/auth-providers';
+import { AuthorizationCodeProvider } from '@mcp-abap-adt/auth-providers';
 import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces';
 import {
   HEADER_ACCEPT,
@@ -16,11 +16,7 @@ import {
   HEADER_SAP_CLIENT,
   HEADER_SAP_DESTINATION_SERVICE,
 } from '@mcp-abap-adt/interfaces';
-import axios, {
-  type AxiosInstance,
-  type AxiosRequestConfig,
-  type AxiosResponse,
-} from 'axios';
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
 import { getPlatformStores } from '../lib/stores.js';
@@ -84,12 +80,16 @@ export function shouldWriteStderr(): boolean {
   return verboseMode && !isTestEnv;
 }
 
-export interface ProxyRequest {
+export interface GenericProxyRequest {
   method: string;
-  params?: unknown;
-  id?: string | number | null;
-  jsonrpc?: string;
+  url?: string; // Request URL/Path
+  data?: unknown; // Generic body (JSON or parsed object)
+  id?: string | number | null; // Optional ID for logging
+  [key: string]: unknown; // Allow other properties
 }
+
+// Legacy support alias
+export type ProxyRequest = GenericProxyRequest;
 
 export interface ProxyResponse {
   jsonrpc: string;
@@ -162,8 +162,8 @@ export class BtpProxy {
     // Add request interceptor for logging
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        logger?.debug('Proxying request to MCP server', {
-          type: 'MCP_PROXY_REQUEST',
+        logger?.debug('Proxying request to target service', {
+          type: 'PROXY_REQUEST',
           method: config.method,
           url: config.url,
           baseURL: config.baseURL,
@@ -182,8 +182,8 @@ export class BtpProxy {
     // Add response interceptor for logging
     this.axiosInstance.interceptors.response.use(
       (response) => {
-        logger?.debug('Received response from MCP server', {
-          type: 'MCP_PROXY_RESPONSE',
+        logger?.debug('Received response from target service', {
+          type: 'PROXY_RESPONSE',
           status: response.status,
           url: response.config.url,
         });
@@ -202,12 +202,40 @@ export class BtpProxy {
   }
 
   /**
+   * Initialize authentication for destination (eager auth)
+   * This triggers the browser authentication flow immediately if needed.
+   */
+  public async initialize(destination: string): Promise<void> {
+    logger?.info('Initializing BTP proxy authentication', {
+      type: 'BTP_PROXY_INIT',
+      destination,
+    });
+    try {
+      // Just getting the token will trigger authentication
+      await this.getJwtToken(destination);
+      logger?.info('BTP proxy authentication initialized successfully', {
+        type: 'BTP_PROXY_INIT_SUCCESS',
+        destination,
+      });
+    } catch (error) {
+      logger?.error('Failed to initialize BTP proxy authentication', {
+        type: 'BTP_PROXY_INIT_ERROR',
+        destination,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // We don't throw here to avoid crashing the server on startup,
+      // but the user will see the error in logs/stderr (via getJwtToken)
+    }
+  }
+
+  /**
    * Get or create BTP auth broker for specific destination
    * If destination is not provided, returns default broker
    * If broker doesn't exist in map, creates new one and stores it
    */
   private async getOrCreateBtpAuthBroker(
     destination?: string,
+    targetUrl?: string,
   ): Promise<AuthBroker> {
     // If no destination, use default broker
     if (!destination) {
@@ -230,79 +258,155 @@ export class BtpProxy {
       this.unsafe,
     );
 
-    // Load auth config from service key store to create provider with correct config
+    // We must manually load the credentials because AuthorizationCodeProvider validates them in constructor
     let authConfig: IAuthorizationConfig | null = null;
     try {
-      authConfig = await serviceKeyStore.getAuthorizationConfig(destination);
+      // Try service key store first
+      if (serviceKeyStore) {
+        authConfig = await serviceKeyStore.getAuthorizationConfig(destination);
+      }
+      // If not found, try session store (though less likely for initial setup)
+      if (!authConfig) {
+        authConfig = await sessionStore.getAuthorizationConfig(destination);
+      }
     } catch (error) {
-      logger?.debug('Could not load auth config for BTP provider', {
-        destination,
+      logger?.warn('Failed to load auth config for provider initialization', {
         error: error instanceof Error ? error.message : String(error),
+        destination,
       });
     }
 
-    // Create ClientCredentialsProvider with config from service key store
-    const xsuaaTokenProvider = authConfig
-      ? new ClientCredentialsProvider({
+    if (!authConfig) {
+      logger?.error('Service key not found for destination', {
+        destination,
+        hint: 'Ensure service key file exists in ~/.config/mcp-abap-adt/service-keys/',
+      });
+      // We cannot proceed without config, but we'll let it fail with a clear message
+      // Or we could throw here.
+      // If we don't provide config, provider will throw "Missing required fields".
+    }
+
+    // Always use AuthorizationCodeProvider (enforced)
+    // Map IAuthorizationConfig (uaaClientId) to ProviderConfig (clientId)
+    // Default redirectPort to 3333 to avoid conflict with main proxy port (default 3001)
+    const providerConfig: any = {
+      browser: this.config.browser,
+      redirectPort: this.config.browserAuthPort || 3333,
+      ...(authConfig
+        ? {
           uaaUrl: authConfig.uaaUrl,
           clientId: authConfig.uaaClientId,
           clientSecret: authConfig.uaaClientSecret,
-        })
-      : new ClientCredentialsProvider({
-          uaaUrl: 'https://placeholder.authentication.sap.hana.ondemand.com',
-          clientId: 'placeholder',
-          clientSecret: 'placeholder',
-        });
-
-    // Create initial session using data from service key (if available)
-    try {
-      const authConfig =
-        await serviceKeyStore.getAuthorizationConfig(destination);
-      const connConfig = await serviceKeyStore.getConnectionConfig(destination);
-
-      if (authConfig) {
-        const sessionData: IAuthorizationConfig & {
-          jwtToken: string;
-          serviceUrl?: string;
-        } = {
-          ...authConfig,
-          jwtToken: 'placeholder',
-        };
-        if (connConfig?.serviceUrl) {
-          sessionData.serviceUrl = connConfig.serviceUrl;
         }
+        : {}),
+    };
 
-        await sessionStore.saveSession(destination, sessionData);
-        logger?.debug('Created initial session for BTP destination', {
-          type: 'BTP_SESSION_CREATED',
-          destination,
-          hasAuthConfig: !!authConfig,
-          hasConnConfig: !!connConfig,
-        });
-      }
-    } catch (error) {
-      logger?.debug(
-        'Could not create initial session for BTP destination (service key may not exist)',
-        {
-          type: 'BTP_SESSION_CREATE_SKIPPED',
-          destination,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-    }
+    const tokenProvider = new AuthorizationCodeProvider(providerConfig);
 
     broker = new AuthBroker(
       {
         serviceKeyStore,
         sessionStore,
-        tokenProvider: xsuaaTokenProvider,
+        tokenProvider,
       },
-      'none',
-      loggerAdapter,
+      this.config.browser, // Pass configured browser (default: 'system')
+      logger,
     );
 
-    // Store in map for future use
     this.btpAuthBrokers.set(destination, broker);
+
+    return this.ensureSessionServiceUrl(broker, destination, targetUrl);
+  }
+
+  /**
+   * Helper to ensure valid serviceUrl in session if override provided
+   */
+  private async ensureSessionServiceUrl(
+    broker: AuthBroker,
+    destination: string,
+    targetUrl?: string,
+  ): Promise<AuthBroker> {
+    const activeTargetUrl = targetUrl || this.config.targetUrl;
+
+    if (!activeTargetUrl) {
+      return broker;
+    }
+
+    try {
+      // Check if current connection config exists
+      const currentConn = await broker.getConnectionConfig(destination);
+
+      // We need to ensure we have a valid session with BOTH serviceUrl AND auth config.
+      // Even if serviceUrl matches, the auth config might be missing from the session
+      // (which causes ClientCredentialsProvider to fail if initialized with empty config).
+
+      // Cast to any to access potentially private methods if interface restricted
+      // biome-ignore lint/suspicious/noExplicitAny: Accessing internal methods for safe injection
+      const brokerAny = broker as any;
+
+      let authConfig = await broker.getAuthorizationConfig(destination);
+      if (!authConfig) {
+        try {
+          if (
+            typeof brokerAny.getAuthorizationConfigFromServiceKey === 'function'
+          ) {
+            authConfig =
+              await brokerAny.getAuthorizationConfigFromServiceKey(destination);
+          }
+        } catch (e) {
+          logger?.debug('Could not find auth config for session update', {
+            error: String(e),
+          });
+        }
+      }
+
+      if (!authConfig) {
+        authConfig = {
+          uaaUrl: 'https://placeholder.authentication.sap.hana.ondemand.com',
+          uaaClientId: 'placeholder',
+          uaaClientSecret: 'placeholder',
+        } as any;
+        logger?.info('Using placeholder auth config for session injection', {
+          type: 'BTP_SESSION_PLACEHOLDER',
+          destination,
+          targetUrl: activeTargetUrl,
+        });
+      }
+
+      if (authConfig) {
+        const newConn = {
+          ...(currentConn || {}),
+          serviceUrl: activeTargetUrl,
+          authType: 'jwt' as any,
+          // Map XSUAA keys to ClientCredentialsProvider keys
+          clientId: authConfig.uaaClientId,
+          clientSecret: authConfig.uaaClientSecret,
+          uaaUrl: authConfig.uaaUrl,
+        };
+
+        if (typeof brokerAny.saveTokenToSession === 'function') {
+          await brokerAny.saveTokenToSession(destination, newConn, authConfig);
+          logger?.info('Injected targetUrl and auth config into BTP session', {
+            type: 'BTP_SESSION_INJECTION',
+            destination,
+            url: activeTargetUrl,
+            hasClientId: !!newConn.clientId,
+          });
+        } else {
+          logger?.error('saveTokenToSession is not a function on broker', {
+            type: 'BTP_SESSION_METHOD_MISSING',
+            keys: Object.keys(brokerAny)
+          });
+        }
+      }
+    } catch (error) {
+      logger?.error('Failed to inject targetUrl into session', {
+        type: 'BTP_SESSION_INJECTION_ERROR',
+        destination,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     return broker;
   }
 
@@ -383,10 +487,10 @@ export class BtpProxy {
         );
         const searchedPaths = searchedInMatch
           ? searchedInMatch[1]
-              .trim()
-              .split('\n')
-              .map((p) => p.trim().replace(/^-\s*/, ''))
-              .filter((p) => p)
+            .trim()
+            .split('\n')
+            .map((p) => p.trim().replace(/^-\s*/, ''))
+            .filter((p) => p)
           : [];
 
         errorMessage =
@@ -403,17 +507,17 @@ export class BtpProxy {
           const homeDir = require('node:os').homedir();
           const defaultPath = isWindows
             ? require('node:path').join(
-                homeDir,
-                'Documents',
-                'mcp-abap-adt',
-                'service-keys',
-              )
+              homeDir,
+              'Documents',
+              'mcp-abap-adt',
+              'service-keys',
+            )
             : require('node:path').join(
-                homeDir,
-                '.config',
-                'mcp-abap-adt',
-                'service-keys',
-              );
+              homeDir,
+              '.config',
+              'mcp-abap-adt',
+              'service-keys',
+            );
           errorMessage += `Searched in:\n  - ${defaultPath}\n`;
         }
       }
@@ -556,10 +660,15 @@ export class BtpProxy {
 
     if (btpDestination) {
       try {
-        const btpBroker = await this.getOrCreateBtpAuthBroker(btpDestination);
+        const btpBroker = await this.getOrCreateBtpAuthBroker(
+          btpDestination,
+          routingDecision.targetUrl,
+        );
         const connConfig = await btpBroker.getConnectionConfig(btpDestination);
-        baseUrl = connConfig?.serviceUrl;
-        if (baseUrl) {
+
+        // Use service key URL as base (if available)
+        if (connConfig?.serviceUrl) {
+          baseUrl = connConfig.serviceUrl;
           logger?.debug('Using MCP URL from BTP destination service key', {
             type: 'MCP_URL_FROM_BTP_DESTINATION',
             destination: btpDestination,
@@ -583,30 +692,84 @@ export class BtpProxy {
       }
     }
 
+    // Apply Target URL override logic
+    if (routingDecision.targetUrl) {
+      if (baseUrl) {
+        logger?.debug('Overriding service key URL with explicit target URL', {
+          type: 'TARGET_URL_OVERRIDE',
+          url: routingDecision.targetUrl,
+          serviceKeyUrl: baseUrl,
+        });
+      } else {
+        logger?.debug('Using explicit target URL from configuration', {
+          type: 'TARGET_URL_FROM_CONFIG',
+          url: routingDecision.targetUrl,
+        });
+      }
+      baseUrl = routingDecision.targetUrl;
+    }
+
     if (!baseUrl) {
       throw new Error(
-        'Cannot determine MCP server URL: provide btpDestination with service key containing URL',
+        'Cannot determine target URL: provide btpDestination with service key containing URL OR use --target-url',
       );
     }
 
     // Construct full MCP endpoint URL
     let fullUrl: string;
-    if (
+
+    // Determine the path to append
+    // If original request has a URL/path, use it. Otherwise default to nothing/root.
+    const requestPath = originalRequest.url || '';
+
+    // Check if we should use URL as-is
+    // 1. If it already looks like an MCP URL
+    // 2. OR if it was explicitly provided via targetUrl (user knows best)
+    const isExplicitTarget = !!routingDecision.targetUrl;
+    const hasMcpPath =
       baseUrl.includes('/mcp/') ||
       baseUrl.endsWith('/mcp') ||
-      baseUrl.includes('/mcp/stream/')
-    ) {
+      baseUrl.includes('/mcp/stream/');
+
+    if (isExplicitTarget) {
+      // Explicit Target URL logic (as per User request):
+      // "whatever endpoint [proxy] received, it adds to the target URL"
+      // Use join logic to avoid double slashes and ensure correctness
+
+      // Remove trailing slash from base
+      const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      // Ensure path starts with slash if not empty
+      const path = requestPath.startsWith('/')
+        ? requestPath
+        : `/${requestPath}`;
+
+      // If requestPath is empty or just '/', ensure we don't end up with empty path if base is root
+      // But typically we just append.
+      fullUrl = `${base}${path}`;
+
+      logger?.debug('Using explicit target URL with forwarded path', {
+        type: 'TARGET_URL_PATH_FORWARDING',
+        base,
+        path,
+        final: fullUrl,
+      });
+    } else if (hasMcpPath) {
+      // Use as-is (strip trailing slash if present, though typically not needed if strictly as-is, but good practice for consistency)
       fullUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      logger?.debug('Using MCP URL as-is (already contains path)', {
+
+      logger?.debug('Using target URL as-is', {
         type: 'MCP_URL_AS_IS',
         original: baseUrl,
         final: fullUrl,
+        reason: 'path detection',
       });
     } else {
+      // Default: append MCP path
       const mcpPath = '/mcp/stream/http';
       fullUrl = baseUrl.endsWith('/')
         ? `${baseUrl.slice(0, -1)}${mcpPath}`
         : `${baseUrl}${mcpPath}`;
+
       logger?.debug('Appended MCP path to base URL', {
         type: 'MCP_URL_APPENDED',
         original: baseUrl,
@@ -632,12 +795,16 @@ export class BtpProxy {
     }
 
     const sanitizedRequestParams: Record<string, unknown> = {};
+    const requestData = originalRequest.data as Record<string, unknown>;
+
     if (
-      originalRequest.params &&
-      typeof originalRequest.params === 'object' &&
-      originalRequest.params !== null
+      requestData &&
+      requestData.params &&
+      typeof requestData.params === 'object' &&
+      requestData.params !== null
     ) {
-      const params = originalRequest.params as Record<string, unknown>;
+      const params = requestData.params as Record<string, unknown>;
+      // ... (existing sanitization logic) ...
       if (
         params.arguments &&
         typeof params.arguments === 'object' &&
@@ -686,11 +853,12 @@ export class BtpProxy {
     });
 
     // Return axios config with full URL
+    // Use original request method
     const axiosConfig = {
-      method: 'POST' as const,
+      method: originalRequest.method,
       url: fullUrl,
       headers: proxyHeaders,
-      data: originalRequest,
+      data: originalRequest.data, // Send the original data (body)
     };
 
     logger?.debug('Axios request config', {
@@ -883,10 +1051,12 @@ export class BtpProxy {
       {
         serviceKeyStore,
         sessionStore,
-        tokenProvider: new ClientCredentialsProvider({
+        tokenProvider: new AuthorizationCodeProvider({
           uaaUrl: 'https://placeholder.authentication.sap.hana.ondemand.com',
           clientId: 'placeholder',
           clientSecret: 'placeholder',
+          browser: loadedConfig.browser,
+          redirectPort: loadedConfig.browserAuthPort,
         }),
       },
       'none',

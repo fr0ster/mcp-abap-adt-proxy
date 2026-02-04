@@ -14,6 +14,7 @@ export interface ProxyConfig {
   logLevel: string;
   // Destination overrides from command line
   btpDestination?: string; // Overrides x-btp-destination header
+  targetUrl?: string; // Overrides x-target-url header
 
   // Session storage mode
   unsafe?: boolean; // If true, use XsuaaSessionStore (persists to disk). If false, use SafeXsuaaSessionStore (in-memory).
@@ -23,6 +24,10 @@ export interface ProxyConfig {
   requestTimeout?: number;
   circuitBreakerThreshold?: number;
   circuitBreakerTimeout?: number;
+
+  // Authentication configuration
+  browser?: 'system' | 'headless' | 'chrome' | 'edge' | 'firefox' | 'none';
+  browserAuthPort?: number; // Port for OAuth2 callback server
 }
 
 /**
@@ -104,6 +109,17 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
     requestTimeout: fileConfig.requestTimeout ?? 60000,
     circuitBreakerThreshold: fileConfig.circuitBreakerThreshold ?? 5,
     circuitBreakerTimeout: fileConfig.circuitBreakerTimeout ?? 60000,
+
+    browser:
+      (fileConfig.browser as
+        | 'system'
+        | 'headless'
+        | 'chrome'
+        | 'edge'
+        | 'firefox'
+        | 'none'
+        | undefined) || 'system',
+    browserAuthPort: fileConfig.browserAuthPort,
   };
 
   return result;
@@ -115,8 +131,23 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
 function loadFromEnv(): ProxyConfig {
   // Parse command line arguments for --btp, --mcp-url, and --unsafe
   const btpDestination = getArgValue('--btp');
+  const targetUrl = getArgValue('--target-url') || getArgValue('--url');
 
   const unsafe = hasArg('--unsafe') || process.env.MCP_PROXY_UNSAFE === 'true';
+
+  const browser =
+    (getArgValue('--browser') as
+      | 'system'
+      | 'headless'
+      | 'chrome'
+      | 'edge'
+      | 'firefox'
+      | 'none'
+      | undefined) || 'system';
+  const browserAuthPortStr = getArgValue('--browser-auth-port');
+  const browserAuthPort = browserAuthPortStr
+    ? parseInt(browserAuthPortStr, 10)
+    : undefined;
 
   return {
     httpPort: parseInt(process.env.MCP_HTTP_PORT || '3001', 10),
@@ -125,6 +156,7 @@ function loadFromEnv(): ProxyConfig {
     sseHost: process.env.MCP_SSE_HOST || '0.0.0.0',
     logLevel: process.env.LOG_LEVEL || 'info',
     btpDestination,
+    targetUrl,
 
     unsafe,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || '3', 10),
@@ -141,6 +173,8 @@ function loadFromEnv(): ProxyConfig {
       process.env.MCP_PROXY_CIRCUIT_BREAKER_TIMEOUT || '60000',
       10,
     ),
+    browser,
+    browserAuthPort,
   };
 }
 

@@ -141,6 +141,10 @@ export class McpAbapAdtProxyServer {
       // The actual proxying will need to be done through registered tools
 
       const transport = new StdioServerTransport();
+      const msg = `MCP Proxy Server started (Transport: stdio)
+Authorization source: BTP destination "${this.config.btpDestination}"`;
+      console.error(msg);
+
       logger?.info('MCP Proxy Server started (stdio transport)', {
         type: 'SERVER_STARTED',
         transport: 'stdio',
@@ -149,6 +153,21 @@ export class McpAbapAdtProxyServer {
         mode: 'BTP authentication',
       });
       return;
+    }
+
+    // Eager initialization of BTP authentication
+    if (this.config.btpDestination) {
+      try {
+        if (!this.btpProxy) {
+          this.btpProxy = await createBtpProxy(this.config);
+        }
+        // Trigger initialization (background) - this will open the browser
+        this.btpProxy.initialize(this.config.btpDestination);
+      } catch (error) {
+        logger?.error('Failed to initialize BTP proxy for eager auth', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     if (this.transportConfig.type === 'streamable-http') {
@@ -185,16 +204,11 @@ export class McpAbapAdtProxyServer {
         remoteAddress: req.socket.remoteAddress,
       });
 
-      // Only handle POST requests
-      if (req.method !== 'POST') {
-        logger?.warn('Non-POST request rejected', {
-          type: 'NON_POST_REQUEST',
-          method: req.method,
-        });
-        res.writeHead(405, { 'Content-Type': 'text/plain' });
-        res.end('Method not allowed');
-        return;
-      }
+      // Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+      // if (req.method !== 'POST') {
+      //   logger?.warn('Non-POST request rejected', { ... });
+      //   ...
+      // }
 
       // Read request body
       let body: unknown;
@@ -211,7 +225,11 @@ export class McpAbapAdtProxyServer {
           bodyPreview: bodyString.substring(0, 200),
         });
 
-        body = JSON.parse(bodyString);
+        if (bodyString.trim().length > 0) {
+          body = JSON.parse(bodyString);
+        } else {
+          body = undefined;
+        }
 
         // Sanitize body for logging
         const sanitizedBody: Record<string, unknown> = {};
@@ -279,6 +297,7 @@ export class McpAbapAdtProxyServer {
       // Intercept and analyze request
       const configOverrides = {
         btpDestination: this.config.btpDestination,
+        targetUrl: this.config.targetUrl,
       };
 
       logger?.info('=== INTERCEPTING REQUEST ===', {
@@ -341,6 +360,14 @@ export class McpAbapAdtProxyServer {
 
     return new Promise((resolve, reject) => {
       this.httpServer?.listen(port, host, () => {
+        const authSourceObj = this.config.btpDestination
+          ? `BTP destination "${this.config.btpDestination}"`
+          : 'Waiting for "x-btp-destination" header in requests';
+
+        const msg = `MCP Proxy Server started on port ${port} (Transport: http)
+Authorization source: ${authSourceObj}`;
+        console.log(msg);
+
         logger?.info('MCP Proxy Server started (HTTP transport)', {
           type: 'SERVER_STARTED',
           transport: 'streamable-http',
@@ -441,6 +468,10 @@ export class McpAbapAdtProxyServer {
       sanitizedBody.jsonrpc = bodyObj.jsonrpc;
     }
 
+    // Use original request body structure for proxying (generic support)
+    // We do NOT enforce JSON-RPC structure here anymore, to support REST/OData
+    const proxyRequestData = intercepted.body;
+
     logger?.info('=== INCOMING REQUEST ===', {
       type: 'PROXY_REQUEST_INCOMING',
       method: req.method,
@@ -488,41 +519,40 @@ export class McpAbapAdtProxyServer {
         mcpRequestId = null;
       }
 
-      const mcpRequest = {
-        method: intercepted.body?.method ?? '',
-        params: intercepted.body?.params ?? {},
-        id: mcpRequestId,
-        jsonrpc: intercepted.body?.jsonrpc ?? '2.0',
+      // Proxy request to BtpProxy
+      // Pass the original request data directly
+      const proxyRequest = {
+        method: intercepted.method, // Use original HTTP method (GET, POST, etc.)
+        url: intercepted.url,       // Pass request URL (path)
+        data: proxyRequestData,     // Use original body (or undefined)
+        id: mcpRequestId,           // Keep ID for logging context if available
       };
 
-      logger?.info('=== MCP REQUEST BUILT ===', {
-        type: 'MCP_REQUEST_BUILT',
-        originalId: interceptedBodyId,
-        originalIdType: interceptedBodyIdType,
-        mcpRequestId: mcpRequest.id,
-        mcpRequest: {
-          method: mcpRequest.method,
-          params: sanitizedBody.params,
-          id: mcpRequest.id,
-          jsonrpc: mcpRequest.jsonrpc,
-        },
-        routingDecision: {
-          btpDestination,
-        },
-      });
-
-      // Proxy request to BtpProxy
       const proxyResponse = await this.btpProxy.proxyRequest(
-        mcpRequest,
+        proxyRequest,
         intercepted.routingDecision,
         intercepted.headers,
       );
+
+      // Fix: If backend returned null ID but we entered with a valid ID (e.g. 0), restore it.
+      // Cline/Zod schemas reject null ID for successful responses if request had an ID.
+      if (
+        (proxyResponse.id === null || proxyResponse.id === undefined) &&
+        mcpRequestId !== null &&
+        mcpRequestId !== undefined
+      ) {
+        logger?.debug('Restoring original request ID in response', {
+          originalId: mcpRequestId,
+          receivedId: proxyResponse.id,
+        });
+        proxyResponse.id = mcpRequestId;
+      }
 
       logger?.info('=== FORWARDING REQUEST ===', {
         type: 'PROXY_REQUEST_FORWARDING',
         interceptedBodyIdAtForward: getBodyId(intercepted.body),
 
-        mcpRequest,
+        proxyRequest,
         routingDecision: intercepted.routingDecision,
         headers: intercepted.headers,
       });
@@ -543,7 +573,7 @@ export class McpAbapAdtProxyServer {
         };
       }
 
-      logger?.info('=== RESPONSE FROM MCP SERVER ===', {
+      logger?.info('=== RESPONSE FROM TARGET SERVICE ===', {
         type: 'PROXY_RESPONSE_RECEIVED',
         response: sanitizedResponse,
         hasResult: !!proxyResponse.result,
@@ -869,6 +899,14 @@ export class McpAbapAdtProxyServer {
 
     return new Promise((resolve, reject) => {
       httpServer.listen(port, host, () => {
+        const authSourceObj = this.config.btpDestination
+          ? `BTP destination "${this.config.btpDestination}"`
+          : 'Waiting for "x-btp-destination" header in requests';
+
+        const msg = `MCP Proxy Server started on port ${port} (Transport: sse)
+Authorization source: ${authSourceObj}`;
+        console.log(msg);
+
         logger?.info('MCP Proxy Server started (SSE transport)', {
           type: 'SERVER_STARTED',
           transport: 'sse',

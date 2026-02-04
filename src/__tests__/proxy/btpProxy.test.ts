@@ -166,7 +166,7 @@ describe('BtpProxy', () => {
             requestInterceptor(config);
 
             expect(logger.debug).toHaveBeenCalledWith(
-                'Proxying request to MCP server',
+                'Proxying request to target service',
                 expect.any(Object),
             );
         });
@@ -181,7 +181,7 @@ describe('BtpProxy', () => {
             responseInterceptor(response);
 
             expect(logger.debug).toHaveBeenCalledWith(
-                'Received response from MCP server',
+                'Received response from target service',
                 expect.any(Object),
             );
         });
