@@ -294,10 +294,10 @@ export class BtpProxy {
       redirectPort: this.config.browserAuthPort || 3333,
       ...(authConfig
         ? {
-          uaaUrl: authConfig.uaaUrl,
-          clientId: authConfig.uaaClientId,
-          clientSecret: authConfig.uaaClientSecret,
-        }
+            uaaUrl: authConfig.uaaUrl,
+            clientId: authConfig.uaaClientId,
+            clientSecret: authConfig.uaaClientSecret,
+          }
         : {}),
     };
 
@@ -395,7 +395,7 @@ export class BtpProxy {
         } else {
           logger?.error('saveTokenToSession is not a function on broker', {
             type: 'BTP_SESSION_METHOD_MISSING',
-            keys: Object.keys(brokerAny)
+            keys: Object.keys(brokerAny),
           });
         }
       }
@@ -487,10 +487,10 @@ export class BtpProxy {
         );
         const searchedPaths = searchedInMatch
           ? searchedInMatch[1]
-            .trim()
-            .split('\n')
-            .map((p) => p.trim().replace(/^-\s*/, ''))
-            .filter((p) => p)
+              .trim()
+              .split('\n')
+              .map((p) => p.trim().replace(/^-\s*/, ''))
+              .filter((p) => p)
           : [];
 
         errorMessage =
@@ -507,17 +507,17 @@ export class BtpProxy {
           const homeDir = require('node:os').homedir();
           const defaultPath = isWindows
             ? require('node:path').join(
-              homeDir,
-              'Documents',
-              'mcp-abap-adt',
-              'service-keys',
-            )
+                homeDir,
+                'Documents',
+                'mcp-abap-adt',
+                'service-keys',
+              )
             : require('node:path').join(
-              homeDir,
-              '.config',
-              'mcp-abap-adt',
-              'service-keys',
-            );
+                homeDir,
+                '.config',
+                'mcp-abap-adt',
+                'service-keys',
+              );
           errorMessage += `Searched in:\n  - ${defaultPath}\n`;
         }
       }
