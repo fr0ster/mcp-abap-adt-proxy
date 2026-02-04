@@ -1,16 +1,11 @@
-#!/usr/bin/env node
-
 /**
  * MCP ABAP ADT Proxy Server
  *
  * Proxies local MCP requests to MCP servers with optional JWT authentication.
  * Routes requests based on authentication headers:
  * - x-btp-destination (or --btp): BTP Cloud authorization with JWT token
- * - x-mcp-url (or --mcp-url): Direct MCP server URL (no authentication)
  *
- * Supports two modes:
- * 1. BTP authentication mode: Requires x-btp-destination or --btp parameter
- * 2. Local testing mode: Works with --mcp-url parameter (no BTP authentication)
+ * Supports BTP authentication mode: Requires x-btp-destination or --btp parameter
  */
 
 import {
@@ -21,7 +16,6 @@ import {
 } from 'node:http';
 import {
   HEADER_BTP_DESTINATION,
-  HEADER_MCP_URL,
 } from '@mcp-abap-adt/interfaces';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -120,19 +114,16 @@ export class McpAbapAdtProxyServer {
    */
   async run(): Promise<void> {
     if (this.transportConfig.type === 'stdio') {
-      // Check if either --btp or --mcp-url parameter is provided (required for stdio)
-      if (
-        !this.config.btpDestination &&
-        !this.config.mcpUrl
-      ) {
+      // Check if --btp parameter is provided (required for stdio)
+      if (!this.config.btpDestination) {
         logger?.error(
-          'Either --btp or --mcp-url parameter is required for stdio transport',
+          '--btp parameter is required for stdio transport',
           {
             type: 'STDIO_DESTINATION_REQUIRED',
           },
         );
         throw new Error(
-          'Either --btp or --mcp-url parameter is required for stdio transport. Use --btp=<destination> for BTP destination or --mcp-url=<url> for direct MCP server URL (local testing).',
+          '--btp parameter is required for stdio transport. Use --btp=<destination> for BTP destination.',
         );
       }
 
@@ -150,16 +141,12 @@ export class McpAbapAdtProxyServer {
       // The actual proxying will need to be done through registered tools
 
       const transport = new StdioServerTransport();
-      await this.server.server.connect(transport);
       logger?.info('MCP Proxy Server started (stdio transport)', {
         type: 'SERVER_STARTED',
         transport: 'stdio',
         btpDestination: this.config.btpDestination,
-        mcpUrl: this.config.mcpUrl,
-        note: 'For stdio transport, --btp and/or --mcp-url parameters are used as default destinations',
-        mode: this.config.btpDestination
-          ? 'BTP authentication'
-          : 'Local testing (no BTP authentication)',
+        note: 'For stdio transport, --btp parameter is used as default destination',
+        mode: 'BTP authentication',
       });
       return;
     }
@@ -290,10 +277,8 @@ export class McpAbapAdtProxyServer {
       }
 
       // Intercept and analyze request
-      // Pass config overrides (--btp and --mcp-url) to header analyzer
       const configOverrides = {
         btpDestination: this.config.btpDestination,
-        mcpUrl: this.config.mcpUrl,
       };
 
       logger?.info('=== INTERCEPTING REQUEST ===', {
@@ -302,14 +287,6 @@ export class McpAbapAdtProxyServer {
       });
 
       const intercepted = interceptRequest(req, body, configOverrides);
-
-      logger?.info('=== REQUEST INTERCEPTED ===', {
-        type: 'REQUEST_INTERCEPTED',
-        routingStrategy: intercepted.routingDecision.strategy,
-        routingReason: intercepted.routingDecision.reason,
-        btpDestination: intercepted.routingDecision.btpDestination,
-        mcpUrl: intercepted.routingDecision.mcpUrl,
-      });
 
       // Check routing decision
       if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
@@ -335,28 +312,7 @@ export class McpAbapAdtProxyServer {
         return;
       }
 
-      // If no proxy headers, pass through request without modifications
-      if (
-        intercepted.routingDecision.strategy === RoutingStrategy.PASSTHROUGH
-      ) {
-        logger?.debug('Passing through request without modifications', {
-          type: 'PASSTHROUGH_REQUEST',
-          reason: intercepted.routingDecision.reason,
-        });
-        try {
-          await this.handlePassthroughRequest(intercepted, req, res);
-        } catch (error) {
-          logger?.error('Failed to process passthrough request', {
-            type: 'PASSTHROUGH_REQUEST_ERROR',
-            error: error instanceof Error ? error.message : String(error),
-          });
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'text/plain' });
-            res.end('Internal server error');
-          }
-        }
-        return;
-      }
+
 
       // Log proxy request
       logger?.info('=== PROXYING REQUEST ===', {
@@ -404,83 +360,8 @@ export class McpAbapAdtProxyServer {
     });
   }
 
-  /**
-   * Handle passthrough request - forward request as-is without modifications
-   */
-  private async handlePassthroughRequest(
-    intercepted: ReturnType<typeof interceptRequest>,
-    _req: IncomingMessage,
-    res: ServerResponse,
-  ): Promise<void> {
-    // Use mcpUrl from routing decision (from --mcp-url) or cloudLlmHubUrl from config as target URL
-    const targetUrl =
-      intercepted.routingDecision.mcpUrl || this.config.defaultMcpUrl;
-    if (!targetUrl) {
-      logger?.error(
-        'Cannot handle passthrough request: no target URL configured',
-        {
-          type: 'PASSTHROUGH_NO_URL',
-        },
-      );
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: getBodyId(intercepted.body) || null,
-          error: {
-            code: -32000,
-            message: 'Target URL not configured',
-          },
-        }),
-      );
-      return;
-    }
 
-    logger?.debug('Forwarding passthrough request', {
-      type: 'PASSTHROUGH_FORWARD',
-      targetUrl,
-      method: intercepted.method,
-      url: intercepted.url,
-    });
 
-    try {
-      // Forward request with original headers and body
-      const response = await axios({
-        method: intercepted.method || 'POST',
-        url: `${targetUrl}${intercepted.url || '/'}`,
-        headers: intercepted.headers as Record<string, string>,
-        data: intercepted.body,
-        validateStatus: () => true, // Accept all status codes
-      });
-
-      // Forward response back to client
-      res.writeHead(
-        response.status,
-        response.headers as Record<string, string | string[]>,
-      );
-      res.end(response.data);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logger?.error('Failed to forward passthrough request', {
-        type: 'PASSTHROUGH_FORWARD_ERROR',
-        error: errorMessage,
-      });
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: getBodyId(intercepted.body) || null,
-            error: {
-              code: -32000,
-              message: errorMessage,
-            },
-          }),
-        );
-      }
-    }
-  }
 
   /**
    * Handle proxy request - add JWT token and forward to MCP server
@@ -491,7 +372,6 @@ export class McpAbapAdtProxyServer {
     res: ServerResponse,
   ): Promise<void> {
     const btpDestination = intercepted.routingDecision.btpDestination;
-    const mcpUrl = intercepted.routingDecision.mcpUrl;
 
     // Log incoming request details
     const incomingHeaders: Record<string, string> = {};
@@ -566,21 +446,15 @@ export class McpAbapAdtProxyServer {
       method: req.method,
       url: req.url,
       btpDestination,
-      mcpUrl,
       sessionId: intercepted.sessionId,
       headers: incomingHeaders,
       body: sanitizedBody,
-      mode: btpDestination
-        ? 'BTP authentication'
-        : 'Local testing (no BTP authentication)',
+      mode: 'BTP authentication',
     });
 
     try {
       // Ensure proxy is initialized (URL will be obtained from service key for btpDestination or mcpDestination)
       if (!this.btpProxy) {
-        // Use default base URL from config as fallback (actual URL comes from service key)
-        const baseUrl =
-          this.config.defaultMcpUrl || 'https://default.example.com';
         this.btpProxy = await createBtpProxy(this.config);
       }
 
@@ -626,15 +500,6 @@ export class McpAbapAdtProxyServer {
         originalId: interceptedBodyId,
         originalIdType: interceptedBodyIdType,
         mcpRequestId: mcpRequest.id,
-        mcpRequestIdType: typeof mcpRequest.id,
-        mcpRequestIdValue: mcpRequest.id,
-        fullMcpRequest: JSON.stringify(mcpRequest),
-      });
-
-      logger?.info('=== FORWARDING REQUEST ===', {
-        type: 'PROXY_REQUEST_FORWARDING',
-        interceptedBodyIdAtForward: getBodyId(intercepted.body),
-        interceptedBodyIdTypeAtForward: typeof getBodyId(intercepted.body),
         mcpRequest: {
           method: mcpRequest.method,
           params: sanitizedBody.params,
@@ -643,7 +508,6 @@ export class McpAbapAdtProxyServer {
         },
         routingDecision: {
           btpDestination,
-          mcpUrl,
         },
       });
 
@@ -653,6 +517,15 @@ export class McpAbapAdtProxyServer {
         intercepted.routingDecision,
         intercepted.headers,
       );
+
+      logger?.info('=== FORWARDING REQUEST ===', {
+        type: 'PROXY_REQUEST_FORWARDING',
+        interceptedBodyIdAtForward: getBodyId(intercepted.body),
+
+        mcpRequest,
+        routingDecision: intercepted.routingDecision,
+        headers: intercepted.headers,
+      });
 
       // Log response
       const sanitizedResponse: Record<string, unknown> = {
@@ -769,7 +642,7 @@ export class McpAbapAdtProxyServer {
         pathname = pathname.slice(0, -1);
       }
 
-      // Apply config overrides (--btp, --mcp, and --mcp-url) to headers if not present
+      // Apply config overrides (--btp) to headers if not present
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
         if (value) {
@@ -780,9 +653,6 @@ export class McpAbapAdtProxyServer {
       // Add config overrides if not present in headers
       if (this.config.btpDestination && !headers[HEADER_BTP_DESTINATION]) {
         headers[HEADER_BTP_DESTINATION] = this.config.btpDestination;
-      }
-      if (this.config.mcpUrl && !headers[HEADER_MCP_URL]) {
-        headers[HEADER_MCP_URL] = this.config.mcpUrl;
       }
 
       logger?.debug('SSE request received', {
@@ -939,7 +809,6 @@ export class McpAbapAdtProxyServer {
         // Intercept and analyze request with config overrides
         const configOverrides = {
           btpDestination: this.config.btpDestination,
-          mcpUrl: this.config.mcpUrl,
         };
         const intercepted = interceptRequest(req, body, configOverrides);
 
@@ -962,24 +831,7 @@ export class McpAbapAdtProxyServer {
           return;
         }
 
-        // If no proxy headers, pass through request without modifications
-        if (
-          intercepted.routingDecision.strategy === RoutingStrategy.PASSTHROUGH
-        ) {
-          try {
-            await this.handlePassthroughRequest(intercepted, req, res);
-          } catch (error) {
-            logger?.error('Failed to process SSE passthrough request', {
-              type: 'SSE_PASSTHROUGH_PROCESS_ERROR',
-              error: error instanceof Error ? error.message : String(error),
-            });
-            if (!res.headersSent) {
-              res.writeHead(500, { 'Content-Type': 'text/plain' });
-              res.end('Internal server error');
-            }
-          }
-          return;
-        }
+
 
         // Handle proxy request
         try {

@@ -35,9 +35,6 @@ mcp-abap-adt-proxy
 # With BTP destination
 mcp-abap-adt-proxy --btp=ai
 
-# With direct MCP URL (local testing)
-mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp
-
 # Enable file-based session storage (persists tokens to disk)
 mcp-abap-adt-proxy --btp=ai --unsafe
 ```
@@ -86,13 +83,11 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
 }
 ```
 
-**Required Headers (one of the following):**
+**Required Headers:**
 - `x-btp-destination` - Destination name for BTP Cloud authorization token and MCP server URL
-- `x-mcp-url` - Direct MCP server URL (for local testing mode without authentication)
 
 **Command Line Overrides:**
-- `--btp=<destination>` - Overrides `x-btp-destination` header (for BTP authentication mode, takes precedence)
-- `--mcp-url=<url>` - Direct MCP server URL (for local testing without authentication, takes precedence)
+- `--btp=<destination>` - Overrides `x-btp-destination` header (takes precedence)
 - `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
 **How It Works:**
@@ -108,10 +103,6 @@ The proxy uses BTP/XSUAA authentication:
 **BTP Authentication Mode** (with `x-btp-destination` or `--btp`):
 1. `x-btp-destination` (or `--btp`) → Gets JWT token from `btpAuthBroker` → Adds `Authorization: Bearer <token>` header
 2. MCP server URL obtained from service key for `x-btp-destination`
-
-**Local Testing Mode** (with `x-mcp-url` or `--mcp-url`):
-1. `x-mcp-url` (or `--mcp-url`) → Direct URL to MCP server (no authentication)
-2. No BTP authentication required - enables local integration testing
 
 ## Documentation
 
@@ -130,16 +121,15 @@ The proxy uses BTP/XSUAA authentication:
 
 The proxy performs the following steps for each request:
 
-1. **Extract Headers**: Reads `x-btp-destination` and `x-mcp-url` headers
-2. **Apply Command Line Overrides**: `--btp` and `--mcp-url` parameters override headers (if provided)
-3. **Validate Routing Requirements**: Requires at least one of: `x-btp-destination/--btp` or `x-mcp-url/--mcp-url`
+1. **Extract Headers**: Reads `x-btp-destination` header
+2. **Apply Command Line Overrides**: `--btp` parameter overrides header (if provided)
+3. **Validate Routing Requirements**: Requires `x-btp-destination/--btp`
 4. **BTP Authentication** (if `x-btp-destination` or `--btp` is provided):
    - Uses `btpAuthBroker` with `ClientCredentialsProvider` (client_credentials grant type)
    - Retrieves JWT token from BTP destination service key
    - Injects/overwrites `Authorization: Bearer <token>` header
-5. **Get MCP Server URL** (priority order):
-   - From `x-mcp-url` header or `--mcp-url` parameter (direct URL)
-   - From service key for `x-btp-destination` (if provided)
+5. **Get MCP Server URL**:
+   - From service key for `x-btp-destination`
 6. **Forward Request**: Sends request to MCP server URL with all injected headers
 7. **Return Response**: Forwards the response back to the client
 
@@ -158,7 +148,6 @@ The proxy is transparent - it only adds authentication headers and forwards requ
 ### Environment Variables
 
 ```bash
-export MCP_DEFAULT_URL="https://my-mcp-server.example.com"
 export MCP_HTTP_PORT=3001
 export LOG_LEVEL=info
 export MCP_PROXY_UNSAFE=true  # Enable file-based session storage (optional)
@@ -170,7 +159,6 @@ Create `mcp-proxy-config.json`:
 
 ```json
 {
-  "defaultMcpUrl": "https://my-mcp-server.example.com",
   "httpPort": 3001,
   "logLevel": "info",
   "maxRetries": 3,
@@ -230,7 +218,6 @@ See [tools/README.md](./tools/README.md) for complete documentation.
 - ✅ Project Setup & Foundation
 - ✅ Request Interception & Analysis
 - ✅ JWT Token Management & Proxy Forwarding
-- ✅ Local Testing Mode (without BTP authentication)
 - ✅ Configuration & Environment
 - ✅ Error Handling & Resilience
 - ✅ Testing Tools (`tools/start-servers.js`)

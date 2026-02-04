@@ -39,7 +39,6 @@ export function interceptRequest(
   body?: any,
   configOverrides?: {
     btpDestination?: string;
-    mcpUrl?: string;
   },
 ): InterceptedRequest {
   // Extract headers
@@ -51,22 +50,19 @@ export function interceptRequest(
   // Analyze headers for routing decision (with config overrides)
   const routingDecision = analyzeHeaders(req.headers, configOverrides);
 
-  // Validate proxy headers only if request will be processed as PROXY (not PASSTHROUGH)
-  // For PASSTHROUGH requests, validation is not needed as headers are passed as-is
-  if (routingDecision.strategy !== RoutingStrategy.PASSTHROUGH) {
-    const validation = validateProxyHeaders(req.headers);
-    if (!validation.isValid && validation.errors.length > 0) {
-      logger?.warn('Proxy header validation failed', {
-        type: 'PROXY_HEADER_VALIDATION_ERROR',
-        errors: validation.errors,
-        warnings: validation.warnings,
-      });
-    } else if (validation.warnings.length > 0) {
-      logger?.warn('Proxy header validation warnings', {
-        type: 'PROXY_HEADER_VALIDATION_WARNINGS',
-        warnings: validation.warnings,
-      });
-    }
+  // Validate proxy headers
+  const validation = validateProxyHeaders(req.headers);
+  if (!validation.isValid && validation.errors.length > 0) {
+    logger?.warn('Proxy header validation failed', {
+      type: 'PROXY_HEADER_VALIDATION_ERROR',
+      errors: validation.errors,
+      warnings: validation.warnings,
+    });
+  } else if (validation.warnings.length > 0) {
+    logger?.warn('Proxy header validation warnings', {
+      type: 'PROXY_HEADER_VALIDATION_WARNINGS',
+      warnings: validation.warnings,
+    });
   }
 
   // Extract session ID if present

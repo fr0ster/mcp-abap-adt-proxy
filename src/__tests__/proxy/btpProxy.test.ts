@@ -8,6 +8,7 @@ import {
     type ProxyResponse,
     shouldWriteStderr,
 } from '../../proxy/btpProxy';
+import { RoutingStrategy } from '../../router/headerAnalyzer';
 
 // Mock types
 type MockAxiosInstance = {
@@ -18,22 +19,32 @@ type MockAxiosInstance = {
     };
 };
 
-// Mock logger
-const mockLogger = {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
+// Mock AuthBroker singleton
+const mockAuthBrokerInstance = {
+    getToken: jest.fn(),
+    getConnectionConfig: jest.fn(),
 };
+
+jest.mock('@mcp-abap-adt/auth-broker', () => {
+    return {
+        AuthBroker: jest.fn().mockImplementation(() => mockAuthBrokerInstance),
+    };
+});
+
+import { logger } from '../../lib/logger';
 
 // Mock dependencies
 jest.mock('../../lib/logger', () => ({
-    logger: mockLogger,
+    logger: {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+    },
 }));
 
 jest.mock('../../lib/config', () => ({
     loadConfig: jest.fn().mockReturnValue({
-        defaultMcpUrl: 'https://default.example.com',
         httpPort: 3001,
         ssePort: 3002,
         unsafe: false,
@@ -89,9 +100,14 @@ describe('BtpProxy', () => {
         mockServiceKeyStore = {
             getAuthorizationConfig: jest.fn(),
             getConnectionConfig: jest.fn(),
+            getServiceKey: jest.fn(),
         };
         mockSessionStore = {
             saveSession: jest.fn(),
+            getAuthorizationConfig: jest.fn(),
+            getConnectionConfig: jest.fn(),
+            setAuthorizationConfig: jest.fn(),
+            setConnectionConfig: jest.fn(),
         };
 
         mockAuthBroker = new AuthBroker(
@@ -108,7 +124,6 @@ describe('BtpProxy', () => {
 
         // Create proxy instance
         btpProxy = new BtpProxy(mockAuthBroker, {
-            defaultMcpUrl: 'https://default.example.com',
             httpPort: 3001,
             ssePort: 3002,
             httpHost: '0.0.0.0',
@@ -147,7 +162,7 @@ describe('BtpProxy', () => {
             const config = { method: 'POST', url: '/test' };
             requestInterceptor(config);
 
-            expect(mockLogger.debug).toHaveBeenCalledWith(
+            expect(logger.debug).toHaveBeenCalledWith(
                 'Proxying request to MCP server',
                 expect.any(Object),
             );
@@ -162,7 +177,7 @@ describe('BtpProxy', () => {
             const response = { status: 200, config: { url: '/test' } };
             responseInterceptor(response);
 
-            expect(mockLogger.debug).toHaveBeenCalledWith(
+            expect(logger.debug).toHaveBeenCalledWith(
                 'Received response from MCP server',
                 expect.any(Object),
             );
@@ -208,40 +223,11 @@ describe('BtpProxy', () => {
             'content-type': 'application/json',
         };
 
-        it('should proxy request to default URL when no routing headers', async () => {
-            const routingDecision = {
-                strategy: 'proxy' as const,
-                reason: 'default',
-                mcpUrl: 'https://custom.example.com',
-            };
 
-            mockAxiosInstance.request.mockResolvedValue({
-                data: {
-                    jsonrpc: '2.0',
-                    id: 1,
-                    result: { success: true },
-                },
-            });
-
-            const response = await btpProxy.proxyRequest(
-                mockRequest,
-                routingDecision,
-                mockHeaders,
-            );
-
-            expect(mockAxiosInstance.request).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    url: 'https://custom.example.com/mcp/stream/http',
-                    method: 'POST',
-                    data: mockRequest,
-                }),
-            );
-            expect(response.result).toEqual({ success: true });
-        });
 
         it('should authenticate with BTP when x-btp-destination is present', async () => {
             const routingDecision = {
-                strategy: 'proxy' as const,
+                strategy: RoutingStrategy.PROXY,
                 reason: 'btp',
                 btpDestination: 'test-dest',
             };
@@ -270,7 +256,7 @@ describe('BtpProxy', () => {
                 expect.objectContaining({
                     url: 'https://btp-mcp.example.com/mcp/stream/http',
                     headers: expect.objectContaining({
-                        authorization: 'Bearer mock-jwt-token',
+                        Authorization: 'Bearer mock-jwt-token',
                     }),
                 }),
             );
@@ -278,7 +264,7 @@ describe('BtpProxy', () => {
 
         it('should use cached token for subsequent requests', async () => {
             const routingDecision = {
-                strategy: 'proxy' as const,
+                strategy: RoutingStrategy.PROXY,
                 reason: 'btp',
                 btpDestination: 'test-dest',
             };

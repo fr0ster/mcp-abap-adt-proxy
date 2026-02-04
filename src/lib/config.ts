@@ -7,7 +7,6 @@ import * as path from 'node:path';
 import * as yaml from 'js-yaml';
 
 export interface ProxyConfig {
-  defaultMcpUrl: string;
   httpPort: number;
   ssePort: number;
   httpHost: string;
@@ -15,7 +14,7 @@ export interface ProxyConfig {
   logLevel: string;
   // Destination overrides from command line
   btpDestination?: string; // Overrides x-btp-destination header
-  mcpUrl?: string; // Direct MCP server URL (for local testing without BTP)
+
   // Session storage mode
   unsafe?: boolean; // If true, use XsuaaSessionStore (persists to disk). If false, use SafeXsuaaSessionStore (in-memory).
   // Error handling & resilience
@@ -42,8 +41,8 @@ export function loadConfig(configPath?: string): ProxyConfig {
   // If --config is provided, load ONLY from that file (no merge with command line params)
   if (finalConfigPath) {
     // Warn if other CLI parameters are also provided (they will be ignored)
-    const conflictingParams = ['--btp', '--mcp-url', '--unsafe'].filter(
-      (param) => hasArg(param),
+    const conflictingParams = ['--btp', '--unsafe'].filter((param) =>
+      hasArg(param),
     );
 
     if (conflictingParams.length > 0) {
@@ -92,14 +91,13 @@ function loadConfigFile(filePath: string): Partial<ProxyConfig> {
  */
 function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
   const result: ProxyConfig = {
-    defaultMcpUrl: fileConfig.defaultMcpUrl || '',
     httpPort: fileConfig.httpPort ?? 3001,
     ssePort: fileConfig.ssePort ?? 3002,
     httpHost: fileConfig.httpHost || '0.0.0.0',
     sseHost: fileConfig.sseHost || '0.0.0.0',
     logLevel: fileConfig.logLevel || 'info',
     btpDestination: fileConfig.btpDestination,
-    mcpUrl: fileConfig.mcpUrl,
+
     unsafe: fileConfig.unsafe ?? false,
     maxRetries: fileConfig.maxRetries ?? 3,
     retryDelay: fileConfig.retryDelay ?? 1000,
@@ -117,19 +115,17 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
 function loadFromEnv(): ProxyConfig {
   // Parse command line arguments for --btp, --mcp-url, and --unsafe
   const btpDestination = getArgValue('--btp');
-  const mcpUrl = getArgValue('--mcp-url');
+
   const unsafe = hasArg('--unsafe') || process.env.MCP_PROXY_UNSAFE === 'true';
 
   return {
-    defaultMcpUrl:
-      process.env.MCP_DEFAULT_URL || process.env.CLOUD_LLM_HUB_URL || '',
     httpPort: parseInt(process.env.MCP_HTTP_PORT || '3001', 10),
     ssePort: parseInt(process.env.MCP_SSE_PORT || '3002', 10),
     httpHost: process.env.MCP_HTTP_HOST || '0.0.0.0',
     sseHost: process.env.MCP_SSE_HOST || '0.0.0.0',
     logLevel: process.env.LOG_LEVEL || 'info',
     btpDestination,
-    mcpUrl: mcpUrl || process.env.MCP_URL,
+
     unsafe,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || '3', 10),
     retryDelay: parseInt(process.env.MCP_PROXY_RETRY_DELAY || '1000', 10),
@@ -191,32 +187,14 @@ export function validateConfig(config: ProxyConfig): {
   const warnings: string[] = [];
 
   // mcpUrl is required (either from yaml config via --config or --mcp-url parameter)
-  if (!config.mcpUrl) {
-    errors.push(
-      'mcpUrl is required: provide --mcp-url parameter or set mcpUrl in config file (use --config to specify config file)',
-    );
-  } else {
-    // Validate mcpUrl is a valid URL
-    try {
-      new URL(config.mcpUrl);
-    } catch {
-      errors.push('mcpUrl must be a valid URL');
-    }
-  }
 
-  // Default MCP URL is only required if we're not using BTP destination or direct URL
-  const hasDestination = config.btpDestination || config.mcpUrl;
+  // Check if BTP destination is provided
+  const hasDestination = config.btpDestination;
 
-  if (!config.defaultMcpUrl && !hasDestination) {
+  if (!hasDestination) {
     warnings.push(
-      'MCP_DEFAULT_URL is not set and no destination provided (--btp or --mcp-url) - proxy will not work without a destination',
+      'No BTP destination provided (--btp). Proxy will not work unless requests include x-btp-destination header.',
     );
-  } else if (config.defaultMcpUrl) {
-    try {
-      new URL(config.defaultMcpUrl);
-    } catch {
-      errors.push('MCP_DEFAULT_URL must be a valid URL');
-    }
   }
 
   if (config.httpPort < 1 || config.httpPort > 65535) {
