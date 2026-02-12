@@ -34,6 +34,7 @@ function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
   const isWindows = process.platform === 'win32';
 
   // Priority 1: AUTH_BROKER_PATH environment variable
+  // AUTH_BROKER_PATH is treated as a base path; append subfolder when requested
   const envPath = process.env.AUTH_BROKER_PATH;
   if (envPath) {
     // Support both colon (Unix) and semicolon (Windows) separators
@@ -41,7 +42,16 @@ function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
       .split(/[:;]/)
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
-    paths.push(...envPaths.map((p) => path.resolve(p)));
+    paths.push(
+      ...envPaths.map((p) => {
+        let resolved = path.resolve(p);
+        // If path already ends with subfolder, use parent as base path
+        if (subfolder && path.basename(resolved) === subfolder) {
+          resolved = path.dirname(resolved);
+        }
+        return subfolder ? path.join(resolved, subfolder) : resolved;
+      }),
+    );
   }
 
   // Priority 2: Platform-specific standard paths

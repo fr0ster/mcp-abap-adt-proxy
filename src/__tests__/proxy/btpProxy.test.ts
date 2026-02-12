@@ -31,6 +31,13 @@ jest.mock('@mcp-abap-adt/auth-broker', () => {
     };
 });
 
+jest.mock('@mcp-abap-adt/auth-providers', () => {
+    return {
+        AuthorizationCodeProvider: jest.fn().mockImplementation(() => ({})),
+        ClientCredentialsProvider: jest.fn().mockImplementation(() => ({})),
+    };
+});
+
 import { logger } from '../../lib/logger';
 
 // Mock dependencies

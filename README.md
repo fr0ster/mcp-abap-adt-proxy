@@ -157,7 +157,16 @@ The proxy is transparent - it only adds authentication headers and forwards requ
 export MCP_HTTP_PORT=3001
 export LOG_LEVEL=info
 export MCP_PROXY_UNSAFE=true  # Enable file-based session storage (optional)
+export AUTH_BROKER_PATH=~/.config/mcp-abap-adt  # Optional base path for service-keys/sessions
 ```
+
+`AUTH_BROKER_PATH` is treated as a base directory. The proxy resolves:
+- `service-keys` from `<AUTH_BROKER_PATH>/service-keys`
+- `sessions` from `<AUTH_BROKER_PATH>/sessions`
+
+Defaults when `AUTH_BROKER_PATH` is not set:
+- Unix/Linux/macOS: `~/.config/mcp-abap-adt/service-keys` and `~/.config/mcp-abap-adt/sessions`
+- Windows: `%USERPROFILE%\\Documents\\mcp-abap-adt\\service-keys` and `%USERPROFILE%\\Documents\\mcp-abap-adt\\sessions`
 
 ### Configuration File
 
@@ -175,7 +184,7 @@ Create `mcp-proxy-config.json`:
 
 **Session Storage:**
 - `unsafe: false` (default) - Session data stored in-memory (secure, lost on restart)
-- `unsafe: true` - Session data persisted to disk (tokens saved to `.env` files)
+- `unsafe: true` - Session data persisted to disk (tokens saved under the session store path)
 
 See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 

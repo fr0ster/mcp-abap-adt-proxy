@@ -165,7 +165,9 @@ dir %USERPROFILE%\Documents\mcp-abap-adt\service-keys\sk.json
 
 3. **Check AuthBroker paths:**
 ```bash
-export AUTH_BROKER_PATH="/custom/path/to/service-keys"
+export AUTH_BROKER_PATH="/custom/path"
+# Service keys will be resolved from /custom/path/service-keys
+# Sessions will be resolved from /custom/path/sessions
 ```
 
 4. **Test authentication manually:**
@@ -385,6 +387,9 @@ npx sap-abap-auth auth -k sk.json
 2. **Use custom path:**
 ```bash
 export AUTH_BROKER_PATH="/custom/path"
+# Supports both base path and explicit subfolder paths
+# /custom/path -> /custom/path/service-keys
+# /custom/path/service-keys -> /custom/path/service-keys
 ```
 
 3. **Check file permissions:**
@@ -478,4 +483,3 @@ When reporting issues, include:
 5. **Enable debug logging** - Use debug mode for troubleshooting
 6. **Check network connectivity** - Verify connectivity before troubleshooting
 7. **Validate configuration** - Always validate config on startup
-

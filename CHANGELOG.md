@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-02-12
+
+### Changed
+- **AUTH_BROKER_PATH resolution aligned with `mcp-abap-adt`**
+  - `AUTH_BROKER_PATH` is now treated as a base directory.
+  - Proxy now resolves stores from `<base>/service-keys` and `<base>/sessions`.
+  - If a path already ends with `service-keys` or `sessions`, it is normalized and still resolved correctly.
+
+### Documentation
+- Clarified in README and troubleshooting docs how default store paths and `AUTH_BROKER_PATH` are resolved.
+
 ## [0.1.8] - 2026-02-05
 
 ### Added
@@ -198,4 +209,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@mcp-abap-adt/header-validator` ^0.1.3 - Header validation
 - `axios` - HTTP client
 - `zod` - Schema validation
-
