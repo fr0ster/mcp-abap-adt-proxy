@@ -29,7 +29,7 @@ import {
  * @param subfolder Subfolder name ('service-keys' or 'sessions')
  * @returns Array of resolved absolute paths
  */
-function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
+export function getPlatformPaths(subfolder?: 'service-keys' | 'sessions'): string[] {
   const paths: string[] = [];
   const isWindows = process.platform === 'win32';
 
