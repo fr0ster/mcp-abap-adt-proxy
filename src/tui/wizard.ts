@@ -11,6 +11,7 @@ import { checkServiceKeyExists } from './serviceKeyCheck.js';
 export interface WizardAnswers {
   scenario: 'btp' | 'direct';
   btpDestination?: string;
+  targetUrl?: string;
   mcpDestination?: string;
   mcpUrl?: string;
   transport: 'stdio' | 'http' | 'sse';
@@ -71,6 +72,9 @@ export function generateConfigYaml(answers: WizardAnswers): string {
   if (answers.scenario === 'btp') {
     if (answers.btpDestination) {
       lines.push(`btpDestination: "${answers.btpDestination}"`);
+    }
+    if (answers.targetUrl) {
+      lines.push(`targetUrl: "${answers.targetUrl}"`);
     }
     if (answers.mcpDestination) {
       lines.push(`mcpDestination: "${answers.mcpDestination}"`);
@@ -186,6 +190,14 @@ export async function runWizard(): Promise<WizardAnswers> {
       });
       answers.btpDestination = btpDestination;
       printServiceKeyCheck(btpDestination);
+
+      const targetUrl = await input({
+        message: 'Target service URL (leave empty if in service key):',
+        default: '',
+      });
+      if (targetUrl) {
+        answers.targetUrl = targetUrl;
+      }
 
       const addMcpDest = await confirm({
         message: 'Add MCP destination (for ABAP connection params on Cloud)?',

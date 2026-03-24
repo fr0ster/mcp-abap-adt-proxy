@@ -147,6 +147,7 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
     sseHost: fileConfig.sseHost || '0.0.0.0',
     logLevel: fileConfig.logLevel || 'info',
     btpDestination: fileConfig.btpDestination,
+    targetUrl: fileConfig.targetUrl,
 
     unsafe: fileConfig.unsafe ?? false,
     maxRetries: fileConfig.maxRetries ?? 3,
