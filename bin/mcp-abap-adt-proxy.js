@@ -7,6 +7,7 @@
  *
  * Usage:
  *   mcp-abap-adt-proxy [options]
+ *   mcp-abap-adt-proxy tui
  *   mcp-abap-adt-proxy --transport=stdio
  *   mcp-abap-adt-proxy --transport=http
  */
@@ -43,6 +44,10 @@ MCP ABAP ADT Proxy Server v${pkg.version}
 
 Usage:
   mcp-abap-adt-proxy [options]
+  mcp-abap-adt-proxy tui
+
+Commands:
+  tui                       Interactive configuration wizard (generates YAML config)
 
 Options:
   --transport=<type>       Transport type: stdio, http, streamable-http, sse
@@ -77,6 +82,7 @@ Examples:
   mcp-abap-adt-proxy --transport=sse --sse-port=3002     # SSE mode on port 3002
   mcp-abap-adt-proxy --btp=ai                           # With BTP destination override
   mcp-abap-adt-proxy --btp=ai --unsafe                  # With file-based session storage
+  mcp-abap-adt-proxy tui                                 # Interactive configuration wizard
   mcp-abap-adt-proxy --config=proxy-config.yaml         # Load configuration from YAML file
   mcp-abap-adt-proxy -c proxy-config.yml                # Load configuration from YAML file (short form)
 
@@ -135,6 +141,30 @@ function main() {
   if (args.version) {
     showVersion();
     process.exit(0);
+  }
+
+  // Handle 'tui' subcommand — interactive configuration wizard
+  if (process.argv[2] === 'tui') {
+    const wizardPath = path.resolve(__dirname, '../dist/tui/index.js');
+    if (!fs.existsSync(wizardPath)) {
+      process.stderr.write(`[MCP Proxy] ✗ Wizard not found at: ${wizardPath}\n`);
+      process.stderr.write(`[MCP Proxy]   Make sure to build the project with 'npm run build' first.\n`);
+      process.exit(1);
+      return;
+    }
+    import(wizardPath).then(({ runWizard }) => {
+      runWizard().catch((err) => {
+        if (err.name === 'ExitPromptError') {
+          process.exit(0);
+        }
+        process.stderr.write(`[MCP Proxy] ✗ Wizard error: ${err.message}\n`);
+        process.exit(1);
+      });
+    }).catch((err) => {
+      process.stderr.write(`[MCP Proxy] ✗ Failed to load wizard: ${err.message}\n`);
+      process.exit(1);
+    });
+    return;
   }
 
   // Spawn the main server process
