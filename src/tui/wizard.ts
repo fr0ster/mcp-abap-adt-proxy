@@ -145,12 +145,8 @@ function printServiceKeyCheck(destination: string): void {
   if (result.found) {
     console.log(`  Found: ${result.path}`);
   } else {
-    console.log(
-      `  Warning: Service key file not found for "${destination}".`,
-    );
-    console.log(
-      `  Searched: ${result.searchedPaths?.join(', ') ?? '(none)'}`,
-    );
+    console.log(`  Warning: Service key file not found for "${destination}".`);
+    console.log(`  Searched: ${result.searchedPaths?.join(', ') ?? '(none)'}`);
   }
 }
 
@@ -192,8 +188,7 @@ export async function runWizard(): Promise<WizardAnswers> {
       printServiceKeyCheck(btpDestination);
 
       const addMcpDest = await confirm({
-        message:
-          'Add MCP destination (for ABAP connection params on Cloud)?',
+        message: 'Add MCP destination (for ABAP connection params on Cloud)?',
         default: false,
       });
 
@@ -345,10 +340,7 @@ export async function runWizard(): Promise<WizardAnswers> {
 
     return fullAnswers;
   } catch (error: unknown) {
-    if (
-      error instanceof Error &&
-      error.name === 'ExitPromptError'
-    ) {
+    if (error instanceof Error && error.name === 'ExitPromptError') {
       process.exit(0);
     }
     throw error;
