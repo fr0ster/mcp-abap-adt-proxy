@@ -64,6 +64,7 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
+    "@inquirer/prompts": "^8.3.2",
     "@mcp-abap-adt/auth-broker": "^1.0.5",
     "@mcp-abap-adt/auth-providers": "^1.0.5",
     "@mcp-abap-adt/auth-stores": "^1.0.4",
