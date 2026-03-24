@@ -27,7 +27,9 @@ export interface ServiceKeyCheckResult {
  * @param destination - BTP destination name (without .json extension)
  * @returns ServiceKeyCheckResult indicating whether the key was found and where
  */
-export function checkServiceKeyExists(destination: string): ServiceKeyCheckResult {
+export function checkServiceKeyExists(
+  destination: string,
+): ServiceKeyCheckResult {
   const searchDirs = getPlatformPaths('service-keys');
   const fileName = `${destination}.json`;
 
