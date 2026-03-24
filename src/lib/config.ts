@@ -78,6 +78,32 @@ export function loadConfig(configPath?: string): ProxyConfig {
 }
 
 /**
+ * Transport-related fields from config file (not part of ProxyConfig but needed by transportConfig)
+ */
+export interface FileTransportFields {
+  transport?: string;
+  httpPort?: number;
+  httpHost?: string;
+  ssePort?: number;
+  sseHost?: string;
+}
+
+/**
+ * Extract transport-related fields from a raw config object
+ */
+export function extractTransportFields(
+  raw: Record<string, unknown>,
+): FileTransportFields {
+  return {
+    transport: typeof raw.transport === 'string' ? raw.transport : undefined,
+    httpPort: typeof raw.httpPort === 'number' ? raw.httpPort : undefined,
+    httpHost: typeof raw.httpHost === 'string' ? raw.httpHost : undefined,
+    ssePort: typeof raw.ssePort === 'number' ? raw.ssePort : undefined,
+    sseHost: typeof raw.sseHost === 'string' ? raw.sseHost : undefined,
+  };
+}
+
+/**
  * Load configuration from file (supports JSON and YAML)
  */
 function loadConfigFile(filePath: string): Partial<ProxyConfig> {
@@ -88,6 +114,25 @@ function loadConfigFile(filePath: string): Partial<ProxyConfig> {
     return yaml.load(configContent) as Partial<ProxyConfig>;
   } else {
     return JSON.parse(configContent);
+  }
+}
+
+/**
+ * Load raw config from file for transport field extraction
+ */
+export function loadRawConfigFile(
+  filePath: string,
+): Record<string, unknown> | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.yaml' || ext === '.yml') {
+      return (yaml.load(content) as Record<string, unknown>) || {};
+    }
+    return JSON.parse(content);
+  } catch {
+    return null;
   }
 }
 

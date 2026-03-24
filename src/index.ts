@@ -21,11 +21,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import axios from 'axios';
-import { loadConfig, validateConfig } from './lib/config.js';
+import {
+  loadConfig,
+  validateConfig,
+  getConfigPath,
+  loadRawConfigFile,
+  extractTransportFields,
+} from './lib/config.js';
 import { logger } from './lib/logger.js';
 import {
   parseTransportConfig,
   type TransportConfig,
+  type FileTransportOverrides,
 } from './lib/transportConfig.js';
 import {
   type BtpProxy,
@@ -59,7 +66,17 @@ export class McpAbapAdtProxyServer {
   private btpProxy?: BtpProxy;
 
   constructor(transportConfig?: TransportConfig, configPath?: string) {
-    this.transportConfig = transportConfig || parseTransportConfig();
+    // Load config first to extract transport overrides from YAML/JSON file
+    const resolvedConfigPath = configPath || getConfigPath();
+    let fileTransportOverrides: FileTransportOverrides | undefined;
+    if (resolvedConfigPath) {
+      const raw = loadRawConfigFile(resolvedConfigPath);
+      if (raw) {
+        fileTransportOverrides = extractTransportFields(raw);
+      }
+    }
+    this.transportConfig =
+      transportConfig || parseTransportConfig(fileTransportOverrides);
     this.config = loadConfig(configPath);
 
     // Validate configuration

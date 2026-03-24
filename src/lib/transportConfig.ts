@@ -15,59 +15,62 @@ export interface TransportConfig {
 }
 
 /**
- * Parse transport configuration from command line arguments and environment variables
+ * File-based config overrides for transport settings (from YAML/JSON config file)
  */
-export function parseTransportConfig(): TransportConfig {
+export interface FileTransportOverrides {
+  transport?: string;
+  httpPort?: number;
+  httpHost?: string;
+  ssePort?: number;
+  sseHost?: string;
+}
+
+/**
+ * Normalize transport value to TransportType
+ */
+function normalizeTransport(value: string): TransportType | null {
+  const v = value.toLowerCase();
+  if (v === 'stdio' || v === 'streamable-http' || v === 'http' || v === 'sse') {
+    return v === 'http' ? 'streamable-http' : (v as TransportType);
+  }
+  return null;
+}
+
+/**
+ * Parse transport configuration from command line arguments, environment variables,
+ * and optional file-based config overrides.
+ *
+ * Priority: CLI args > file config > env vars > auto-detect > defaults
+ */
+export function parseTransportConfig(
+  fileOverrides?: FileTransportOverrides,
+): TransportConfig {
   const args = process.argv;
 
-  // Check for explicit transport type
+  // Check for explicit transport type from CLI
   let transportType: TransportType | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg.startsWith('--transport=')) {
-      const value = arg.split('=')[1].toLowerCase();
-      if (
-        value === 'stdio' ||
-        value === 'streamable-http' ||
-        value === 'http' ||
-        value === 'sse'
-      ) {
-        transportType =
-          value === 'http' ? 'streamable-http' : (value as TransportType);
-      }
+      transportType = normalizeTransport(arg.split('=')[1]);
     }
     if (arg === '--transport' && i + 1 < args.length) {
-      const value = args[i + 1].toLowerCase();
-      if (
-        value === 'stdio' ||
-        value === 'streamable-http' ||
-        value === 'http' ||
-        value === 'sse'
-      ) {
-        transportType =
-          value === 'http' ? 'streamable-http' : (value as TransportType);
-      }
+      transportType = normalizeTransport(args[i + 1]);
     }
     if (arg === '--http') transportType = 'streamable-http';
     if (arg === '--stdio') transportType = 'stdio';
     if (arg === '--sse') transportType = 'sse';
   }
 
+  // Check file config overrides
+  if (!transportType && fileOverrides?.transport) {
+    transportType = normalizeTransport(fileOverrides.transport);
+  }
+
   // Check environment variable
   if (!transportType && process.env.MCP_TRANSPORT) {
-    const envTransport = process.env.MCP_TRANSPORT.toLowerCase();
-    if (
-      envTransport === 'stdio' ||
-      envTransport === 'streamable-http' ||
-      envTransport === 'http' ||
-      envTransport === 'sse'
-    ) {
-      transportType =
-        envTransport === 'http'
-          ? 'streamable-http'
-          : (envTransport as TransportType);
-    }
+    transportType = normalizeTransport(process.env.MCP_TRANSPORT);
   }
 
   // Auto-detect stdio mode: if stdin is not a TTY, we're likely in stdio mode
@@ -83,11 +86,17 @@ export function parseTransportConfig(): TransportConfig {
   // Parse SSE config
   if (transportType === 'sse') {
     const port = parseInt(
-      getArgValue('--sse-port') || process.env.MCP_SSE_PORT || '3002',
+      getArgValue('--sse-port') ||
+        (fileOverrides?.ssePort != null ? String(fileOverrides.ssePort) : '') ||
+        process.env.MCP_SSE_PORT ||
+        '3002',
       10,
     );
     const host =
-      getArgValue('--sse-host') || process.env.MCP_SSE_HOST || '0.0.0.0';
+      getArgValue('--sse-host') ||
+      fileOverrides?.sseHost ||
+      process.env.MCP_SSE_HOST ||
+      '0.0.0.0';
 
     return {
       type: 'sse',
@@ -112,11 +121,19 @@ export function parseTransportConfig(): TransportConfig {
   // Parse HTTP/streamable-http config
   if (transportType === 'streamable-http') {
     const port = parseInt(
-      getArgValue('--http-port') || process.env.MCP_HTTP_PORT || '3001',
+      getArgValue('--http-port') ||
+        (fileOverrides?.httpPort != null
+          ? String(fileOverrides.httpPort)
+          : '') ||
+        process.env.MCP_HTTP_PORT ||
+        '3001',
       10,
     );
     const host =
-      getArgValue('--http-host') || process.env.MCP_HTTP_HOST || '0.0.0.0';
+      getArgValue('--http-host') ||
+      fileOverrides?.httpHost ||
+      process.env.MCP_HTTP_HOST ||
+      '0.0.0.0';
 
     return {
       type: 'streamable-http',
