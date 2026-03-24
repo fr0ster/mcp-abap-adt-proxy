@@ -49,7 +49,7 @@ export function generateConfigYaml(answers: WizardAnswers): string {
 
   // Transport configuration
   lines.push('# Transport configuration');
-  lines.push(`transport: ${answers.transport}`);
+  lines.push(`transport: ${answers.transport}  # stdio | http | sse`);
 
   if (answers.transport === 'http' || answers.transport === 'sse') {
     lines.push(`httpPort: ${answers.httpPort ?? 3001}`);
@@ -67,7 +67,9 @@ export function generateConfigYaml(answers: WizardAnswers): string {
   lines.push('# Destination overrides');
 
   if (answers.scenario === 'btp') {
-    lines.push(`btpDestination: "${answers.btpDestination}"`);
+    if (answers.btpDestination) {
+      lines.push(`btpDestination: "${answers.btpDestination}"`);
+    }
     if (answers.mcpDestination) {
       lines.push(`mcpDestination: "${answers.mcpDestination}"`);
     }
@@ -79,7 +81,9 @@ export function generateConfigYaml(answers: WizardAnswers): string {
   } else {
     lines.push('# btpDestination:');
     lines.push('# mcpDestination:');
-    lines.push(`mcpUrl: "${answers.mcpUrl}"`);
+    if (answers.mcpUrl) {
+      lines.push(`mcpUrl: "${answers.mcpUrl}"`);
+    }
   }
 
   lines.push('');
@@ -93,29 +97,31 @@ export function generateConfigYaml(answers: WizardAnswers): string {
 
   // Session storage mode
   lines.push('# Session storage mode');
-  lines.push(`unsafe: ${answers.unsafe}`);
+  lines.push(`unsafe: ${answers.unsafe}  # If true, persists tokens to disk`);
 
   lines.push('');
 
   // Error handling & resilience
   lines.push('# Error handling & resilience');
   lines.push(`maxRetries: ${answers.maxRetries ?? DEFAULTS.maxRetries}`);
-  lines.push(`retryDelay: ${answers.retryDelay ?? DEFAULTS.retryDelay}`);
   lines.push(
-    `requestTimeout: ${answers.requestTimeout ?? DEFAULTS.requestTimeout}`,
+    `retryDelay: ${answers.retryDelay ?? DEFAULTS.retryDelay}  # milliseconds`,
+  );
+  lines.push(
+    `requestTimeout: ${answers.requestTimeout ?? DEFAULTS.requestTimeout}  # milliseconds`,
   );
   lines.push(
     `circuitBreakerThreshold: ${answers.circuitBreakerThreshold ?? DEFAULTS.circuitBreakerThreshold}`,
   );
   lines.push(
-    `circuitBreakerTimeout: ${answers.circuitBreakerTimeout ?? DEFAULTS.circuitBreakerTimeout}`,
+    `circuitBreakerTimeout: ${answers.circuitBreakerTimeout ?? DEFAULTS.circuitBreakerTimeout}  # milliseconds`,
   );
 
   lines.push('');
 
   // Logging
   lines.push('# Logging');
-  lines.push(`logLevel: "${answers.logLevel}"`);
+  lines.push(`logLevel: "${answers.logLevel}"  # debug | info | warn | error`);
 
   // Cloud LLM Hub URL
   if (answers.cloudLlmHubUrl) {

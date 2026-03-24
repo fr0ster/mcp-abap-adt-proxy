@@ -69,6 +69,14 @@ describe('generateConfigYaml', () => {
 
       expect(yaml).toContain('# mcpUrl: "https://fallback.example.com"');
     });
+
+    it('should skip btpDestination line when undefined', () => {
+      const yaml = generateConfigYaml(
+        btpAnswers({ btpDestination: undefined }),
+      );
+
+      expect(yaml).not.toMatch(/^btpDestination:/m);
+    });
   });
 
   describe('Direct URL scenario', () => {
@@ -81,6 +89,14 @@ describe('generateConfigYaml', () => {
       // Ensure they are truly commented, not active
       expect(yaml).not.toMatch(/^btpDestination:/m);
       expect(yaml).not.toMatch(/^mcpDestination:/m);
+    });
+
+    it('should skip mcpUrl line when undefined', () => {
+      const yaml = generateConfigYaml(
+        directAnswers({ mcpUrl: undefined }),
+      );
+
+      expect(yaml).not.toMatch(/^mcpUrl:/m);
     });
   });
 
@@ -162,6 +178,17 @@ describe('generateConfigYaml', () => {
       expect(yaml).toContain('browserAuthPort: 8080');
       // Booleans are unquoted
       expect(yaml).toContain('unsafe: true');
+    });
+
+    it('should include inline comments matching the example template', () => {
+      const yaml = generateConfigYaml(btpAnswers());
+
+      expect(yaml).toContain('transport: http  # stdio | http | sse');
+      expect(yaml).toContain('unsafe: false  # If true, persists tokens to disk');
+      expect(yaml).toContain('retryDelay: 1000  # milliseconds');
+      expect(yaml).toContain('requestTimeout: 60000  # milliseconds');
+      expect(yaml).toContain('circuitBreakerTimeout: 60000  # milliseconds');
+      expect(yaml).toContain('logLevel: "info"  # debug | info | warn | error');
     });
   });
 });
