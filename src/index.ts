@@ -20,7 +20,7 @@ import {
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import axios from 'axios';
+import { forwardRequest } from './proxy/reverseProxy.js';
 import {
   loadConfig,
   validateConfig,
@@ -37,7 +37,6 @@ import {
 import {
   type BtpProxy,
   createBtpProxy,
-  shouldWriteStderr,
 } from './proxy/btpProxy.js';
 import { RoutingStrategy } from './router/headerAnalyzer.js';
 import {
@@ -207,10 +206,7 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
     const httpConfig = this.transportConfig;
 
     this.httpServer = createServer(async (req, res) => {
-      // Log incoming HTTP request (always log in DEBUG mode)
-      const _debugEnabled =
-        process.env.DEBUG === 'true' ||
-        process.env.DEBUG_HTTP_REQUESTS === 'true';
+      // Log incoming HTTP request
       const sanitizedHeaders = sanitizeHeadersForLogging(req.headers);
 
       logger?.info('=== HTTP REQUEST RECEIVED ===', {
@@ -221,108 +217,13 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
         remoteAddress: req.socket.remoteAddress,
       });
 
-      // Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
-      // if (req.method !== 'POST') {
-      //   logger?.warn('Non-POST request rejected', { ... });
-      //   ...
-      // }
-
-      // Read request body
-      let body: unknown;
-      try {
-        const chunks: Buffer[] = [];
-        for await (const chunk of req) {
-          chunks.push(chunk);
-        }
-        const bodyString = Buffer.concat(chunks).toString('utf-8');
-
-        logger?.info('=== PARSING REQUEST BODY ===', {
-          type: 'REQUEST_BODY_PARSING',
-          bodyLength: bodyString.length,
-          bodyPreview: bodyString.substring(0, 200),
-        });
-
-        if (bodyString.trim().length > 0) {
-          body = JSON.parse(bodyString);
-        } else {
-          body = undefined;
-        }
-
-        // Sanitize body for logging
-        const sanitizedBody: Record<string, unknown> = {};
-        if (body && typeof body === 'object' && body !== null) {
-          const bodyObj = body as Record<string, unknown>;
-          sanitizedBody.method = bodyObj.method;
-          sanitizedBody.id = bodyObj.id;
-          sanitizedBody.jsonrpc = bodyObj.jsonrpc;
-          if (
-            bodyObj.params &&
-            typeof bodyObj.params === 'object' &&
-            bodyObj.params !== null
-          ) {
-            const params = bodyObj.params as Record<string, unknown>;
-            sanitizedBody.params = {};
-            const sanitizedParams = sanitizedBody.params as Record<
-              string,
-              unknown
-            >;
-            if (
-              params.arguments &&
-              typeof params.arguments === 'object' &&
-              params.arguments !== null
-            ) {
-              sanitizedParams.arguments = {};
-              const sanitizedArgs = sanitizedParams.arguments as Record<
-                string,
-                unknown
-              >;
-              for (const [key, value] of Object.entries(params.arguments)) {
-                const lowerKey = key.toLowerCase();
-                if (
-                  lowerKey.includes('password') ||
-                  lowerKey.includes('token') ||
-                  lowerKey.includes('secret')
-                ) {
-                  sanitizedArgs[key] = '[REDACTED]';
-                } else {
-                  sanitizedArgs[key] = value;
-                }
-              }
-            }
-            for (const [key, value] of Object.entries(params)) {
-              if (key === 'arguments') continue;
-              sanitizedParams[key] = value;
-            }
-          }
-        }
-
-        logger?.info('=== REQUEST BODY PARSED ===', {
-          type: 'REQUEST_BODY_PARSED',
-          body: sanitizedBody,
-        });
-      } catch (error) {
-        logger?.error('=== FAILED TO PARSE REQUEST BODY ===', {
-          type: 'REQUEST_PARSE_ERROR',
-          error: error instanceof Error ? error.message : String(error),
-          errorStack: error instanceof Error ? error.stack : undefined,
-        });
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end('Invalid request body');
-        return;
-      }
-
-      // Intercept and analyze request
+      // Intercept and analyze request (headers only, body is piped through)
       const configOverrides = {
         btpDestination: this.config.btpDestination,
         targetUrl: this.config.targetUrl,
       };
 
-      logger?.info('=== INTERCEPTING REQUEST ===', {
-        type: 'REQUEST_INTERCEPTING',
-        configOverrides,
-      });
-
-      const intercepted = interceptRequest(req, body, configOverrides);
+      const intercepted = interceptRequest(req, undefined, configOverrides);
 
       // Check routing decision
       if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
@@ -331,32 +232,20 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
           reason: intercepted.routingDecision.reason,
         });
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        const bodyId =
-          body && typeof body === 'object' && body !== null && 'id' in body
-            ? (body as { id: unknown }).id
-            : null;
         res.end(
           JSON.stringify({
-            jsonrpc: '2.0',
-            id: bodyId || null,
-            error: {
-              code: -32602,
-              message: intercepted.routingDecision.reason,
-            },
+            error: intercepted.routingDecision.reason,
           }),
         );
         return;
       }
 
-
-
-      // Log proxy request
+      // Forward request via reverse proxy
       logger?.info('=== PROXYING REQUEST ===', {
         type: 'PROXY_REQUEST_START',
         btpDestination: intercepted.routingDecision.btpDestination,
       });
 
-      // Handle proxy request - add JWT and forward to x-mcp-url
       try {
         await this.handleProxyRequest(intercepted, req, res);
       } catch (error) {
@@ -366,8 +255,8 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
           strategy: intercepted.routingDecision.strategy,
         });
         if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'text/plain' });
-          res.end('Internal server error');
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal server error' }));
         }
       }
     });
@@ -408,235 +297,48 @@ Authorization source: ${authSourceObj}`;
 
 
   /**
-   * Handle proxy request - add JWT token and forward to MCP server
+   * Handle proxy request - get JWT token and forward transparently via reverse proxy
    */
   private async handleProxyRequest(
     intercepted: ReturnType<typeof interceptRequest>,
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const btpDestination = intercepted.routingDecision.btpDestination;
+    const destination = intercepted.routingDecision.btpDestination;
 
-    // Log incoming request details
-    const incomingHeaders: Record<string, string> = {};
-    for (const [key, value] of Object.entries(intercepted.headers)) {
-      const lowerKey = key.toLowerCase();
-      if (
-        lowerKey.includes('token') ||
-        lowerKey.includes('authorization') ||
-        lowerKey.includes('password') ||
-        lowerKey.includes('secret')
-      ) {
-        incomingHeaders[key] = '[REDACTED]';
-      } else {
-        incomingHeaders[key] = Array.isArray(value)
-          ? value.join(', ')
-          : value || '';
-      }
+    if (!destination) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No BTP destination specified' }));
+      return;
     }
 
-    const sanitizedBody: Record<string, unknown> = {};
-    if (
-      intercepted.body &&
-      typeof intercepted.body === 'object' &&
-      intercepted.body !== null
-    ) {
-      const bodyObj = intercepted.body as Record<string, unknown>;
-      if (
-        bodyObj.params &&
-        typeof bodyObj.params === 'object' &&
-        bodyObj.params !== null
-      ) {
-        const params = bodyObj.params as Record<string, unknown>;
-        sanitizedBody.params = {};
-        const sanitizedParams = sanitizedBody.params as Record<string, unknown>;
-        // For tools/call, log arguments
-        if (
-          params.arguments &&
-          typeof params.arguments === 'object' &&
-          params.arguments !== null
-        ) {
-          sanitizedParams.arguments = {};
-          const sanitizedArgs = sanitizedParams.arguments as Record<
-            string,
-            unknown
-          >;
-          for (const [key, value] of Object.entries(params.arguments)) {
-            const lowerKey = key.toLowerCase();
-            if (
-              lowerKey.includes('password') ||
-              lowerKey.includes('token') ||
-              lowerKey.includes('secret')
-            ) {
-              sanitizedArgs[key] = '[REDACTED]';
-            } else {
-              sanitizedArgs[key] = value;
-            }
-          }
-        }
-        // Log other params
-        for (const [key, value] of Object.entries(params)) {
-          if (key === 'arguments') continue;
-          sanitizedParams[key] = value;
-        }
-      }
-      sanitizedBody.method = bodyObj.method;
-      sanitizedBody.id = bodyObj.id;
-      sanitizedBody.jsonrpc = bodyObj.jsonrpc;
+    // Ensure proxy is initialized
+    if (!this.btpProxy) {
+      this.btpProxy = await createBtpProxy(this.config);
     }
-
-    // Use original request body structure for proxying (generic support)
-    // We do NOT enforce JSON-RPC structure here anymore, to support REST/OData
-    const proxyRequestData = intercepted.body;
-
-    logger?.info('=== INCOMING REQUEST ===', {
-      type: 'PROXY_REQUEST_INCOMING',
-      method: req.method,
-      url: req.url,
-      btpDestination,
-      sessionId: intercepted.sessionId,
-      headers: incomingHeaders,
-      body: sanitizedBody,
-      mode: 'BTP authentication',
-    });
 
     try {
-      // Ensure proxy is initialized (URL will be obtained from service key for btpDestination or mcpDestination)
-      if (!this.btpProxy) {
-        this.btpProxy = await createBtpProxy(this.config);
-      }
+      // Get JWT token (cached, auto-refresh)
+      const jwtToken = await this.btpProxy.getJwtToken(destination);
 
-      // Build MCP request from intercepted request
-      // Note: Use ?? instead of || to preserve falsy values like 0
-      const interceptedBodyId = getBodyId(intercepted.body);
-      const interceptedBodyIdType = typeof interceptedBodyId;
-      const interceptedBodyIdUndefined = interceptedBodyId === undefined;
+      // Get target URL
+      const targetUrl =
+        intercepted.routingDecision.targetUrl ||
+        (await this.btpProxy.getTargetUrl(destination));
 
-      logger?.info('=== BEFORE BUILDING MCP REQUEST ===', {
-        type: 'BEFORE_BUILD_MCP_REQUEST',
-        interceptedBodyId,
-        interceptedBodyIdType,
-        interceptedBodyIdUndefined,
-        interceptedBodyIdNull: interceptedBodyId === null,
-        interceptedBodyIdZero: interceptedBodyId === 0,
-        interceptedBodyIdFalsy: !interceptedBodyId,
-        fullInterceptedBody: JSON.stringify(intercepted.body),
-      });
-
-      // Preserve id correctly - 0 is a valid id value
-      let mcpRequestId: string | number | null | undefined;
-      if (interceptedBodyId === undefined) {
-        mcpRequestId = null;
-      } else if (
-        typeof interceptedBodyId === 'string' ||
-        typeof interceptedBodyId === 'number'
-      ) {
-        mcpRequestId = interceptedBodyId;
-      } else {
-        mcpRequestId = null;
-      }
-
-      // Proxy request to BtpProxy
-      // Pass the original request data directly
-      const proxyRequest = {
-        method: intercepted.method, // Use original HTTP method (GET, POST, etc.)
-        url: intercepted.url,       // Pass request URL (path)
-        data: proxyRequestData,     // Use original body (or undefined)
-        id: mcpRequestId,           // Keep ID for logging context if available
-      };
-
-      const proxyResponse = await this.btpProxy.proxyRequest(
-        proxyRequest,
-        intercepted.routingDecision,
-        intercepted.headers,
-      );
-
-      // Fix: If backend returned null ID but we entered with a valid ID (e.g. 0), restore it.
-      // Cline/Zod schemas reject null ID for successful responses if request had an ID.
-      if (
-        (proxyResponse.id === null || proxyResponse.id === undefined) &&
-        mcpRequestId !== null &&
-        mcpRequestId !== undefined
-      ) {
-        logger?.debug('Restoring original request ID in response', {
-          originalId: mcpRequestId,
-          receivedId: proxyResponse.id,
-        });
-        proxyResponse.id = mcpRequestId;
-      }
-
-      logger?.info('=== FORWARDING REQUEST ===', {
-        type: 'PROXY_REQUEST_FORWARDING',
-        interceptedBodyIdAtForward: getBodyId(intercepted.body),
-
-        proxyRequest,
-        routingDecision: intercepted.routingDecision,
-        headers: intercepted.headers,
-      });
-
-      // Log response
-      const sanitizedResponse: Record<string, unknown> = {
-        jsonrpc: proxyResponse.jsonrpc,
-        id: proxyResponse.id,
-      };
-      if (proxyResponse.result) {
-        sanitizedResponse.result = proxyResponse.result;
-      }
-      if (proxyResponse.error) {
-        sanitizedResponse.error = {
-          code: proxyResponse.error.code,
-          message: proxyResponse.error.message,
-          data: proxyResponse.error.data,
-        };
-      }
-
-      logger?.info('=== RESPONSE FROM TARGET SERVICE ===', {
-        type: 'PROXY_RESPONSE_RECEIVED',
-        response: sanitizedResponse,
-        hasResult: !!proxyResponse.result,
-        hasError: !!proxyResponse.error,
-      });
-
-      // Send response back to client
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(proxyResponse));
-
-      logger?.info('=== RESPONSE SENT TO CLIENT ===', {
-        type: 'PROXY_RESPONSE_SENT',
-        statusCode: 200,
-      });
-
-      logger?.debug('BtpProxy request completed', {
-        type: 'BTP_PROXY_COMPLETED',
-        hasResult: !!proxyResponse.result,
-        hasError: !!proxyResponse.error,
-      });
+      // Forward request transparently
+      await forwardRequest(req, res, targetUrl, jwtToken);
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logger?.error('Failed to handle BtpProxy request', {
-        type: 'BTP_PROXY_ERROR',
-        error: errorMessage,
-        stack: error instanceof Error ? error.stack : undefined,
+      logger?.error('Proxy request failed', {
+        type: 'PROXY_REQUEST_ERROR',
+        destination,
+        error: error instanceof Error ? error.message : String(error),
       });
-
-      // Output error to stderr for user visibility (only if verbose mode is enabled)
-      if (shouldWriteStderr()) {
-        process.stderr.write(
-          `[MCP Proxy] ✗ Connection error: ${errorMessage}\n`,
-        );
-      }
-
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            jsonrpc: '2.0',
-            id: getBodyId(intercepted.body) || null,
-            error: {
-              code: -32000,
-              message: errorMessage,
-            },
+            error: error instanceof Error ? error.message : 'Proxy error',
           }),
         );
       }
@@ -880,9 +582,25 @@ Authorization source: ${authSourceObj}`;
 
 
 
-        // Handle proxy request
+        // Handle proxy request via BtpProxy (JSON-RPC mode for SSE)
         try {
-          await this.handleProxyRequest(intercepted, req, res);
+          if (!this.btpProxy) {
+            this.btpProxy = await createBtpProxy(this.config);
+          }
+
+          const proxyResponse = await this.btpProxy.proxyRequest(
+            {
+              method: intercepted.method,
+              url: intercepted.url,
+              data: body,
+              id: getBodyId(body) as string | number | null,
+            },
+            intercepted.routingDecision,
+            intercepted.headers,
+          );
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(proxyResponse));
         } catch (error) {
           logger?.error('Failed to process SSE POST request', {
             type: 'SSE_POST_PROCESS_ERROR',
