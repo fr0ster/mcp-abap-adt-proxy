@@ -415,7 +415,7 @@ export class BtpProxy {
    * @param destination Destination name
    * @param forceRefresh Force token refresh
    */
-  private async getJwtToken(
+  async getJwtToken(
     destination: string,
     forceRefresh: boolean = false,
   ): Promise<string> {
@@ -533,6 +533,25 @@ export class BtpProxy {
 
       throw new Error(errorMessage);
     }
+  }
+
+  /**
+   * Get the target service URL for a destination.
+   * Priority: config.targetUrl > service key's serviceUrl
+   */
+  async getTargetUrl(destination: string): Promise<string> {
+    if (this.config.targetUrl) {
+      return this.config.targetUrl;
+    }
+    const broker = await this.getOrCreateBtpAuthBroker(destination);
+    const connConfig = await broker.getConnectionConfig(destination);
+    if (connConfig?.serviceUrl) {
+      return connConfig.serviceUrl;
+    }
+    throw new Error(
+      `No target URL found for destination "${destination}". ` +
+        `Set targetUrl in config or ensure service key contains abap.url.`,
+    );
   }
 
   /**
