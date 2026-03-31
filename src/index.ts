@@ -223,7 +223,9 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
         targetUrl: this.config.targetUrl,
       };
 
-      const intercepted = interceptRequest(req, undefined, configOverrides);
+      const intercepted = interceptRequest(req, undefined, configOverrides, {
+        skipHeaderValidation: true,
+      });
 
       // Check routing decision
       if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
@@ -558,6 +560,7 @@ Authorization source: ${authSourceObj}`;
         // Intercept and analyze request with config overrides
         const configOverrides = {
           btpDestination: this.config.btpDestination,
+          targetUrl: this.config.targetUrl,
         };
         const intercepted = interceptRequest(req, body, configOverrides);
 

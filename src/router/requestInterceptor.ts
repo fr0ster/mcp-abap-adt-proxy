@@ -37,6 +37,9 @@ export function interceptRequest(
     btpDestination?: string;
     targetUrl?: string;
   },
+  options?: {
+    skipHeaderValidation?: boolean;
+  },
 ): InterceptedRequest {
   // Extract headers
   const headers: Record<string, string | string[] | undefined> = {};
@@ -47,19 +50,21 @@ export function interceptRequest(
   // Analyze headers for routing decision (with config overrides)
   const routingDecision = analyzeHeaders(req.headers, configOverrides);
 
-  // Validate proxy headers
-  const validation = validateProxyHeaders(req.headers);
-  if (!validation.isValid && validation.errors.length > 0) {
-    logger?.warn('Proxy header validation failed', {
-      type: 'PROXY_HEADER_VALIDATION_ERROR',
-      errors: validation.errors,
-      warnings: validation.warnings,
-    });
-  } else if (validation.warnings.length > 0) {
-    logger?.warn('Proxy header validation warnings', {
-      type: 'PROXY_HEADER_VALIDATION_WARNINGS',
-      warnings: validation.warnings,
-    });
+  // Validate proxy headers (skip for reverse proxy mode where config provides destination)
+  if (!options?.skipHeaderValidation) {
+    const validation = validateProxyHeaders(req.headers);
+    if (!validation.isValid && validation.errors.length > 0) {
+      logger?.warn('Proxy header validation failed', {
+        type: 'PROXY_HEADER_VALIDATION_ERROR',
+        errors: validation.errors,
+        warnings: validation.warnings,
+      });
+    } else if (validation.warnings.length > 0) {
+      logger?.warn('Proxy header validation warnings', {
+        type: 'PROXY_HEADER_VALIDATION_WARNINGS',
+        warnings: validation.warnings,
+      });
+    }
   }
 
   // Extract session ID if present
