@@ -12,10 +12,13 @@ sseHost: "0.0.0.0"
 # BTP destination for Cloud authorization (Authorization: Bearer token)
 btpDestination: "btp"  # Uses service key from ~/.config/mcp-abap-adt/service-keys/btp.json
 
-# MCP destination for SAP ABAP connection (x-sap-jwt-token, x-sap-url, etc.)
-mcpDestination: "mcp"  # Uses service key from ~/.config/mcp-abap-adt/service-keys/mcp.json
+# Target URL override (optional - overrides URL from service key's abap.url)
+# targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com/v1"
 
-# Direct MCP server URL (alternative to mcpDestination, for local testing)
+# MCP destination for SAP ABAP connection (x-sap-jwt-token, x-sap-url, etc.)
+# mcpDestination: "mcp"  # Uses service key from ~/.config/mcp-abap-adt/service-keys/mcp.json
+
+# Direct MCP server URL (alternative to btpDestination, for local testing)
 # mcpUrl: "https://your-mcp-server.com/mcp/stream/http"
 
 # Session storage mode

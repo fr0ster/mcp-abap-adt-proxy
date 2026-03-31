@@ -69,6 +69,10 @@ sseHost: "0.0.0.0"
 # Uses service key from ~/.config/mcp-abap-adt/service-keys/<btpDestination>.json
 btpDestination: "btp"
 
+# Target URL override (optional - overrides URL from service key's abap.url)
+# Useful when auth comes from one service key but requests go to a different URL
+# targetUrl: "https://your-service.com/v1"
+
 # Direct MCP server URL (alternative to btpDestination, for local testing)
 # mcpUrl: "https://your-mcp-server.com/mcp/stream/http"
 
@@ -104,7 +108,18 @@ Run with:
 mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
 ```
 
-### Example 2: Local Testing Mode (No BTP)
+### Example 2: BTP Auth with Target URL Override
+
+```yaml
+transport: http
+httpPort: 3001
+btpDestination: "btp"
+targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com/v1"
+```
+
+Auth tokens come from the `btp` service key, but requests are forwarded to `targetUrl` instead of the URL in the service key.
+
+### Example 3: Local Testing Mode (No BTP)
 
 ```yaml
 transport: http
@@ -112,7 +127,7 @@ httpPort: 3001
 mcpUrl: "http://localhost:3000/mcp/stream/http"
 ```
 
-### Example 3: SSE Transport
+### Example 4: SSE Transport
 
 ```yaml
 transport: sse
@@ -121,7 +136,7 @@ sseHost: "0.0.0.0"
 btpDestination: "btp"
 ```
 
-### Example 4: Custom Error Handling
+### Example 5: Custom Error Handling
 
 ```yaml
 transport: http
@@ -151,6 +166,7 @@ circuitBreakerTimeout: 120000
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `btpDestination` | `string` | `undefined` | BTP destination name (for Cloud authorization) |
+| `targetUrl` | `string` | `undefined` | Override target URL (uses auth from `btpDestination` but forwards to this URL) |
 | `mcpUrl` | `string` | `undefined` | Direct MCP server URL (for local testing without authentication) |
 
 ### Session Storage
