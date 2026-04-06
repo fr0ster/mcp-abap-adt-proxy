@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-04-07
+
+### Added
+- **Default headers injection (`defaultHeaders` / `--header`)**
+  - Proxy can inject configurable headers into every forwarded request
+  - YAML config: `defaultHeaders` map (e.g., `x-sap-destination: S4HANA_E19`)
+  - CLI: repeatable `--header key=value` flag
+  - Client headers override defaults (low priority injection)
+  - Enables MCP clients (Cline, Claude Code) that cannot set custom headers to pass SAP headers to the MCP server on BTP
+
 ## [1.0.0] - 2026-04-07
 
 ### Breaking Changes
