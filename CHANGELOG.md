@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-07
+
+### Breaking Changes
+- **Header renamed: `x-btp-destination` → `x-sap-destination`**
+  - The proxy now uses `x-sap-destination` header (same as MCP server) instead of the proxy-specific `x-btp-destination`
+  - The `--btp` CLI parameter is unchanged
+  - Clients sending `x-btp-destination` header must update to `x-sap-destination`
+
+### Added
+- **Transparent reverse proxy for BTP request forwarding**
+  - Replaced buffered axios-based proxy with Node.js native HTTP streaming reverse proxy
+  - Supports any HTTP API including OpenAI-compatible streaming endpoints
+  - `targetUrl` parameter for explicit target URL override (`--target-url`/`--url` or `x-target-url` header)
+- **Interactive configuration wizard (TUI)**
+  - `npx @mcp-abap-adt/proxy --tui` launches interactive setup wizard
+  - Service key existence checker validates BTP destination before configuration
+  - Generates YAML config files with inline comments
+  - Supports BTP and Direct URL scenarios with advanced settings
+- **Dependencies updated**
+  - `@mcp-abap-adt/interfaces` bumped to v5
+  - `@mcp-abap-adt/auth-stores` bumped to v1.0.4
+  - Added `@inquirer/prompts` for TUI wizard
+
+### Fixed
+- **Header validation skipped in reverse proxy mode** when config provides destination
+- **YAML config file now correctly loads transport/port settings** (`--config` flag)
+- **targetUrl loading from YAML config** now works correctly
+
 ## [0.1.9] - 2026-02-12
 
 ### Changed
