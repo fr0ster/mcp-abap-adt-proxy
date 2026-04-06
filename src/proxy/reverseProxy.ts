@@ -28,11 +28,21 @@ export async function forwardRequest(
   clientRes: http.ServerResponse,
   targetBaseUrl: string,
   jwtToken: string,
+  defaultHeaders?: Record<string, string>,
 ): Promise<void> {
   const targetUrl = new URL(clientReq.url || '/', targetBaseUrl);
 
-  // Build forwarded headers (skip hop-by-hop and replace auth)
+  // Build forwarded headers: defaults first, then client headers override
   const forwardedHeaders: Record<string, string | string[]> = {};
+
+  // 1. Inject default headers (low priority)
+  if (defaultHeaders) {
+    for (const [key, value] of Object.entries(defaultHeaders)) {
+      forwardedHeaders[key.toLowerCase()] = value;
+    }
+  }
+
+  // 2. Copy client headers (high priority — overrides defaults)
   for (const [key, value] of Object.entries(clientReq.headers)) {
     if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) continue;
     if (key.toLowerCase() === 'authorization') continue;

@@ -115,6 +115,24 @@ describe('forwardRequest', () => {
     );
     expect(statusCode).toBe(502);
   });
+
+  it('should inject default headers into forwarded request', async () => {
+    const { statusCode } = await makeProxiedRequest(
+      'GET', '/v1/models', undefined, 'test-jwt-token',
+      undefined,
+      { 'x-sap-destination': 'S4HANA', 'x-sap-client': '100' },
+    );
+    expect(statusCode).toBe(200);
+  });
+
+  it('should not override client headers with default headers', async () => {
+    const { statusCode } = await makeProxiedRequest(
+      'GET', '/v1/models', undefined, 'test-jwt-token',
+      undefined,
+      { 'content-type': 'text/plain' },
+    );
+    expect(statusCode).toBe(200);
+  });
 });
 
 // Helper: create a fake client request, forward through reverseProxy, collect response
@@ -124,13 +142,14 @@ async function makeProxiedRequest(
   body: string | undefined,
   jwt: string,
   targetUrlOverride?: string,
+  defaultHeaders?: Record<string, string>,
 ): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
   const targetUrl = targetUrlOverride || `http://localhost:${backendPort}`;
 
   return new Promise((resolve) => {
     // Create a local HTTP server that acts as "client side"
     const testServer = createServer(async (req, res) => {
-      await forwardRequest(req, res, targetUrl, jwt);
+      await forwardRequest(req, res, targetUrl, jwt, defaultHeaders);
     });
 
     testServer.listen(0, () => {

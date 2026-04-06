@@ -93,6 +93,28 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
 - `--browser-auth-port=<port>` - Port for OAuth2 callback (default: 3333)
 - `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
+**Default Headers:**
+
+MCP clients like Cline and Claude Code cannot set arbitrary request headers. Use default headers to inject SAP-specific headers (e.g. `x-sap-destination`, `x-sap-client`) that the target MCP server requires.
+
+Client-supplied headers always take precedence over defaults.
+
+Via YAML config (`defaultHeaders` map):
+```yaml
+btpDestination: mcp
+targetUrl: https://example.com
+defaultHeaders:
+  x-sap-destination: S4HANA_E19
+  x-sap-client: "100"
+```
+
+Via CLI (`--header`, repeatable):
+```bash
+mcp-abap-adt-proxy --btp=mcp --url=https://example.com \
+  --header x-sap-destination=S4HANA_E19 \
+  --header x-sap-client=100
+```
+
 **How It Works:**
 
 The proxy uses BTP/XSUAA authentication:

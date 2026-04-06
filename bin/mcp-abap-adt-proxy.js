@@ -62,6 +62,8 @@ Options:
   --config=<file>, -c     Load configuration from YAML or JSON file
                            Alternative to command-line parameters
   --unsafe                 Enable file-based session storage (persists tokens to disk)
+  --header key=value       Add default header to every forwarded request (repeatable)
+                           Example: --header x-sap-destination=S4HANA
   --help, -h              Show this help message
   --version, -v           Show version number
 
@@ -82,6 +84,7 @@ Examples:
   mcp-abap-adt-proxy --transport=sse --sse-port=3002     # SSE mode on port 3002
   mcp-abap-adt-proxy --btp=ai                           # With BTP destination override
   mcp-abap-adt-proxy --btp=ai --unsafe                  # With file-based session storage
+  mcp-abap-adt-proxy --btp=ai --header x-sap-destination=S4HANA  # With default SAP headers
   mcp-abap-adt-proxy tui                                 # Interactive configuration wizard
   mcp-abap-adt-proxy --config=proxy-config.yaml         # Load configuration from YAML file
   mcp-abap-adt-proxy -c proxy-config.yml                # Load configuration from YAML file (short form)

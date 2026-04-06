@@ -328,8 +328,8 @@ Authorization source: ${authSourceObj}`;
         intercepted.routingDecision.targetUrl ||
         (await this.btpProxy.getTargetUrl(destination));
 
-      // Forward request transparently
-      await forwardRequest(req, res, targetUrl, jwtToken);
+      // Forward request transparently (inject default headers from config)
+      await forwardRequest(req, res, targetUrl, jwtToken, this.config.defaultHeaders);
     } catch (error) {
       logger?.error('Proxy request failed', {
         type: 'PROXY_REQUEST_ERROR',

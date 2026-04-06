@@ -122,8 +122,10 @@ npx jest --coverage
 Configuration loading is mutually exclusive:
 
 1. **With `--config`/`-c` flag**: Loads ONLY from the specified YAML/JSON file (other CLI params are ignored with a warning)
-2. **Without `--config`**: Uses CLI params (`--btp`, `--mcp-url`, `--unsafe`) + environment variables + defaults
+2. **Without `--config`**: Uses CLI params (`--btp`, `--mcp-url`, `--unsafe`, `--header`) + environment variables + defaults
 
 Key environment variables: `CLOUD_LLM_HUB_URL`, `MCP_HTTP_PORT`, `MCP_SSE_PORT`, `LOG_LEVEL`, `MCP_PROXY_MAX_RETRIES`, `MCP_PROXY_REQUEST_TIMEOUT`, `MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD`.
+
+The `--header key=value` CLI flag (repeatable) and `defaultHeaders` YAML map inject default headers into every forwarded request. Client-supplied headers take precedence over defaults.
 
 See `docs/CONFIGURATION.md` for full configuration reference.

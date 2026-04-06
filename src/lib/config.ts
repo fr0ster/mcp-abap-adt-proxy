@@ -15,6 +15,8 @@ export interface ProxyConfig {
   // Destination overrides from command line
   btpDestination?: string; // Overrides x-sap-destination header
   targetUrl?: string; // Overrides x-target-url header
+  // Default headers injected into every forwarded request
+  defaultHeaders?: Record<string, string>;
 
   // Session storage mode
   unsafe?: boolean; // If true, use XsuaaSessionStore (persists to disk). If false, use SafeXsuaaSessionStore (in-memory).
@@ -148,6 +150,7 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
     logLevel: fileConfig.logLevel || 'info',
     btpDestination: fileConfig.btpDestination,
     targetUrl: fileConfig.targetUrl,
+    defaultHeaders: fileConfig.defaultHeaders,
 
     unsafe: fileConfig.unsafe ?? false,
     maxRetries: fileConfig.maxRetries ?? 3,
@@ -195,6 +198,21 @@ function loadFromEnv(): ProxyConfig {
     ? parseInt(browserAuthPortStr, 10)
     : undefined;
 
+  // Parse repeatable --header key=value arguments
+  const headerArgs = getAllArgValues('--header');
+  let defaultHeaders: Record<string, string> | undefined;
+  if (headerArgs.length > 0) {
+    defaultHeaders = {};
+    for (const arg of headerArgs) {
+      const eqIndex = arg.indexOf('=');
+      if (eqIndex > 0) {
+        const key = arg.substring(0, eqIndex).toLowerCase();
+        const value = arg.substring(eqIndex + 1);
+        defaultHeaders[key] = value;
+      }
+    }
+  }
+
   return {
     httpPort: parseInt(process.env.MCP_HTTP_PORT || '3001', 10),
     ssePort: parseInt(process.env.MCP_SSE_PORT || '3002', 10),
@@ -203,6 +221,7 @@ function loadFromEnv(): ProxyConfig {
     logLevel: process.env.LOG_LEVEL || 'info',
     btpDestination,
     targetUrl,
+    defaultHeaders,
 
     unsafe,
     maxRetries: parseInt(process.env.MCP_PROXY_MAX_RETRIES || '3', 10),
@@ -238,6 +257,23 @@ function getArgValue(argName: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Get all values for a repeatable argument from command line
+ */
+function getAllArgValues(argName: string): string[] {
+  const args = process.argv;
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === argName && i + 1 < args.length) {
+      values.push(args[i + 1]);
+    }
+    if (args[i].startsWith(`${argName}=`)) {
+      values.push(args[i].substring(argName.length + 1));
+    }
+  }
+  return values;
 }
 
 /**
