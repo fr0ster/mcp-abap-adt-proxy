@@ -3,7 +3,7 @@
  */
 
 import type { IncomingHttpHeaders } from 'node:http';
-import { HEADER_BTP_DESTINATION } from '@mcp-abap-adt/interfaces';
+import { HEADER_SAP_DESTINATION } from '@mcp-abap-adt/interfaces';
 import { logger } from '../lib/logger.js';
 
 export enum RoutingStrategy {
@@ -16,7 +16,7 @@ export enum RoutingStrategy {
 
 export interface RoutingDecision {
   strategy: RoutingStrategy;
-  btpDestination?: string; // Destination for BTP Cloud authorization (x-btp-destination)
+  btpDestination?: string; // Destination for BTP Cloud authorization (x-sap-destination)
   targetUrl?: string; // Explicit target URL (x-target-url)
 
   reason: string;
@@ -26,17 +26,17 @@ export interface RoutingDecision {
  * Analyze headers and extract routing information
  *
  * Proxy validates only one header for authentication:
- * - x-btp-destination (or --btp): destination for BTP Cloud authorization token (Authorization: Bearer) and MCP server URL
+ * - x-sap-destination (or --btp): destination for BTP Cloud authorization token (Authorization: Bearer) and MCP server URL
  *
 
  *
  * Command-line overrides (take precedence over headers):
- * - --btp=<destination>: overrides x-btp-destination header
+ * - --btp=<destination>: overrides x-sap-destination header
  *
  * Other headers are passed directly to MCP server without validation.
  *
  * MPC server URL is obtained from:
- * - service key for x-btp-destination (via auth-broker)
+ * - service key for x-sap-destination (via auth-broker)
  *
  *
  * Note: Proxy does NOT use .env files for connection configuration. Only destinations via auth-broker (service key files) are used.
@@ -61,9 +61,9 @@ export function analyzeHeaders(
     return typeof headerValue === 'string' ? headerValue.trim() : undefined;
   };
 
-  // Extract authorization destination for BTP Cloud (x-btp-destination)
+  // Extract authorization destination for BTP Cloud (x-sap-destination)
   // Command-line parameter --btp takes precedence over header
-  const btpDestinationHeader = getHeaderValue(HEADER_BTP_DESTINATION);
+  const btpDestinationHeader = getHeaderValue(HEADER_SAP_DESTINATION);
   const extractedBtpDestination = configOverrides?.btpDestination
     ? configOverrides.btpDestination
     : btpDestinationHeader;
@@ -90,11 +90,11 @@ export function analyzeHeaders(
     return {
       strategy: RoutingStrategy.UNKNOWN,
       reason:
-        'No BTP destination provided (missing x-btp-destination or --btp)',
+        'No BTP destination provided (missing x-sap-destination or --btp)',
     };
   }
 
-  // If x-btp-destination is present, we can proxy with BTP authentication (URL will be obtained from service key)
+  // If x-sap-destination is present, we can proxy with BTP authentication (URL will be obtained from service key)
   // If x-mcp-url is provided, we can use it directly (for local testing)
   logger?.debug('Routing decision: PROXY', {
     btpDestination: extractedBtpDestination,

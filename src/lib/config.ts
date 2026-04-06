@@ -13,7 +13,7 @@ export interface ProxyConfig {
   sseHost: string;
   logLevel: string;
   // Destination overrides from command line
-  btpDestination?: string; // Overrides x-btp-destination header
+  btpDestination?: string; // Overrides x-sap-destination header
   targetUrl?: string; // Overrides x-target-url header
 
   // Session storage mode
@@ -273,7 +273,7 @@ export function validateConfig(config: ProxyConfig): {
 
   if (!hasDestination) {
     warnings.push(
-      'No BTP destination provided (--btp). Proxy will not work unless requests include x-btp-destination header.',
+      'No BTP destination provided (--btp). Proxy will not work unless requests include x-sap-destination header.',
     );
   }
 

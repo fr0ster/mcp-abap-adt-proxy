@@ -12,7 +12,7 @@ The proxy intercepts MCP requests and adds authentication headers before forward
 
 1. **Proxy Requests** (requires `x-mcp-url` header)
    - Extracts target MCP server URL from `x-mcp-url` header
-   - Gets BTP Cloud authorization token from `x-btp-destination` (or `--btp` parameter)
+   - Gets BTP Cloud authorization token from `x-sap-destination` (or `--btp` parameter)
    - Optionally gets SAP ABAP configuration from `x-mcp-destination` (or `--mcp` parameter)
    - Adds `Authorization: Bearer <token>` header for BTP Cloud
    - Adds SAP headers (`x-sap-jwt-token`, `x-sap-url`, etc.) if `x-mcp-destination` is provided
@@ -39,7 +39,7 @@ The proxy intercepts MCP requests and adds authentication headers before forward
 - [x] Create request interceptor middleware
 - [x] Implement header analysis logic:
   - Extract `x-mcp-url` header (required)
-  - Extract `x-btp-destination` header (required, for BTP Cloud authorization)
+  - Extract `x-sap-destination` header (required, for BTP Cloud authorization)
   - Extract `x-mcp-destination` header (optional, for SAP ABAP connection)
   - Route decision logic (PROXY strategy)
 - [x] Add request logging/debugging
@@ -55,7 +55,7 @@ The proxy intercepts MCP requests and adds authentication headers before forward
 
 - [x] Implement proxy routing with `x-mcp-url` header
 - [x] Integrate with `@mcp-abap-adt/auth-broker`:
-  - Get JWT token for BTP Cloud (`x-btp-destination` or `--btp`)
+  - Get JWT token for BTP Cloud (`x-sap-destination` or `--btp`)
   - Get JWT token for SAP ABAP (`x-mcp-destination` or `--mcp`, optional)
   - Handle token refresh
   - Cache tokens separately for each destination
@@ -69,7 +69,7 @@ The proxy intercepts MCP requests and adds authentication headers before forward
   - Forward response format
   - Handle errors
   - Preserve MCP protocol structure
-- [x] Validate required headers (`x-mcp-url` and `x-btp-destination` or `--btp`)
+- [x] Validate required headers (`x-mcp-url` and `x-sap-destination` or `--btp`)
 
 ### Phase 6: Configuration & Environment ✅
 
@@ -132,15 +132,15 @@ mcp-abap-adt-proxy
     ↓
 [Header Analysis]
     - Extract x-mcp-url (optional, can be from --mcp-url)
-    - Extract x-btp-destination (optional) or use --btp parameter
+    - Extract x-sap-destination (optional) or use --btp parameter
     - Extract x-mcp-destination (optional) or use --mcp parameter
     ↓
 [Validate Headers]
-    - Validate only x-btp-destination and x-mcp-destination
+    - Validate only x-sap-destination and x-mcp-destination
     - All other headers passed directly to MCP server
     ↓
 [Get Tokens from auth-broker]
-    - Get BTP Cloud token (from x-btp-destination or --btp)
+    - Get BTP Cloud token (from x-sap-destination or --btp)
     - Get SAP ABAP token (from x-mcp-destination or --mcp, if provided)
     ↓
 [Build Proxy Request]
@@ -197,7 +197,7 @@ Response back to Cline
 - `LOG_LEVEL` - Logging level
 
 ### Command Line Parameters
-- `--btp=<destination>` - Override x-btp-destination header (required if header missing)
+- `--btp=<destination>` - Override x-sap-destination header (required if header missing)
 - `--mcp=<destination>` - Override x-mcp-destination header (optional)
 
 ### Configuration File
@@ -211,7 +211,7 @@ Response back to Cline
 ```
 
 ### Validated Headers in Request
-- `x-btp-destination` - Destination for BTP Cloud authorization token (optional, or use --btp)
+- `x-sap-destination` - Destination for BTP Cloud authorization token (optional, or use --btp)
 - `x-mcp-destination` - Destination for SAP ABAP connection (optional, or use --mcp)
 
 ### Optional Headers in Request
@@ -222,7 +222,7 @@ Response back to Cline
 
 - [x] Successfully proxies requests from Cline to target MCP server (via x-mcp-url or destinations)
 - [x] Automatically manages JWT tokens via auth-broker (BTP and SAP separately)
-- [x] Validates only destination headers (x-btp-destination and x-mcp-destination)
+- [x] Validates only destination headers (x-sap-destination and x-mcp-destination)
 - [x] Passes all other headers directly to MCP server
 - [x] Supports command-line parameter overrides (--btp, --mcp, --mcp-url)
 - [x] Uses only destinations (service key files) for connection configuration, no .env files
@@ -240,12 +240,12 @@ Response back to Cline
 The routing logic has been simplified and clarified. See [Routing Logic Specification](./docs/ROUTING_LOGIC.md) for detailed documentation.
 
 **Completed Changes:**
-1. ✅ **Simplified header validation**: Only `x-btp-destination` and `x-mcp-destination` headers are validated. All other headers are passed directly to MCP server.
+1. ✅ **Simplified header validation**: Only `x-sap-destination` and `x-mcp-destination` headers are validated. All other headers are passed directly to MCP server.
 2. ✅ **Removed .env file usage**: Removed `dotenv` from dependencies. Proxy uses only destinations via auth-broker (service key files) for connection configuration.
 3. ✅ **Updated documentation**: Created comprehensive routing logic specification and implementation analysis.
 
 **Current Behavior:**
-- Proxy validates only two headers: `x-btp-destination` (or `--btp`) and `x-mcp-destination` (or `--mcp`)
+- Proxy validates only two headers: `x-sap-destination` (or `--btp`) and `x-mcp-destination` (or `--mcp`)
 - All other headers are passed directly to MCP server without validation or modification
 - Connection configuration comes only from destinations (service key files) via auth-broker
 - No `.env` files are used for connection configuration (session stores may use `.env` for token storage, but that's separate)

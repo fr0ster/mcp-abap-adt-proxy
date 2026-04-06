@@ -3,7 +3,7 @@
  */
 
 import type { IncomingHttpHeaders } from 'node:http';
-import { HEADER_BTP_DESTINATION } from '@mcp-abap-adt/interfaces';
+import { HEADER_SAP_DESTINATION } from '@mcp-abap-adt/interfaces';
 import {
   analyzeHeaders,
   RoutingStrategy,
@@ -13,13 +13,13 @@ import { testLogger } from '../helpers/testLogger.js';
 
 describe('headerAnalyzer', () => {
   describe('analyzeHeaders', () => {
-    it('should return PROXY strategy when x-btp-destination is present', () => {
+    it('should return PROXY strategy when x-sap-destination is present', () => {
       testLogger?.info(
-        'Test: should return PROXY strategy when x-btp-destination is present',
+        'Test: should return PROXY strategy when x-sap-destination is present',
       );
 
       const headers: IncomingHttpHeaders = {
-        [HEADER_BTP_DESTINATION]: 'btp-cloud',
+        [HEADER_SAP_DESTINATION]: 'btp-cloud',
       };
 
       const decision = analyzeHeaders(headers);
@@ -31,13 +31,13 @@ describe('headerAnalyzer', () => {
       );
     });
 
-    it('should extract btp-destination from x-btp-destination header', () => {
+    it('should extract btp-destination from x-sap-destination header', () => {
       testLogger?.info(
-        'Test: should extract btp-destination from x-btp-destination header',
+        'Test: should extract btp-destination from x-sap-destination header',
       );
 
       const headers: IncomingHttpHeaders = {
-        [HEADER_BTP_DESTINATION]: 'btp-cloud',
+        [HEADER_SAP_DESTINATION]: 'btp-cloud',
       };
 
       const decision = analyzeHeaders(headers);
@@ -48,7 +48,7 @@ describe('headerAnalyzer', () => {
 
     it('should use --btp command line override over header', () => {
       const headers: IncomingHttpHeaders = {
-        [HEADER_BTP_DESTINATION]: 'header-value',
+        [HEADER_SAP_DESTINATION]: 'header-value',
       };
 
       const decision = analyzeHeaders(headers, {
@@ -97,9 +97,9 @@ describe('headerAnalyzer', () => {
       expect(decision.reason).toContain('No BTP destination provided');
     });
 
-    it('should handle array values in x-btp-destination (use first value)', () => {
+    it('should handle array values in x-sap-destination (use first value)', () => {
       const headers: IncomingHttpHeaders = {
-        [HEADER_BTP_DESTINATION]: ['btp-cloud', 'other'],
+        [HEADER_SAP_DESTINATION]: ['btp-cloud', 'other'],
       };
 
       const decision = analyzeHeaders(headers);
@@ -110,9 +110,9 @@ describe('headerAnalyzer', () => {
   });
 
   describe('shouldProxy', () => {
-    it('should return true when x-btp-destination is present', () => {
+    it('should return true when x-sap-destination is present', () => {
       const headers: IncomingHttpHeaders = {
-        [HEADER_BTP_DESTINATION]: 'btp-cloud',
+        [HEADER_SAP_DESTINATION]: 'btp-cloud',
       };
 
       expect(shouldProxy(headers)).toBe(true);

@@ -63,7 +63,7 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 ### Key Components
 
 - **src/index.ts** - Main server class (`McpAbapAdtProxyServer`) supporting stdio, HTTP, and SSE transports
-- **src/router/headerAnalyzer.ts** - Extracts routing info from `x-mcp-url` and `x-btp-destination` headers; returns a `RoutingDecision` with strategy (PROXY, PASSTHROUGH)
+- **src/router/headerAnalyzer.ts** - Extracts routing info from `x-mcp-url` and `x-sap-destination` headers; returns a `RoutingDecision` with strategy (PROXY, PASSTHROUGH)
 - **src/router/requestInterceptor.ts** - Intercepts incoming HTTP requests, calls `analyzeHeaders()`, extracts session ID
 - **src/proxy/cloudLlmHubProxy.ts** - Handles proxying with BTP/XSUAA auth injection, retry logic with exponential backoff, circuit breaker, and token caching (30-min TTL)
 - **src/lib/config.ts** - Configuration loading from YAML/JSON config files or env vars + CLI params (mutually exclusive: `--config` file ignores other CLI params)
@@ -73,13 +73,13 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 
 ### BTP Authentication in `buildProxyRequest()`
 
-If `x-btp-destination` or `--btp` is present, the proxy gets a JWT from `btpAuthBroker` (ClientCredentials grant) and injects `Authorization: Bearer <token>`. Auth brokers are cached per destination for reuse across requests.
+If `x-sap-destination` or `--btp` is present, the proxy gets a JWT from `btpAuthBroker` (ClientCredentials grant) and injects `Authorization: Bearer <token>`. Auth brokers are cached per destination for reuse across requests.
 
 ### Routing Strategies
 
 The proxy determines routing based on headers/CLI params:
 - `x-mcp-url` (or `--mcp-url`) - Direct MCP server URL (no authentication)
-- `x-btp-destination` (or `--btp`) - BTP destination for XSUAA authentication; MCP URL from service key
+- `x-sap-destination` (or `--btp`) - BTP destination for XSUAA authentication; MCP URL from service key
 - At least one must be present; otherwise request is treated as PASSTHROUGH (forwarded unchanged)
 
 ### External Dependencies

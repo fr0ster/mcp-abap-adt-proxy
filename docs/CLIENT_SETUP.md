@@ -101,7 +101,7 @@ mcp-abap-adt-proxy --btp=btp-cloud
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
-        "x-btp-destination": "btp-cloud"
+        "x-sap-destination": "btp-cloud"
       }
     }
   }
@@ -161,7 +161,7 @@ mcp-abap-adt-proxy --btp=btp-cloud
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
-        "x-btp-destination": "btp-cloud"
+        "x-sap-destination": "btp-cloud"
       }
     }
   }
@@ -185,7 +185,7 @@ mcp-abap-adt-proxy --transport=sse --btp=btp-cloud
       "type": "sse",
       "url": "http://localhost:3002",
       "headers": {
-        "x-btp-destination": "btp-cloud"
+        "x-sap-destination": "btp-cloud"
       }
     }
   }
@@ -226,8 +226,8 @@ mcp-abap-adt-proxy --transport=stdio --btp=btp-cloud
 | Scenario | MCP Server | BTP Auth | Proxy Command | Headers Required |
 |----------|------------|----------|---------------|------------------|
 | Local MCP | Local | No | `--mcp-url=http://localhost:3000` | `x-mcp-url` |
-| BTP MCP | BTP | Yes | `--btp=<dest>` | `x-btp-destination` |
-| BTP MCP + explicit URL | BTP | Yes | `--mcp-url=<url> --btp=<dest>` | `x-mcp-url`, `x-btp-destination` |
+| BTP MCP | BTP | Yes | `--btp=<dest>` | `x-sap-destination` |
+| BTP MCP + explicit URL | BTP | Yes | `--mcp-url=<url> --btp=<dest>` | `x-mcp-url`, `x-sap-destination` |
 
 ## Advanced Configuration
 
@@ -306,7 +306,7 @@ mcp-abap-adt-proxy --unsafe --btp=btp-cloud
 **Symptoms**: MCP server doesn't receive expected headers.
 
 **Solutions**:
-1. Remember: Only `x-btp-destination` is validated by proxy
+1. Remember: Only `x-sap-destination` is validated by proxy
 2. All other headers are passed directly to MCP server
 3. Verify headers are correctly formatted in client configuration
 4. Check proxy logs for routing decisions
@@ -359,9 +359,9 @@ mcp-abap-adt-proxy [options]
 | Header | Required | Description |
 |--------|----------|-------------|
 | `x-mcp-url` | Optional* | Direct MCP server URL |
-| `x-btp-destination` | Optional* | BTP destination name for authentication |
+| `x-sap-destination` | Optional* | BTP destination name for authentication |
 
-\* At least one of `x-mcp-url` or `x-btp-destination` must be provided (or via command-line).
+\* At least one of `x-mcp-url` or `x-sap-destination` must be provided (or via command-line).
 
 ### Service Key Locations
 

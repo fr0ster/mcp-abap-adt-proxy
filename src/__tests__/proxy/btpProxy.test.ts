@@ -235,7 +235,7 @@ describe('BtpProxy', () => {
 
 
 
-        it('should authenticate with BTP when x-btp-destination is present', async () => {
+        it('should authenticate with BTP when x-sap-destination is present', async () => {
             const routingDecision = {
                 strategy: RoutingStrategy.PROXY,
                 reason: 'btp',
@@ -258,7 +258,7 @@ describe('BtpProxy', () => {
             const response = await btpProxy.proxyRequest(
                 mockRequest,
                 routingDecision,
-                { ...mockHeaders, 'x-btp-destination': 'test-dest' },
+                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
             );
 
             expect(mockAuthBroker.getToken).toHaveBeenCalledWith('test-dest');
@@ -291,14 +291,14 @@ describe('BtpProxy', () => {
             await btpProxy.proxyRequest(
                 mockRequest,
                 routingDecision,
-                { ...mockHeaders, 'x-btp-destination': 'test-dest' },
+                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
             );
 
             // Second request
             await btpProxy.proxyRequest(
                 mockRequest,
                 routingDecision,
-                { ...mockHeaders, 'x-btp-destination': 'test-dest' },
+                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
             );
 
             // getToken should be called only once

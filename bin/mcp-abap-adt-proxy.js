@@ -55,7 +55,7 @@ Options:
   --sse-port=<port>       SSE server port (default: 3002)
   --http-host=<host>      HTTP server host (default: 0.0.0.0)
   --sse-host=<host>       SSE server host (default: 0.0.0.0)
-  --btp=<destination>     Override x-btp-destination header (for BTP Cloud authorization)
+  --btp=<destination>     Override x-sap-destination header (for BTP Cloud authorization)
                            Required for stdio/SSE transports unless provided in headers
   --target-url=<url>      Override target URL (separates Auth from Connection)
                            Useful for direct OData service testing or non-standard MCP URLs
@@ -100,7 +100,7 @@ Usage Modes:
    Example: mcp-abap-adt-proxy --btp=ai
 
 Headers (for HTTP/SSE transports):
-  - x-btp-destination: Destination for BTP Cloud authorization (optional if --btp is used)
+  - x-sap-destination: Destination for BTP Cloud authorization (optional if --btp is used)
 
   At least one of the above headers (or corresponding --btp parameter) is required.
 

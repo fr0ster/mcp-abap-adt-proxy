@@ -36,7 +36,7 @@
 - May reject requests with unexpected headers
 
 **Required Behavior:**
-- Should validate only two headers: `x-btp-destination` and `x-mcp-destination`
+- Should validate only two headers: `x-sap-destination` and `x-mcp-destination`
 - All other headers should be passed directly to MCP server without validation
 
 **Location:** `src/router/headerAnalyzer.ts` - `analyzeHeaders()` function
@@ -67,7 +67,7 @@
 ## Implementation Priority
 
 ### Priority 1: Simplify Header Validation (High)
-- Validate only `x-btp-destination` and `x-mcp-destination` headers
+- Validate only `x-sap-destination` and `x-mcp-destination` headers
 - Pass all other headers directly to MCP server
 - **Impact**: Simpler logic, more flexible header handling
 - **Effort**: Low (simplify validation logic)

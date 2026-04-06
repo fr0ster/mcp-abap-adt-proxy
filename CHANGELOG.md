@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Separate AuthBroker instances for BTP and ABAP destinations**
-  - `btpAuthBroker` with `XsuaaTokenProvider` for BTP destinations (`--btp` or `x-btp-destination`)
+  - `btpAuthBroker` with `XsuaaTokenProvider` for BTP destinations (`--btp` or `x-sap-destination`)
   - `abapAuthBroker` with `BtpTokenProvider` for ABAP destinations (`--mcp` or `x-mcp-destination`)
   - Proper separation ensures correct token provider is used for each destination type
 - **Client Setup Guide** (`docs/CLIENT_SETUP.md`)
@@ -89,7 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation for BTP-Only authentication mode**
   - Added "Scenario 2: BTP Authentication Only (No SAP Configuration)" in `docs/USAGE.md`
   - Documented use case for connecting to any BTP service without SAP ABAP configuration
-  - Explained that `x-mcp-destination` is optional when using `x-btp-destination` or `--btp`
+  - Explained that `x-mcp-destination` is optional when using `x-sap-destination` or `--btp`
   - Updated README.md with "BTP-Only Mode" section explaining behavior when only `--btp` is provided
 - **Enhanced help text in `bin/mcp-abap-adt-proxy.js`**
   - Added detailed "Usage Modes" section with three modes:
@@ -111,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Unit tests updated to match new routing logic**
   - Fixed tests that expected `UNKNOWN` strategy when only `x-mcp-destination` or `x-mcp-url` is provided
-  - Updated test expectations to reflect that `x-btp-destination` is now optional
+  - Updated test expectations to reflect that `x-sap-destination` is now optional
   - Added tests for `x-mcp-url` header support
   - Updated `shouldProxy` function tests to cover all routing scenarios (BTP, MCP destination, MCP URL)
   - All 51 unit tests now pass successfully
@@ -134,7 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Local testing mode without BTP authentication**
-  - Proxy can now run with only `--mcp` or `x-mcp-destination` (without `--btp` or `x-btp-destination`)
+  - Proxy can now run with only `--mcp` or `x-mcp-destination` (without `--btp` or `x-sap-destination`)
   - Enables local integration testing without BTP authentication
   - MCP server URL can be obtained from MCP destination service key or specified directly via `--mcp-url`
 - **`--mcp-url` parameter support**
@@ -149,16 +149,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Default configuration: ADT on port 3000 (HTTP), Proxy on port 3001 (HTTP)
   - Available via `npm run test:servers`
 - **Flexible routing requirements**
-  - Proxy accepts either `x-btp-destination/--btp`, `x-mcp-destination/--mcp`, or `x-mcp-url/--mcp-url`
+  - Proxy accepts either `x-sap-destination/--btp`, `x-mcp-destination/--mcp`, or `x-mcp-url/--mcp-url`
   - Removed strict requirement for BTP destination when using MCP destination or URL
 
 ### Changed
 - **Routing logic updated**
-  - `x-btp-destination` is now optional (was required)
+  - `x-sap-destination` is now optional (was required)
   - Proxy can work with only `x-mcp-destination` or `x-mcp-url` for local testing
   - MCP URL can be obtained from multiple sources (priority order):
     1. `x-mcp-url` header or `--mcp-url` parameter (direct URL)
-    2. Service key for `x-btp-destination` (if provided)
+    2. Service key for `x-sap-destination` (if provided)
     3. Service key for `x-mcp-destination` (if only MCP destination is provided)
 - **Token retrieval made optional for MCP destination**
   - Token retrieval for `mcpDestination` is now optional (won't fail if token unavailable)

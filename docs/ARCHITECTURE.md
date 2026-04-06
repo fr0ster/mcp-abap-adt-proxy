@@ -15,14 +15,14 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 └────────┬─────────┘
          │
          │ HTTP/SSE/Stdio
-         │ (with x-btp-destination header)
+         │ (with x-sap-destination header)
          │
 ┌────────▼─────────────────────────────────────┐
 │     MCP ABAP ADT Proxy                       │
 │                                               │
 │  ┌──────────────────────────────────────┐   │
 │  │   Request Interceptor                │   │
-│  │   - Extract x-btp-destination        │   │
+│  │   - Extract x-sap-destination        │   │
 │  │   - Extract x-mcp-url               │   │
 │  └──────────────┬───────────────────────┘   │
 │                 │                             │
@@ -65,7 +65,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 **Location:** `src/router/headerAnalyzer.ts`
 
 **Responsibilities:**
-- Extract `x-btp-destination` header (for BTP authentication)
+- Extract `x-sap-destination` header (for BTP authentication)
 - Extract `x-mcp-url` header (for direct MCP server URL)
 - Determine routing decision
 
@@ -74,7 +74,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 - `shouldProxy()` - Check if request should be proxied
 
 **Routing Strategy:**
-- `PROXY` - Proxy request with JWT authentication (when `x-btp-destination` or `x-mcp-url` is present)
+- `PROXY` - Proxy request with JWT authentication (when `x-sap-destination` or `x-mcp-url` is present)
 - `PASSTHROUGH` - No proxy headers found, forward unchanged
 
 ### 3. Proxy Client
@@ -94,7 +94,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 - Token expiration handling
 
 **Flow:**
-1. Receive MCP request with `x-btp-destination` header
+1. Receive MCP request with `x-sap-destination` header
 2. Get JWT token from AuthBroker for destination (with caching)
 3. Get MCP server URL from service key for destination
 4. Build proxy request with JWT token in Authorization header
@@ -137,14 +137,14 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 ### Proxy Request Flow
 
 ```
-1. Client Request (with x-btp-destination header)
+1. Client Request (with x-sap-destination header)
    ↓
 2. Request Interceptor
    - Extract headers
    - Parse request body
    ↓
 3. Header Analyzer
-   - Extract x-btp-destination (for BTP auth)
+   - Extract x-sap-destination (for BTP auth)
    - Extract x-mcp-url (for direct URL)
    ↓
 4. Proxy Client

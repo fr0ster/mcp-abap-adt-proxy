@@ -107,7 +107,7 @@ Options:
     console.log(`Sending ${args.method} request to ${args.proxyUrl}${args.path || ''}...`);
     
     const headers = {
-       'x-btp-destination': args.destination
+       'x-sap-destination': args.destination
     };
     
     if (args.targetUrl) {

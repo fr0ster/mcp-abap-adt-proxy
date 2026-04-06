@@ -1,7 +1,7 @@
 /**
  * BTP Proxy - Proxies requests to MCP servers with JWT authentication
  *
- * For requests with x-btp-destination, proxies to target MCP server
+ * For requests with x-sap-destination, proxies to target MCP server
  * with JWT token from auth-broker (XSUAA/BTP)
  */
 
@@ -11,9 +11,9 @@ import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces';
 import {
   HEADER_ACCEPT,
   HEADER_AUTHORIZATION,
-  HEADER_BTP_DESTINATION,
   HEADER_CONTENT_TYPE,
   HEADER_SAP_CLIENT,
+  HEADER_SAP_DESTINATION,
   HEADER_SAP_DESTINATION_SERVICE,
 } from '@mcp-abap-adt/interfaces';
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios';
@@ -573,7 +573,7 @@ export class BtpProxy {
    * Process flow:
    *
    * 1. BTP Authentication (XSUAA):
-   *    1.1 If x-btp-destination header exists:
+   *    1.1 If x-sap-destination header exists:
    *        - Check map for broker with key = destination, get or create, save to map
    *        - Get token from xsuaa broker
    *        - Add/replace Authorization: Bearer <token> header
@@ -609,7 +609,7 @@ export class BtpProxy {
     // BTP Authentication (XSUAA)
     // ============================================
     const btpDestinationHeader = this.getHeaderValue(
-      originalHeaders[HEADER_BTP_DESTINATION],
+      originalHeaders[HEADER_SAP_DESTINATION],
     );
     const btpDestinationFromParam =
       routingDecision.btpDestination && !btpDestinationHeader
@@ -619,13 +619,13 @@ export class BtpProxy {
     let btpDestination: string | undefined;
     if (btpDestinationHeader) {
       btpDestination = btpDestinationHeader;
-      logger?.debug('Using x-btp-destination from header', {
+      logger?.debug('Using x-sap-destination from header', {
         type: 'BTP_DESTINATION_FROM_HEADER',
         destination: btpDestination,
       });
     } else if (btpDestinationFromParam) {
       btpDestination = btpDestinationFromParam;
-      logger?.debug('Using x-btp-destination from parameter', {
+      logger?.debug('Using x-sap-destination from parameter', {
         type: 'BTP_DESTINATION_FROM_PARAM',
         destination: btpDestination,
       });

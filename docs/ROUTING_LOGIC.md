@@ -7,9 +7,9 @@ The proxy routes requests to MCP servers (local or on BTP) and handles BTP/XSUAA
 ## Key Principles
 
 1. **No .env files in proxy**: Proxy should NOT use `.env` files for connection configuration. Only destinations via auth-broker (service key files) are used.
-2. **Validation only for destination**: Proxy validates only the `x-btp-destination` header. Other headers are passed directly to MCP server.
-3. **Destination priority**: Destination can be specified via command-line parameter (`--btp`) or header (`x-btp-destination`). Parameter takes precedence.
-4. **Header passthrough**: All other headers (except `x-btp-destination`) are passed directly to MCP server without validation.
+2. **Validation only for destination**: Proxy validates only the `x-sap-destination` header. Other headers are passed directly to MCP server.
+3. **Destination priority**: Destination can be specified via command-line parameter (`--btp`) or header (`x-sap-destination`). Parameter takes precedence.
+4. **Header passthrough**: All other headers (except `x-sap-destination`) are passed directly to MCP server without validation.
 
 ## Routing Scenarios
 
@@ -92,7 +92,7 @@ mcp-abap-adt-proxy --mcp-url=http://localhost:3000
 
 | Header | Source | Description |
 |--------|--------|-------------|
-| `x-btp-destination` | Request header or `--btp` parameter | BTP destination name for authentication |
+| `x-sap-destination` | Request header or `--btp` parameter | BTP destination name for authentication |
 
 **Note:** This is the ONLY header that proxy validates. All other headers are passed directly to MCP server.
 
@@ -100,11 +100,11 @@ mcp-abap-adt-proxy --mcp-url=http://localhost:3000
 
 | Source | Target Header | Description |
 |--------|---------------|-------------|
-| BTP destination token (via `btpAuthBroker` with `ClientCredentialsProvider`) | `Authorization: Bearer <token>` | For MCP server on BTP (when `x-btp-destination` or `--btp` is provided) |
+| BTP destination token (via `btpAuthBroker` with `ClientCredentialsProvider`) | `Authorization: Bearer <token>` | For MCP server on BTP (when `x-sap-destination` or `--btp` is provided) |
 
 ### Headers Passed Through
 
-All headers from the original request (except `x-btp-destination`) are passed directly to MCP server without modification. This includes any custom headers the MCP server might need.
+All headers from the original request (except `x-sap-destination`) are passed directly to MCP server without modification. This includes any custom headers the MCP server might need.
 
 ## Current Implementation Analysis
 

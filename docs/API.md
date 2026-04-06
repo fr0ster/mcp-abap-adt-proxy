@@ -239,7 +239,7 @@ interface ProxyConfig {
 ```typescript
 interface RoutingDecision {
   strategy: RoutingStrategy;
-  btpDestination?: string;  // Destination for BTP Cloud authorization (x-btp-destination or --btp)
+  btpDestination?: string;  // Destination for BTP Cloud authorization (x-sap-destination or --btp)
   mcpDestination?: string;  // Destination for SAP ABAP connection (x-mcp-destination or --mcp)
   mcpUrl?: string;          // URL from x-mcp-url header
   reason: string;

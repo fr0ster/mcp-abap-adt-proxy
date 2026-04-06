@@ -6,7 +6,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 import {
   HEADER_AUTHORIZATION,
-  HEADER_BTP_DESTINATION,
+  HEADER_SAP_DESTINATION,
   HEADER_MCP_URL,
   HEADER_SAP_DESTINATION_SERVICE,
   HEADER_SAP_JWT_TOKEN,
@@ -36,7 +36,7 @@ describe('requestInterceptor', () => {
         method: 'POST',
         url: '/mcp/stream/http',
         headers: {
-          [HEADER_BTP_DESTINATION]: 'btp-cloud',
+          [HEADER_SAP_DESTINATION]: 'btp-cloud',
           'content-type': 'application/json',
         },
         socket: mockSocket,
@@ -57,7 +57,7 @@ describe('requestInterceptor', () => {
 
       const intercepted = interceptRequest(mockReq as IncomingMessage);
 
-      expect(intercepted.headers[HEADER_BTP_DESTINATION]).toBe('btp-cloud');
+      expect(intercepted.headers[HEADER_SAP_DESTINATION]).toBe('btp-cloud');
     });
 
     it('should pass config overrides to header analyzer', () => {

@@ -63,14 +63,14 @@ mcp-abap-adt-proxy
     "type": "streamableHttp",
     "url": "http://localhost:3001/mcp/stream/http",
     "headers": {
-      "x-btp-destination": "btp-cloud"
+      "x-sap-destination": "btp-cloud"
     }
   }
 }
 ```
 
 **What Happens:**
-1. Proxy receives request with `x-btp-destination` header
+1. Proxy receives request with `x-sap-destination` header
 2. Command line override (`--btp`) takes precedence over header if provided
 3. Uses `btpAuthBroker` with `ClientCredentialsProvider` to get BTP Cloud token from service key
 4. Gets MCP server URL from service key (`abap.url` field)
@@ -84,7 +84,7 @@ mcp-abap-adt-proxy
 You can override headers using command line parameters:
 
 ```bash
-# Override x-btp-destination with --btp
+# Override x-sap-destination with --btp
 mcp-abap-adt-proxy --btp=ai
 ```
 
@@ -243,7 +243,7 @@ mcp-abap-adt-proxy --btp=btp-cloud
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
-        "x-btp-destination": "btp-cloud"
+        "x-sap-destination": "btp-cloud"
       }
     }
   }
@@ -267,7 +267,7 @@ async function callProxy(method: string, params: any) {
     {
       headers: {
         "Content-Type": "application/json",
-        "x-btp-destination": "btp-cloud",
+        "x-sap-destination": "btp-cloud",
       },
     }
   );
@@ -310,7 +310,7 @@ Or via header:
 ```json
 {
   "headers": {
-    "x-btp-destination": "btp-cloud"
+    "x-sap-destination": "btp-cloud"
   }
 }
 ```
@@ -370,7 +370,7 @@ Use different destination names for different environments:
 ```json
 {
   "headers": {
-    "x-btp-destination": "dev-btp"
+    "x-sap-destination": "dev-btp"
   }
 }
 ```
@@ -378,7 +378,7 @@ Use different destination names for different environments:
 ```json
 {
   "headers": {
-    "x-btp-destination": "prod-btp"
+    "x-sap-destination": "prod-btp"
   }
 }
 ```
