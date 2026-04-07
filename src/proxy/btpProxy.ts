@@ -920,9 +920,9 @@ export class BtpProxy {
     };
 
     try {
-      const response = await retryWithBackoff(async () => {
-        const forceTokenRefresh = false;
+      let forceTokenRefresh = false;
 
+      const executeRequest = async () => {
         const proxyConfig = await this.buildProxyRequest(
           originalRequest,
           routingDecision,
@@ -1005,6 +1005,31 @@ export class BtpProxy {
 
         this.circuitBreaker.recordSuccess();
         return response;
+      };
+
+      const response = await retryWithBackoff(async () => {
+        try {
+          return await executeRequest();
+        } catch (error) {
+          if (!forceTokenRefresh && isTokenExpirationError(error)) {
+            const destination =
+              routingDecision.btpDestination ||
+              this.getHeaderValue(originalHeaders[HEADER_SAP_DESTINATION]);
+
+            logger?.warn('Token expired, retrying with refreshed token', {
+              type: 'TOKEN_EXPIRED_RETRY',
+              destination,
+            });
+
+            if (destination) {
+              this.tokenCache.delete(destination);
+            }
+            forceTokenRefresh = true;
+
+            return await executeRequest();
+          }
+          throw error;
+        }
       }, retryOptions);
 
       // Return response in JSON-RPC format
@@ -1015,12 +1040,6 @@ export class BtpProxy {
         error: response.data.error,
       };
     } catch (error) {
-      if (isTokenExpirationError(error)) {
-        logger?.warn('Token expired usually handled by retry with refresh', {
-          type: 'TOKEN_EXPIRED_ERROR',
-        });
-      }
-
       this.circuitBreaker.recordFailure();
 
       let statusCode = 500;

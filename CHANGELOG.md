@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-04-07
+
+### Fixed
+- **Automatic token refresh on 401/403 errors** — proxy now detects expired tokens, clears the cache, and retries the request with a freshly obtained token instead of failing immediately
+
 ## [1.0.2] - 2026-04-07
 
 ### Fixed

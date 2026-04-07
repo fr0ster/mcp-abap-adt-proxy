@@ -361,7 +361,7 @@ export LOG_LEVEL=debug
 2. **Check token cache:**
 ```bash
 # Tokens are cached for 30 minutes
-# Force refresh by restarting server
+# On 401/403 the proxy automatically clears the cache and retries with a fresh token
 ```
 
 3. **Verify service key:**

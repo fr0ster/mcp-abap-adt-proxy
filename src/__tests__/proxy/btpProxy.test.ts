@@ -272,6 +272,68 @@ describe('BtpProxy', () => {
             );
         });
 
+        it('should retry with refreshed token on 401 response', async () => {
+            const routingDecision = {
+                strategy: RoutingStrategy.PROXY,
+                reason: 'btp',
+                btpDestination: 'test-dest',
+            };
+
+            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
+                serviceUrl: 'https://btp-mcp.example.com',
+            });
+
+            // First call returns expired token, second returns fresh one
+            (mockAuthBroker.getToken as jest.Mock)
+                .mockResolvedValueOnce('expired-token')
+                .mockResolvedValueOnce('fresh-token');
+
+            // First request fails with 401, second succeeds
+            const axiosError = new Error('Request failed with status code 401') as any;
+            axiosError.response = { status: 401, data: { error: 'Unauthorized' } };
+            axiosError.isAxiosError = true;
+            axiosError.config = { url: 'https://btp-mcp.example.com/mcp/stream/http' };
+
+            (mockedAxios.isAxiosError as unknown as jest.Mock).mockImplementation(
+                (err: any) => err?.isAxiosError === true,
+            );
+
+            mockAxiosInstance.request
+                .mockRejectedValueOnce(axiosError)
+                .mockResolvedValueOnce({
+                    data: {
+                        jsonrpc: '2.0',
+                        id: 1,
+                        result: { success: true },
+                    },
+                });
+
+            const response = await btpProxy.proxyRequest(
+                mockRequest,
+                routingDecision,
+                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
+            );
+
+            // Token should be fetched twice: first cached/normal, then force-refreshed
+            expect(mockAuthBroker.getToken).toHaveBeenCalledTimes(2);
+            // Request should be retried
+            expect(mockAxiosInstance.request).toHaveBeenCalledTimes(2);
+            // Second request should use fresh token
+            expect(mockAxiosInstance.request).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    headers: expect.objectContaining({
+                        Authorization: 'Bearer fresh-token',
+                    }),
+                }),
+            );
+            // Should return successful response
+            expect(response).toEqual(
+                expect.objectContaining({
+                    result: { success: true },
+                }),
+            );
+        });
+
         it('should use cached token for subsequent requests', async () => {
             const routingDecision = {
                 strategy: RoutingStrategy.PROXY,
