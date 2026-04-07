@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-04-07
+
+### Fixed
+- **Skip header validation in SSE transport path** — proxy no longer runs `validateProxyHeaders()` on SSE requests, matching HTTP transport behavior. Proxy should not validate client headers beyond authorization and defaults.
+- **Added debug-level header forwarding log** in reverse proxy for diagnostics (`LOG_LEVEL=debug`)
+
 ## [1.0.1] - 2026-04-07
 
 ### Added
