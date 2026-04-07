@@ -562,7 +562,9 @@ Authorization source: ${authSourceObj}`;
           btpDestination: this.config.btpDestination,
           targetUrl: this.config.targetUrl,
         };
-        const intercepted = interceptRequest(req, body, configOverrides);
+        const intercepted = interceptRequest(req, body, configOverrides, {
+          skipHeaderValidation: true,
+        });
 
         // Check routing decision
         if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {

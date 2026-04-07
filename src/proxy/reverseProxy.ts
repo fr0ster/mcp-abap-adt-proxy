@@ -59,6 +59,15 @@ export async function forwardRequest(
   // Set correct host for target
   forwardedHeaders.host = targetUrl.host;
 
+  // Debug: log incoming vs forwarded headers to diagnose header drops
+  logger?.debug('Headers forwarding detail', {
+    type: 'REVERSE_PROXY_HEADERS',
+    incoming: Object.keys(clientReq.headers),
+    forwarded: Object.keys(forwardedHeaders),
+    hasAccept: !!forwardedHeaders.accept || !!forwardedHeaders.Accept,
+    defaultHeaderKeys: defaultHeaders ? Object.keys(defaultHeaders) : [],
+  });
+
   const isHttps = targetUrl.protocol === 'https:';
   const transport = isHttps ? https : http;
 
