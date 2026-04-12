@@ -1,4 +1,5 @@
 # @mcp-abap-adt/proxy
+[![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://stand-with-ukraine.pp.ua)
 
 MCP proxy server for SAP ABAP ADT - proxies local requests to MCP servers with JWT authentication.
 
