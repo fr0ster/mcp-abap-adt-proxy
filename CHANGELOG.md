@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-12
+
+### Changed
+- **TypeScript 6.0** — migrated from TypeScript 5.9 to 6.0; added explicit `rootDir: "./src"` to `tsconfig.json` (required by TS6)
+- **@mcp-abap-adt/interfaces 6.0** — updated from v5.0 to v6.0
+- **@modelcontextprotocol/sdk 1.29** — updated from v1.26 to v1.29
+- **@modelcontextprotocol/inspector 0.21** — updated from v0.20 to v0.21
+- **Biome 2.4** — updated from v2.3 to v2.4
+- **Jest 30.3** — updated from v30.2 to v30.3
+- **axios 1.15** — updated from v1.13 to v1.15
+- **ts-jest 29.4.9**, **@types/node 25.6**, **@inquirer/prompts 8.4**, **rimraf 6.1.3** — minor/patch bumps
+
 ## [1.0.3] - 2026-04-07
 
 ### Fixed

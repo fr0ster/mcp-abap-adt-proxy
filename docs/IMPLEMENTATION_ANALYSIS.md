@@ -27,56 +27,17 @@
    - ✅ Correctly resolves MCP server URL from `--mcp-url`
    - ✅ Falls back to service key URLs when needed
 
-### ❌ What Needs Fixing
+### ~~❌ What Needs Fixing~~ (Resolved)
 
-#### Issue 1: Header Validation Simplification
+> All issues below have been resolved in v1.0.0+.
 
-**Current Behavior:**
-- Validates all headers using `validateAuthHeaders()` from header-validator
-- May reject requests with unexpected headers
+#### ~~Issue 1: Header Validation Simplification~~ (Resolved in v1.0.0)
 
-**Required Behavior:**
-- Should validate only two headers: `x-sap-destination` and `x-mcp-destination`
-- All other headers should be passed directly to MCP server without validation
+Header validation was simplified — proxy now validates only `x-sap-destination` in HTTP path and skips validation entirely in SSE/reverse-proxy mode. All other headers are passed through to the MCP server.
 
-**Location:** `src/router/headerAnalyzer.ts` - `analyzeHeaders()` function
+#### ~~Issue 2: .env File Usage~~ (Resolved)
 
-**Fix Required:**
-- Remove or simplify `validateAuthHeaders()` call (only validate destinations)
-- Ensure all other headers are passed through
-
-#### Issue 2: .env File Usage
-
-**Current Behavior:**
-- `dotenv` package is in devDependencies but not used in code
-- auth-broker may use `.env` files for session storage (this is OK)
-- Connection configuration should come only from service key files
-
-**Required Behavior:**
-- Remove `dotenv` from dependencies (not needed)
-- Ensure connection configuration uses only service key files (destinations)
-- Document that `.env` files are not used for connection configuration
-
-**Location:** `package.json`, `src/lib/stores.ts`
-
-**Fix Required:**
-- Remove `dotenv` from devDependencies
-- Verify that stores use only service key files for connection configuration
-- Document that session stores may use `.env` for token storage, but connection config comes from service keys
-
-## Implementation Priority
-
-### Priority 1: Simplify Header Validation (High)
-- Validate only `x-sap-destination` and `x-mcp-destination` headers
-- Pass all other headers directly to MCP server
-- **Impact**: Simpler logic, more flexible header handling
-- **Effort**: Low (simplify validation logic)
-
-### Priority 2: Remove .env Dependencies (Low)
-- Remove `dotenv` from devDependencies
-- Document that `.env` files are not used for connection configuration
-- **Impact**: Cleaner dependencies, clearer documentation
-- **Effort**: Low (remove dependency, update docs)
+`dotenv` was removed from dependencies. Connection configuration uses only service key files via auth-broker.
 
 ## Testing Requirements
 
@@ -112,12 +73,5 @@ After implementing fixes, test all scenarios from [Routing Logic Specification](
 
 ## Summary
 
-The current implementation works well for destination-based routing but lacks support for header-based routing. The main gaps are:
-
-1. **Header-based MCP authentication** - Missing `x-sap-token` support
-2. **Header-based ABAP parameters** - Missing header extraction when `--mcp` is not provided
-3. **Routing validation** - Too strict, doesn't allow header-only mode
-4. **.env file prevention** - Needs explicit configuration
-
-All fixes are straightforward and can be implemented incrementally.
+The implementation is complete. All routing scenarios (BTP auth, direct URL, combined) work correctly. Header validation has been simplified, `.env` dependency removed, and reverse proxy mode added in v1.0.0.
 

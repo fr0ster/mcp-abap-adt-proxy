@@ -4,11 +4,26 @@ This guide explains how to configure the MCP ABAP ADT Proxy server.
 
 ## Configuration Methods
 
-The proxy supports three configuration methods (in order of precedence):
+The proxy supports two mutually exclusive configuration modes:
 
-1. **Environment Variables** (highest priority)
-2. **Configuration File** (`mcp-proxy-config.json`)
-3. **Default Values** (lowest priority)
+### Mode 1: Config file (`--config` / `-c`)
+
+When `--config` is specified, configuration is loaded **only** from the YAML/JSON file. Other CLI params are ignored with a warning.
+
+```bash
+mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
+```
+
+See [YAML Configuration Guide](./YAML_CONFIG.md) for details.
+
+### Mode 2: CLI params + environment variables + defaults
+
+Without `--config`, values are merged in this priority order:
+
+1. **CLI parameters** (`--btp`, `--mcp-url`, `--header`, etc.) — highest priority
+2. **Environment variables**
+3. **Configuration file** (`mcp-proxy-config.json` auto-discovered)
+4. **Default values** — lowest priority
 
 ## Environment Variables
 

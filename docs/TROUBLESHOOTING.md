@@ -213,15 +213,14 @@ export LOG_LEVEL=debug
 - Request rejected
 
 **Causes:**
-- Missing required headers
-- Invalid header combination
+- Missing required headers or CLI parameters
+- Neither `x-sap-destination`/`--btp` nor `x-mcp-url`/`--mcp-url` provided
 
 **Solutions:**
 
-1. **Check required headers:**
-   - For direct cloud: `x-sap-destination` (not "sk")
-   - For basic auth: `x-sap-auth-type: "basic"` + `x-sap-url` + `x-sap-login` + `x-sap-password`
-   - For proxy: `x-sap-destination: "sk"`
+1. **Provide at least one routing source:**
+   - BTP authentication: `x-sap-destination` header or `--btp` CLI parameter
+   - Direct URL: `x-mcp-url` header or `--mcp-url` CLI parameter
 
 2. **Review header validation:**
 ```bash
@@ -231,60 +230,23 @@ export LOG_LEVEL=debug
 
 ### 4. Connection Issues
 
-#### Error: "Failed to connect to cloud ABAP"
+#### Error: "Failed to connect to target server"
 
 **Symptoms:**
-- Direct cloud requests fail
-- Connection errors
+- Proxy requests fail with connection errors
 
 **Solutions:**
 
 1. **Verify destination service key:**
 ```bash
 # Check service key exists
-ls ~/.config/mcp-abap-adt/service-keys/S4HANA_E19.json
+ls ~/.config/mcp-abap-adt/service-keys/<destination>.json
 ```
 
-2. **Test connection manually:**
+2. **Check network connectivity:**
 ```bash
-# Use connection package to test
-npx @mcp-abap-adt/connection test -d S4HANA_E19
-```
-
-3. **Check network connectivity:**
-```bash
-# Test ABAP URL
-curl -I https://your-abap-system.com
-```
-
-#### Error: "Failed to connect with basic auth"
-
-**Symptoms:**
-- Local basic auth requests fail
-- Authentication errors
-
-**Solutions:**
-
-1. **Verify credentials:**
-```json
-{
-  "x-sap-url": "https://abap-system.com",
-  "x-sap-auth-type": "basic",
-  "x-sap-login": "username",
-  "x-sap-password": "password",
-  "x-sap-client": "100"
-}
-```
-
-2. **Test credentials manually:**
-```bash
-curl -u username:password https://abap-system.com/sap/bc/adt/discovery
-```
-
-3. **Check client number:**
-```bash
-# Verify client number is correct
-# Some systems require specific client numbers
+# Test target URL
+curl -I https://your-mcp-server.com
 ```
 
 ### 5. Performance Issues
