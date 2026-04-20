@@ -129,3 +129,7 @@ Key environment variables: `CLOUD_LLM_HUB_URL`, `MCP_HTTP_PORT`, `MCP_SSE_PORT`,
 The `--header key=value` CLI flag (repeatable) and `defaultHeaders` YAML map inject default headers into every forwarded request. Client-supplied headers take precedence over defaults.
 
 See `docs/CONFIGURATION.md` for full configuration reference.
+
+## Plans and Specs
+
+After a plan under `docs/superpowers/plans/` or spec under `docs/superpowers/specs/` has been fully implemented, delete the file. Keep only active (not yet implemented) plans and specs in the tree — implementation history lives in git, not in these directories.
