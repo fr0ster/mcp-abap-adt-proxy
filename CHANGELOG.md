@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-20
+
+### Added
+- **Proactive JWT token refresh** — proxy now decodes the `exp` claim from the JWT and refreshes the token in the background 5 minutes before expiry via `authBroker.refreshToken()` (OAuth2 refresh_token grant, preserves role assignment). Eliminates latency spikes from on-demand 401 refreshes while keeping the reactive 401/403 fallback.
+
+### Changed
+- **@mcp-abap-adt/interfaces 7.0** — updated from v6.0 to v7.0
+- **typescript 6.0.3**, **@biomejs/biome 2.4.12**, **@modelcontextprotocol/inspector 0.21.2**, **axios 1.15.1**, **@inquirer/prompts 8.4.2** — patch bumps
+
 ## [1.1.0] - 2026-04-12
 
 ### Changed
