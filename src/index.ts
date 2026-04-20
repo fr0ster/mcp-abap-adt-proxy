@@ -671,6 +671,7 @@ Authorization source: ${authSourceObj}`;
    * Shutdown server
    */
   async shutdown(): Promise<void> {
+    this.btpProxy?.dispose();
     try {
       await this.server.close();
     } catch (error) {

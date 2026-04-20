@@ -111,7 +111,9 @@ export class BtpProxy {
   private btpAuthBrokers: Map<string, AuthBroker> = new Map();
   private tokenCache: Map<string, { token: string; expiresAt: number }> =
     new Map();
-  private readonly TOKEN_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+  private refreshTimers: Map<string, NodeJS.Timeout> = new Map();
+  private readonly TOKEN_CACHE_TTL = 30 * 60 * 1000; // fallback if JWT has no exp
+  private readonly REFRESH_LEAD_MS = 5 * 60 * 1000; // refresh 5 min before expiry
   private circuitBreaker: CircuitBreaker;
   private config: ProxyConfig;
   private unsafe: boolean;
@@ -461,11 +463,7 @@ export class BtpProxy {
         // Get token from auth-broker
         const token = await authBroker.getToken(destination);
 
-        // Cache token (assume it's valid for 30 minutes)
-        this.tokenCache.set(destination, {
-          token,
-          expiresAt: Date.now() + this.TOKEN_CACHE_TTL,
-        });
+        this.cacheToken(destination, token);
 
         logger?.debug('Retrieved JWT token from auth-broker', {
           type: 'JWT_TOKEN_RETRIEVED',
@@ -533,6 +531,90 @@ export class BtpProxy {
 
       throw new Error(errorMessage);
     }
+  }
+
+  /**
+   * Decode JWT exp claim (seconds since epoch). Returns null if not parseable.
+   */
+  private decodeJwtExp(token: string): number | null {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    try {
+      const payload = JSON.parse(
+        Buffer.from(parts[1], 'base64url').toString('utf8'),
+      );
+      return typeof payload.exp === 'number' ? payload.exp : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Cache token with expiry derived from JWT, and schedule proactive refresh
+   * 5 minutes before expiry.
+   */
+  private cacheToken(destination: string, token: string): void {
+    const exp = this.decodeJwtExp(token);
+    const expiresAt =
+      exp !== null ? exp * 1000 : Date.now() + this.TOKEN_CACHE_TTL;
+
+    this.tokenCache.set(destination, { token, expiresAt });
+    this.scheduleProactiveRefresh(destination, expiresAt);
+  }
+
+  /**
+   * Schedule background refresh REFRESH_LEAD_MS before token expiry.
+   */
+  private scheduleProactiveRefresh(
+    destination: string,
+    expiresAt: number,
+  ): void {
+    const existing = this.refreshTimers.get(destination);
+    if (existing) clearTimeout(existing);
+
+    const delay = expiresAt - Date.now() - this.REFRESH_LEAD_MS;
+    if (delay <= 0) {
+      // Token already within lead window or expired; skip scheduling.
+      this.refreshTimers.delete(destination);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.refreshTimers.delete(destination);
+      this.proactiveRefresh(destination).catch((err) => {
+        logger?.warn('Proactive token refresh failed, will retry reactively', {
+          type: 'JWT_TOKEN_PROACTIVE_REFRESH_ERROR',
+          destination,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }, delay);
+    // Don't keep the event loop alive just for refresh timers.
+    timer.unref?.();
+    this.refreshTimers.set(destination, timer);
+  }
+
+  /**
+   * Background refresh via auth-broker's refreshToken grant.
+   */
+  private async proactiveRefresh(destination: string): Promise<void> {
+    logger?.info('Proactively refreshing JWT token', {
+      type: 'JWT_TOKEN_PROACTIVE_REFRESH',
+      destination,
+    });
+    const broker = await this.getOrCreateBtpAuthBroker(destination);
+    const token = await broker.refreshToken(destination);
+    this.cacheToken(destination, token);
+  }
+
+  /**
+   * Cancel all pending refresh timers. Call on shutdown.
+   */
+  public dispose(): void {
+    for (const timer of this.refreshTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.refreshTimers.clear();
   }
 
   /**
