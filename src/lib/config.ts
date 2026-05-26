@@ -145,8 +145,8 @@ function applyDefaults(fileConfig: Partial<ProxyConfig>): ProxyConfig {
   const result: ProxyConfig = {
     httpPort: fileConfig.httpPort ?? 3001,
     ssePort: fileConfig.ssePort ?? 3002,
-    httpHost: fileConfig.httpHost || '0.0.0.0',
-    sseHost: fileConfig.sseHost || '0.0.0.0',
+    httpHost: fileConfig.httpHost || '127.0.0.1',
+    sseHost: fileConfig.sseHost || '127.0.0.1',
     logLevel: fileConfig.logLevel || 'info',
     btpDestination: fileConfig.btpDestination,
     targetUrl: fileConfig.targetUrl,
@@ -216,8 +216,8 @@ function loadFromEnv(): ProxyConfig {
   return {
     httpPort: parseInt(process.env.MCP_HTTP_PORT || '3001', 10),
     ssePort: parseInt(process.env.MCP_SSE_PORT || '3002', 10),
-    httpHost: process.env.MCP_HTTP_HOST || '0.0.0.0',
-    sseHost: process.env.MCP_SSE_HOST || '0.0.0.0',
+    httpHost: process.env.MCP_HTTP_HOST || '127.0.0.1',
+    sseHost: process.env.MCP_SSE_HOST || '127.0.0.1',
     logLevel: process.env.LOG_LEVEL || 'info',
     btpDestination,
     targetUrl,

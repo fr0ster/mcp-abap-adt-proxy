@@ -12,40 +12,35 @@ npm install @mcp-abap-adt/proxy
 
 ### Starting the Proxy Server
 
-#### Using Default Configuration
+#### Using a BTP destination
 
 ```bash
-# Set required environment variable
-export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
-
-# Start server
-mcp-abap-adt-proxy
+# Start server with a BTP destination (matches a service-key file)
+mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
-#### Using Configuration File
+#### Using a Configuration File
 
-Create `mcp-proxy-config.json`:
+Create `mcp-proxy-config.yaml` (see [YAML Configuration Guide](./YAML_CONFIG.md)):
 
-```json
-{
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
-  "httpPort": 3001,
-  "logLevel": "info"
-}
+```yaml
+transport: streamable-http
+httpPort: 3001
+btpDestination: "btp-cloud"
+logLevel: "info"
 ```
 
 Start server:
 ```bash
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
 ```
 
 #### Using Environment Variables
 
 ```bash
-export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
 export MCP_HTTP_PORT=8080
 export LOG_LEVEL=debug
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
 ## Usage Scenarios
@@ -90,9 +85,10 @@ mcp-abap-adt-proxy --btp=ai
 
 Command line parameters work even if the corresponding headers are missing in the request.
 
-### Scenario 2: Local Testing Mode (No Authentication)
+### Scenario 2: BTP Auth with Target URL Override
 
-**Use Case:** Proxy requests to a local MCP server without authentication. Useful for development and testing.
+**Use Case:** Authenticate with one BTP destination's service key, but forward requests
+to a different URL (e.g. direct OData testing or a non-standard MCP path).
 
 **Client Configuration:**
 ```json
@@ -103,7 +99,8 @@ Command line parameters work even if the corresponding headers are missing in th
     "type": "streamableHttp",
     "url": "http://localhost:3001/mcp/stream/http",
     "headers": {
-      "x-mcp-url": "http://localhost:3000/mcp/stream/http"
+      "x-sap-destination": "btp-cloud",
+      "x-target-url": "https://your-service.cfapps.eu10.hana.ondemand.com"
     }
   }
 }
@@ -111,16 +108,15 @@ Command line parameters work even if the corresponding headers are missing in th
 
 **Or using command line:**
 ```bash
-mcp-abap-adt-proxy --mcp-url=http://localhost:3000/mcp/stream/http
+mcp-abap-adt-proxy --btp=btp-cloud \
+  --target-url=https://your-service.cfapps.eu10.hana.ondemand.com
 ```
 
 **What Happens:**
-1. Proxy receives request with `x-mcp-url` header (or `--mcp-url` parameter)
-2. No authentication is performed
-3. All headers from the request are passed through to the MCP server
-4. Proxies request to the specified URL
-5. Target MCP server processes request and returns response
-6. Proxy forwards response to client
+1. Proxy gets a BTP token from the `btp-cloud` service key
+2. Injects `Authorization: Bearer <token>`
+3. Forwards the request to `x-target-url` / `--target-url` instead of the key's `abap.url`
+4. Target server processes request and returns response
 
 **Service Key Structure:**
 The service key for BTP destination should contain the MCP server URL:
@@ -200,23 +196,19 @@ mcp-abap-adt-proxy --transport=stdio
 
 ### Custom Retry Settings
 
-```json
-{
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
-  "maxRetries": 5,
-  "retryDelay": 2000,
-  "requestTimeout": 120000
-}
+```yaml
+btpDestination: "btp-cloud"
+maxRetries: 5
+retryDelay: 2000
+requestTimeout: 120000
 ```
 
 ### Circuit Breaker Configuration
 
-```json
-{
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
-  "circuitBreakerThreshold": 10,
-  "circuitBreakerTimeout": 120000
-}
+```yaml
+btpDestination: "btp-cloud"
+circuitBreakerThreshold: 10
+circuitBreakerTimeout: 120000
 ```
 
 ## Integration Examples
@@ -321,8 +313,7 @@ Or via header:
 
 ```bash
 export LOG_LEVEL=debug
-export DEBUG_HTTP_REQUESTS=true
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
 ### Check Routing Decisions
@@ -347,20 +338,19 @@ Circuit breaker state is logged:
 export LOG_LEVEL=debug
 export MCP_HTTP_PORT=3001
 
-mcp-abap-adt-proxy --mcp-url=http://localhost:3000
+mcp-abap-adt-proxy --btp=dev-btp
 ```
 
 ### Pattern 2: Production Environment
 
-```json
-// mcp-proxy-config.json
-{
-  "cloudLlmHubUrl": "https://prod-cloud-llm-hub.example.com",
-  "httpPort": 3001,
-  "logLevel": "info",
-  "maxRetries": 5,
-  "circuitBreakerThreshold": 10
-}
+```yaml
+# mcp-proxy-config.yaml
+transport: streamable-http
+httpPort: 3001
+btpDestination: "prod-btp"
+logLevel: "info"
+maxRetries: 5
+circuitBreakerThreshold: 10
 ```
 
 ### Pattern 3: Multiple Destinations

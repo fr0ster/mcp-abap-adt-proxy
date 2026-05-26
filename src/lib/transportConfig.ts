@@ -96,7 +96,7 @@ export function parseTransportConfig(
       getArgValue('--sse-host') ||
       fileOverrides?.sseHost ||
       process.env.MCP_SSE_HOST ||
-      '0.0.0.0';
+      '127.0.0.1';
 
     return {
       type: 'sse',
@@ -133,7 +133,7 @@ export function parseTransportConfig(
       getArgValue('--http-host') ||
       fileOverrides?.httpHost ||
       process.env.MCP_HTTP_HOST ||
-      '0.0.0.0';
+      '127.0.0.1';
 
     return {
       type: 'streamable-http',

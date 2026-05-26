@@ -19,16 +19,16 @@ This guide helps you diagnose and resolve common issues with `@mcp-abap-adt/prox
 
 **Solutions:**
 
-1. **Check required environment variables:**
+1. **Check the BTP destination:**
 ```bash
-# For proxy functionality, CLOUD_LLM_HUB_URL is required
-export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
+# A BTP destination is required (CLI --btp, header x-sap-destination, or btpDestination in config)
+mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
 2. **Validate configuration file:**
 ```bash
-# Check if config file is valid JSON
-cat mcp-proxy-config.json | jq .
+# Check that the YAML config parses
+npx js-yaml mcp-proxy-config.yaml
 ```
 
 3. **Check port availability:**
@@ -42,7 +42,7 @@ netstat -ano | findstr :3001  # Windows
 ```bash
 # Enable debug logging to see validation details
 export LOG_LEVEL=debug
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
 #### Error: "Port already in use"
@@ -56,7 +56,7 @@ mcp-abap-adt-proxy
 1. **Use different port:**
 ```bash
 export MCP_HTTP_PORT=3002
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
 2. **Kill process using port:**
@@ -70,24 +70,18 @@ kill -9 <PID>
 
 ### 2. Proxy Requests Failing
 
-#### Error: "Cloud LLM Hub URL not configured"
+#### Error: "--btp parameter is required for stdio transport"
 
 **Symptoms:**
-- Proxy requests return error
-- Error message about missing URL
+- Server exits immediately on stdio transport
+- Error type: `STDIO_DESTINATION_REQUIRED`
 
 **Solutions:**
 
-1. **Set environment variable:**
+For stdio/SSE transports the destination cannot come from request headers, so it must
+be provided on the command line (or in a config file):
 ```bash
-export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
-```
-
-2. **Add to configuration file:**
-```json
-{
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com"
-}
+mcp-abap-adt-proxy --transport=stdio --btp=btp-cloud
 ```
 
 #### Error: "Circuit breaker is open"
@@ -188,7 +182,6 @@ npx sap-abap-auth auth -k sk.json
 1. **Check headers:**
 ```bash
 # Enable debug logging
-export DEBUG_HTTP_REQUESTS=true
 export LOG_LEVEL=debug
 ```
 
@@ -203,7 +196,7 @@ export LOG_LEVEL=debug
 
 3. **Review routing decision logs:**
 ```
-[DEBUG] Routing decision made: { strategy: "proxy-cloud-llm-hub", destination: "sk" }
+[DEBUG] Routing decision made: { strategy: "proxy", destination: "sk" }
 ```
 
 #### Unknown routing strategy
@@ -213,14 +206,14 @@ export LOG_LEVEL=debug
 - Request rejected
 
 **Causes:**
-- Missing required headers or CLI parameters
-- Neither `x-sap-destination`/`--btp` nor `x-mcp-url`/`--mcp-url` provided
+- Missing required destination
+- Neither `x-sap-destination` header nor `--btp` CLI parameter provided
 
 **Solutions:**
 
-1. **Provide at least one routing source:**
-   - BTP authentication: `x-sap-destination` header or `--btp` CLI parameter
-   - Direct URL: `x-mcp-url` header or `--mcp-url` CLI parameter
+1. **Provide a BTP destination:**
+   - `x-sap-destination` header (HTTP/SSE), or
+   - `--btp` CLI parameter / `btpDestination` in the config file
 
 2. **Review header validation:**
 ```bash
@@ -366,15 +359,14 @@ chmod 644 sk.json
 
 ```bash
 export LOG_LEVEL=debug
-export DEBUG_HTTP_REQUESTS=true
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
 ### Check Routing Decisions
 
 Look for logs like:
 ```
-[DEBUG] Routing decision made: { strategy: "proxy-cloud-llm-hub", destination: "sk" }
+[DEBUG] Routing decision made: { strategy: "proxy", destination: "sk" }
 ```
 
 ### Monitor Circuit Breaker
@@ -417,7 +409,7 @@ mcp-abap-adt-proxy 2>&1 | tee proxy.log
 **Successful Request:**
 ```
 [INFO] Request intercepted
-[DEBUG] Routing decision made: { strategy: "proxy-cloud-llm-hub" }
+[DEBUG] Routing decision made: { strategy: "proxy" }
 [DEBUG] Proxied request completed
 ```
 
@@ -438,7 +430,7 @@ When reporting issues, include:
 
 ## Best Practices
 
-1. **Always set CLOUD_LLM_HUB_URL** - Even if not using proxy, set it to avoid warnings
+1. **Always provide a BTP destination** - via `--btp`, `x-sap-destination`, or `btpDestination` in config
 2. **Monitor circuit breaker** - Check logs for circuit breaker state
 3. **Use appropriate timeouts** - Set timeouts based on network conditions
 4. **Keep service keys secure** - Never commit service keys to version control

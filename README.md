@@ -142,7 +142,6 @@ The proxy uses BTP/XSUAA authentication:
 - **[Architecture](./docs/ARCHITECTURE.md)** - System architecture and design
 - **[Troubleshooting](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[Routing Logic Specification](./docs/ROUTING_LOGIC.md)** - Detailed routing logic and scenarios
-- **[Implementation Analysis](./docs/IMPLEMENTATION_ANALYSIS.md)** - Current implementation analysis
 - **[Roadmap](./ROADMAP.md)** - Development roadmap and progress
 
 ## How It Works
@@ -226,28 +225,13 @@ See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 
 ## Testing Tools
 
-### Start Both Servers for Testing
-
-Use the included script to start both `mcp-abap-adt` and `mcp-abap-adt-proxy` simultaneously:
+Verify a BTP destination's service key and token retrieval:
 
 ```bash
-# Using npm script
-npm run test:servers
-
-# Direct execution
-node tools/start-servers.js
-
-# With SSE transport
-node tools/start-servers.js --transport=sse
+npm run test-destination
 ```
 
-The script automatically:
-- Starts ADT server on port 3000 (HTTP) or 3001 (SSE)
-- Starts Proxy server on port 3001 (HTTP) or 3002 (SSE)
-- Generates `mcpUrl` based on ADT server configuration
-- Ensures both servers use the same transport protocol
-
-See [tools/README.md](./tools/README.md) for complete documentation.
+See [tools/README.md](./tools/README.md) for the available scripts.
 
 ## Development Status
 
@@ -258,7 +242,7 @@ See [tools/README.md](./tools/README.md) for complete documentation.
 - ✅ JWT Token Management & Proxy Forwarding
 - ✅ Configuration & Environment
 - ✅ Error Handling & Resilience
-- ✅ Testing Tools (`tools/start-servers.js`)
+- ✅ Testing Tools (`tools/`)
 - ✅ Documentation
 
 🚧 **Future Work**

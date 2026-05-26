@@ -36,13 +36,15 @@ Cline configuration is typically stored in:
 - **Windows**: `%APPDATA%\Cline\cline.json`
 - **Linux**: `~/.config/Cline/cline.json`
 
-### Scenario 1: Local MCP Server (No Authentication)
+### Scenario 1: BTP Auth with Target URL Override
 
-**Use Case**: Connect to a local MCP server running on your machine (for development/testing).
+**Use Case**: Authenticate with a BTP destination's service key, but forward requests
+to a different URL (e.g. direct OData testing or a non-standard MCP path).
 
 **1. Start the proxy**:
 ```bash
-mcp-abap-adt-proxy --mcp-url=http://localhost:3000
+mcp-abap-adt-proxy --btp=btp-cloud \
+  --target-url=https://your-service.cfapps.eu10.hana.ondemand.com
 ```
 
 **2. Configure Cline** (`cline.json`):
@@ -55,7 +57,8 @@ mcp-abap-adt-proxy --mcp-url=http://localhost:3000
       "type": "streamableHttp",
       "url": "http://localhost:3001/mcp/stream/http",
       "headers": {
-        "x-mcp-url": "http://localhost:3000"
+        "x-sap-destination": "btp-cloud",
+        "x-target-url": "https://your-service.cfapps.eu10.hana.ondemand.com"
       }
     }
   }
@@ -63,9 +66,8 @@ mcp-abap-adt-proxy --mcp-url=http://localhost:3000
 ```
 
 **What happens**:
-- Proxy forwards requests directly to `http://localhost:3000`
-- All headers from Cline are passed through to the MCP server
-- No authentication is required
+- Proxy obtains a BTP token from the `btp-cloud` service key
+- Forwards requests to `x-target-url` instead of the key's `abap.url`, with `Authorization: Bearer <token>`
 
 ### Scenario 2: BTP MCP Server with BTP Authentication
 
@@ -219,15 +221,14 @@ mcp-abap-adt-proxy --transport=stdio --btp=btp-cloud
 }
 ```
 
-**Note**: For stdio transport, destinations must be provided via command-line arguments (`--btp`, `--mcp-url`), not headers.
+**Note**: For stdio transport, the destination must be provided via command-line arguments (`--btp`, `--target-url`), not headers.
 
 ## Configuration Scenarios Summary
 
-| Scenario | MCP Server | BTP Auth | Proxy Command | Headers Required |
-|----------|------------|----------|---------------|------------------|
-| Local MCP | Local | No | `--mcp-url=http://localhost:3000` | `x-mcp-url` |
-| BTP MCP | BTP | Yes | `--btp=<dest>` | `x-sap-destination` |
-| BTP MCP + explicit URL | BTP | Yes | `--mcp-url=<url> --btp=<dest>` | `x-mcp-url`, `x-sap-destination` |
+| Scenario | BTP Auth | Proxy Command | Headers Required |
+|----------|----------|---------------|------------------|
+| BTP MCP | Yes | `--btp=<dest>` | `x-sap-destination` |
+| BTP MCP + explicit URL | Yes | `--btp=<dest> --target-url=<url>` | `x-sap-destination`, `x-target-url` |
 
 ## Advanced Configuration
 
@@ -296,10 +297,10 @@ mcp-abap-adt-proxy --unsafe --btp=btp-cloud
 **Symptoms**: Proxy cannot reach target MCP server.
 
 **Solutions**:
-1. Verify `x-mcp-url` header or `--mcp-url` parameter is correct
+1. Verify `abap.url` in the service key (or `x-target-url`/`--target-url` override) points to the MCP server
 2. Check network connectivity to MCP server
 3. Verify MCP server is running and accessible
-4. For BTP destinations, verify `abap.url` in service key points to MCP server
+4. Verify the BTP destination (`--btp`/`x-sap-destination`) matches an existing service key
 
 ### Issue: Headers Not Passed Through
 
@@ -341,7 +342,7 @@ mcp-abap-adt-proxy [options]
 
 # Destination overrides
 --btp=<destination>          # BTP destination name
---mcp-url=<url>              # Direct MCP server URL
+--target-url=<url>           # Override target URL (auth still from --btp)
 
 # Port configuration
 --http-port=<port>           # HTTP port (default: 3001)
@@ -358,10 +359,10 @@ mcp-abap-adt-proxy [options]
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `x-mcp-url` | Optional* | Direct MCP server URL |
-| `x-sap-destination` | Optional* | BTP destination name for authentication |
+| `x-sap-destination` | Required* | BTP destination name for authentication |
+| `x-target-url` | Optional | Override the target URL (auth still from the BTP destination) |
 
-\* At least one of `x-mcp-url` or `x-sap-destination` must be provided (or via command-line).
+\* `x-sap-destination` (or the `--btp` command-line parameter) must be provided.
 
 ### Service Key Locations
 

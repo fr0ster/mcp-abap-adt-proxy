@@ -7,7 +7,6 @@
  *
  * Usage:
  *   mcp-abap-adt-proxy [options]
- *   mcp-abap-adt-proxy tui
  *   mcp-abap-adt-proxy --transport=stdio
  *   mcp-abap-adt-proxy --transport=http
  */
@@ -44,17 +43,13 @@ MCP ABAP ADT Proxy Server v${pkg.version}
 
 Usage:
   mcp-abap-adt-proxy [options]
-  mcp-abap-adt-proxy tui
-
-Commands:
-  tui                       Interactive configuration wizard (generates YAML config)
 
 Options:
   --transport=<type>       Transport type: stdio, http, streamable-http, sse
   --http-port=<port>      HTTP server port (default: 3001)
   --sse-port=<port>       SSE server port (default: 3002)
-  --http-host=<host>      HTTP server host (default: 0.0.0.0)
-  --sse-host=<host>       SSE server host (default: 0.0.0.0)
+  --http-host=<host>      HTTP server host (default: 127.0.0.1)
+  --sse-host=<host>       SSE server host (default: 127.0.0.1)
   --btp=<destination>     Override x-sap-destination header (for BTP Cloud authorization)
                            Required for stdio/SSE transports unless provided in headers
   --target-url=<url>      Override target URL (separates Auth from Connection)
@@ -70,8 +65,8 @@ Options:
 Environment Variables:
   MCP_HTTP_PORT           HTTP server port (default: 3001)
   MCP_SSE_PORT            SSE server port (default: 3002)
-  MCP_HTTP_HOST           HTTP server host (default: 0.0.0.0)
-  MCP_SSE_HOST            SSE server host (default: 0.0.0.0)
+  MCP_HTTP_HOST           HTTP server host (default: 127.0.0.1)
+  MCP_SSE_HOST            SSE server host (default: 127.0.0.1)
   MCP_TRANSPORT           Transport type (stdio|http|sse)
   MCP_PROXY_UNSAFE        Enable file-based session storage (set to "true")
 
@@ -85,7 +80,6 @@ Examples:
   mcp-abap-adt-proxy --btp=ai                           # With BTP destination override
   mcp-abap-adt-proxy --btp=ai --unsafe                  # With file-based session storage
   mcp-abap-adt-proxy --btp=ai --header x-sap-destination=S4HANA  # With default SAP headers
-  mcp-abap-adt-proxy tui                                 # Interactive configuration wizard
   mcp-abap-adt-proxy --config=proxy-config.yaml         # Load configuration from YAML file
   mcp-abap-adt-proxy -c proxy-config.yml                # Load configuration from YAML file (short form)
 
@@ -144,30 +138,6 @@ function main() {
   if (args.version) {
     showVersion();
     process.exit(0);
-  }
-
-  // Handle 'tui' subcommand — interactive configuration wizard
-  if (process.argv[2] === 'tui') {
-    const wizardPath = path.resolve(__dirname, '../dist/tui/index.js');
-    if (!fs.existsSync(wizardPath)) {
-      process.stderr.write(`[MCP Proxy] ✗ Wizard not found at: ${wizardPath}\n`);
-      process.stderr.write(`[MCP Proxy]   Make sure to build the project with 'npm run build' first.\n`);
-      process.exit(1);
-      return;
-    }
-    import(wizardPath).then(({ runWizard }) => {
-      runWizard().catch((err) => {
-        if (err.name === 'ExitPromptError') {
-          process.exit(0);
-        }
-        process.stderr.write(`[MCP Proxy] ✗ Wizard error: ${err.message}\n`);
-        process.exit(1);
-      });
-    }).catch((err) => {
-      process.stderr.write(`[MCP Proxy] ✗ Failed to load wizard: ${err.message}\n`);
-      process.exit(1);
-    });
-    return;
   }
 
   // Spawn the main server process

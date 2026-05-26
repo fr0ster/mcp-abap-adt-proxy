@@ -13,28 +13,10 @@ The proxy routes requests to MCP servers (local or on BTP) and handles BTP/XSUAA
 
 ## Routing Scenarios
 
-### Scenario 1: Local MCP Server (Only `--mcp-url`)
+### Scenario 1: BTP MCP Server (`--btp`)
 
 **Configuration:**
-- `--mcp-url=<mcp-server-url>` - Direct URL to local MCP server
-
-**Behavior:**
-- MCP server URL: From `--mcp-url` parameter
-- All headers from request are passed directly to MCP server (no validation, no destination lookups)
-- No BTP authentication required
-- No destination lookups needed
-
-**Use Case:** Local development/testing with MCP server running locally
-
-**Example:**
-```bash
-mcp-abap-adt-proxy --mcp-url=http://localhost:3000
-```
-
-### Scenario 2: BTP MCP Server (`--btp`)
-
-**Configuration:**
-- `--btp=<btp-destination>` - BTP destination for authentication
+- `--btp=<btp-destination>` (or header `x-sap-destination`) - BTP destination for authentication
 
 **Behavior:**
 - MCP server URL: From BTP destination service key (`abap.url` field)
@@ -49,42 +31,29 @@ mcp-abap-adt-proxy --mcp-url=http://localhost:3000
 mcp-abap-adt-proxy --btp=btp-cloud
 ```
 
-### Scenario 3: BTP MCP Server with explicit URL (`--mcp-url` + `--btp`)
+### Scenario 2: BTP MCP Server with explicit target URL (`--btp` + `--target-url`)
 
 **Configuration:**
-- `--mcp-url=<mcp-server-url>` - Direct URL to MCP server on BTP
-- `--btp=<btp-destination>` - BTP destination for authentication
+- `--btp=<btp-destination>` (or header `x-sap-destination`) - BTP destination for authentication
+- `--target-url=<url>` (or header `x-target-url`) - Override the target URL
 
 **Behavior:**
-- MCP server URL: From `--mcp-url` parameter (overrides service key URL)
-- **BTP Authentication**: Uses `btpAuthBroker` with `ClientCredentialsProvider` to get BTP Cloud token
+- MCP server URL: From `--target-url` (overrides the `abap.url` from the service key)
+- **BTP Authentication**: Auth token still comes from the `--btp` destination service key
   - Injects/overwrites `Authorization: Bearer <token>` header
 
-**Use Case:** When you want to specify the MCP URL explicitly while still using BTP authentication
+**Use Case:** Auth comes from one service key, but requests must go to a different URL
+(e.g. direct OData testing or a non-standard MCP path)
 
 **Example:**
 ```bash
-mcp-abap-adt-proxy --mcp-url=https://mcp-server.cfapps.eu10.hana.ondemand.com --btp=btp-cloud
+mcp-abap-adt-proxy --btp=btp-cloud \
+  --target-url=https://mcp-server.cfapps.eu10.hana.ondemand.com
 ```
 
-### Scenario 4: MCP URL Only (No Destinations)
-
-**Configuration:**
-- `--mcp-url=<mcp-server-url>` - Direct URL to MCP server
-- No `--btp` parameter
-
-**Behavior:**
-- MCP server URL: From `--mcp-url` parameter
-- All headers from request are passed directly to MCP server (no validation, no destination lookups)
-- No destination lookups
-- All parameters come from request headers
-
-**Use Case:** Flexible routing where all parameters are provided in request headers
-
-**Example:**
-```bash
-mcp-abap-adt-proxy --mcp-url=http://localhost:3000
-```
+> **Note:** Direct unauthenticated routing via `--mcp-url` / `x-mcp-url` has been
+> **removed**. A BTP destination (`--btp` or `x-sap-destination`) is required; without
+> it the proxy cannot resolve a target or obtain a token.
 
 ## Header Mapping
 
@@ -113,16 +82,17 @@ All headers from the original request (except `x-sap-destination`) are passed di
 1. **BTP AuthBroker architecture**: `btpAuthBroker` with `ClientCredentialsProvider` for BTP destinations (service keys with `uaa` section)
 2. **BTP destination handling**: Correctly gets token from BTP destination using `btpAuthBroker` for MCP server authorization
 3. **Service key store**: `XsuaaServiceKeyStore` correctly reads service keys for BTP destinations
-4. **Command-line overrides**: `--btp`, `--mcp-url` work as expected
+4. **Command-line overrides**: `--btp`, `--target-url` work as expected
 5. **Header passthrough**: Original headers are preserved and forwarded to MCP server
 6. **Platform path resolution**: Correctly determines service key and session paths for Unix and Windows
 
 ## Testing Scenarios
 
-### Test 1: Local MCP with Direct URL
+### Test 1: BTP MCP with explicit target URL
 ```bash
 # Start proxy
-mcp-abap-adt-proxy --mcp-url=http://localhost:3000
+mcp-abap-adt-proxy --btp=btp-cloud \
+  --target-url=https://mcp-server.cfapps.eu10.hana.ondemand.com
 
 # Send request with headers
 curl -X POST http://localhost:3001/mcp/stream/http \
@@ -131,8 +101,7 @@ curl -X POST http://localhost:3001/mcp/stream/http \
 ```
 
 **Expected:**
-- Request forwarded directly to `http://localhost:3000`
-- All headers passed through without modification
+- Request forwarded to the `--target-url` value with `Authorization: Bearer <btp-token>`
 
 ### Test 2: BTP MCP with BTP Destination
 ```bash
@@ -153,6 +122,5 @@ curl -X POST http://localhost:3001/mcp/stream/http \
 
 The proxy supports flexible routing:
 - **BTP Authentication Mode**: Use `--btp` for BTP authentication, MCP URL from service key
-- **Local Testing Mode**: Use `--mcp-url` for direct MCP server URL (no authentication)
-- **Combined Mode**: Use both `--btp` and `--mcp-url` for BTP auth with explicit URL
+- **Explicit URL Mode**: Use `--btp` + `--target-url` for BTP auth with an overridden target URL
 - **No .env files**: Only use destinations via auth-broker, never .env files

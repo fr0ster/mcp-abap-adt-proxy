@@ -1,6 +1,6 @@
 {
   "name": "@mcp-abap-adt/proxy",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "MCP proxy server for SAP ABAP ADT - proxies local requests to cloud-llm-hub with JWT authentication",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,7 +19,6 @@
     "dev": "npx @modelcontextprotocol/inspector node ./dist/index.js",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "prepublishOnly": "npm run build",
-    "test:servers": "node ./tools/start-servers.js",
     "test-destination": "npx tsx tools/test-destination.ts"
   },
   "keywords": [
@@ -64,7 +63,6 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.4.2",
     "@mcp-abap-adt/auth-broker": "^1.0.5",
     "@mcp-abap-adt/auth-providers": "^1.0.5",
     "@mcp-abap-adt/auth-stores": "^1.0.4",

@@ -54,12 +54,13 @@ await server.shutdown();
 
 ### Header Analyzer
 
-#### `analyzeHeaders(headers: IncomingHttpHeaders): RoutingDecision`
+#### `analyzeHeaders(headers: IncomingHttpHeaders, configOverrides?: { btpDestination?: string; targetUrl?: string }): RoutingDecision`
 
-Analyzes HTTP headers to determine routing strategy.
+Analyzes HTTP headers to determine routing strategy. CLI overrides (`--btp`, `--target-url`) take precedence over headers.
 
 **Parameters:**
 - `headers`: HTTP request headers
+- `configOverrides`: optional `btpDestination` / `targetUrl` from CLI params
 
 **Returns:** `RoutingDecision` object with routing strategy and metadata.
 
@@ -67,17 +68,16 @@ Analyzes HTTP headers to determine routing strategy.
 ```typescript
 import { analyzeHeaders } from "@mcp-abap-adt/proxy/router/headerAnalyzer";
 
-const decision = analyzeHeaders(req.headers, { btpDestination: "ai", mcpDestination: "trial" });
+const decision = analyzeHeaders(req.headers, { btpDestination: "ai" });
 console.log(decision.strategy); // "proxy" | "unknown"
-console.log(decision.mcpUrl); // URL from x-mcp-url header
 console.log(decision.btpDestination); // Destination for BTP Cloud authorization (from header or override)
-console.log(decision.mcpDestination); // Destination for SAP ABAP connection (from header or override)
+console.log(decision.targetUrl); // Explicit target URL (from x-target-url or override)
 ```
 
 #### Routing Strategies
 
-- `PROXY`: Proxy request with JWT authentication (x-mcp-url header present)
-- `UNKNOWN`: x-mcp-url header missing or invalid
+- `PROXY`: Proxy request with JWT authentication (`x-sap-destination` / `--btp` present)
+- `UNKNOWN`: No BTP destination provided — request cannot be routed
 
 ### Request Interceptor
 
@@ -220,17 +220,22 @@ if (!validation.valid) {
 
 ```typescript
 interface ProxyConfig {
-  cloudLlmHubUrl: string;
   httpPort: number;
   ssePort: number;
   httpHost: string;
   sseHost: string;
   logLevel: string;
+  btpDestination?: string;
+  targetUrl?: string;
+  defaultHeaders?: Record<string, string>;
+  unsafe?: boolean;
   maxRetries?: number;
   retryDelay?: number;
   requestTimeout?: number;
   circuitBreakerThreshold?: number;
   circuitBreakerTimeout?: number;
+  browser?: 'system' | 'headless' | 'chrome' | 'edge' | 'firefox' | 'none';
+  browserAuthPort?: number;
 }
 ```
 
@@ -238,12 +243,10 @@ interface ProxyConfig {
 
 ```typescript
 interface RoutingDecision {
-  strategy: RoutingStrategy;
-  btpDestination?: string;  // Destination for BTP Cloud authorization (x-sap-destination or --btp)
-  mcpDestination?: string;  // Destination for SAP ABAP connection (x-mcp-destination or --mcp)
-  mcpUrl?: string;          // URL from x-mcp-url header
+  strategy: RoutingStrategy;     // RoutingStrategy.PROXY | RoutingStrategy.UNKNOWN
+  btpDestination?: string;       // Destination for BTP Cloud authorization (x-sap-destination or --btp)
+  targetUrl?: string;            // Explicit target URL (x-target-url or --target-url)
   reason: string;
-  validationResult?: HeaderValidationResult;
 }
 ```
 

@@ -24,57 +24,55 @@ The MCP ABAP ADT Proxy supports loading configuration from YAML or JSON files, p
    mcp-abap-adt-proxy -c mcp-proxy-config.yaml
    ```
 
-## Configuration File Locations
+## Configuration File Location
 
-The proxy searches for configuration files in the following order:
+There is **no auto-discovery**. The config file is loaded **only** when you pass it
+explicitly via `--config` (or `-c`):
 
-1. **Explicit path** (via `--config` or `-c` parameter)
-2. **Environment variable** (`MCP_PROXY_CONFIG`)
-3. **Current directory**:
-   - `mcp-proxy-config.yaml`
-   - `mcp-proxy-config.yml`
-   - `mcp-proxy-config.json`
-   - `.mcp-proxy-config.yaml`
-   - `.mcp-proxy-config.yml`
-   - `.mcp-proxy-config.json`
-4. **Home directory**:
-   - `~/.mcp-proxy-config.yaml`
-   - `~/.mcp-proxy-config.yml`
-   - `~/.mcp-proxy-config.json`
+```bash
+mcp-abap-adt-proxy --config=/path/to/mcp-proxy-config.yaml
+```
 
-## Configuration Priority
+Both `.yaml`/`.yml` and `.json` files are supported (format is detected by extension).
 
-Configuration values are merged in the following priority order (highest to lowest):
+## Configuration Modes (mutually exclusive)
 
-1. **Command-line parameters** (e.g., `--btp=destination`)
-2. **Environment variables**
-3. **Configuration file** (YAML or JSON)
-4. **Default values**
+- **With `--config`**: configuration is loaded **only** from that file. Other CLI
+  params (`--btp`, `--unsafe`, …) are ignored with a warning. Any value missing
+  from the file falls back to its built-in default.
+- **Without `--config`**: configuration comes from CLI parameters and environment
+  variables only (see [CONFIGURATION.md](./CONFIGURATION.md)). The config file is
+  not consulted.
 
 ## YAML Configuration Template
 
 ```yaml
 # MCP ABAP ADT Proxy Configuration
-# Copy this file to mcp-proxy-config.yaml and customize for your environment
+# Load explicitly: mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
 
 # Transport configuration
-transport: http  # stdio | http | sse
+transport: streamable-http  # stdio | http | streamable-http | sse
 httpPort: 3001
+httpHost: "127.0.0.1"
 ssePort: 3002
-httpHost: "0.0.0.0"
-sseHost: "0.0.0.0"
+sseHost: "127.0.0.1"
 
-# Destination overrides (optional - can be overridden by command-line parameters)
-# BTP destination for Cloud authorization (Authorization: Bearer token)
-# Uses service key from ~/.config/mcp-abap-adt/service-keys/<btpDestination>.json
+# BTP destination for Cloud authorization (Authorization: Bearer token).
+# Must match a service key: ~/.config/mcp-abap-adt/service-keys/<btpDestination>.json
 btpDestination: "btp"
 
-# Target URL override (optional - overrides URL from service key's abap.url)
-# Useful when auth comes from one service key but requests go to a different URL
-# targetUrl: "https://your-service.com/v1"
+# Target URL override (optional). Auth still comes from the service key above,
+# but requests are forwarded here instead of the key's abap.url.
+# targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com"
 
-# Direct MCP server URL (alternative to btpDestination, for local testing)
-# mcpUrl: "https://your-mcp-server.com/mcp/stream/http"
+# Default headers injected into every forwarded request.
+# Client-supplied headers take precedence over these.
+defaultHeaders:
+  x-sap-destination: "S4HANA_E19"
+
+# OAuth2 login browser
+browser: "system"      # system | headless | chrome | edge | firefox | none
+browserAuthPort: 7777  # port for the local OAuth2 callback server
 
 # Session storage mode
 unsafe: false  # If true, persists tokens to disk. If false, uses in-memory storage (secure)
@@ -88,9 +86,6 @@ circuitBreakerTimeout: 60000  # milliseconds
 
 # Logging
 logLevel: "info"  # debug | info | warn | error
-
-# Cloud LLM Hub URL (optional - usually obtained from service keys)
-# cloudLlmHubUrl: "https://your-cloud-llm-hub.com"
 ```
 
 ## Configuration Examples
@@ -119,20 +114,25 @@ targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com/v1"
 
 Auth tokens come from the `btp` service key, but requests are forwarded to `targetUrl` instead of the URL in the service key.
 
-### Example 3: Local Testing Mode (No BTP)
+### Example 3: BTP Auth with Default SAP Headers
 
 ```yaml
-transport: http
+transport: streamable-http
 httpPort: 3001
-mcpUrl: "http://localhost:3000/mcp/stream/http"
+btpDestination: "btp"
+defaultHeaders:
+  x-sap-destination: "S4HANA_E19"
 ```
+
+Every forwarded request gets the `x-sap-destination` header unless the client
+already supplied one.
 
 ### Example 4: SSE Transport
 
 ```yaml
 transport: sse
 ssePort: 3002
-sseHost: "0.0.0.0"
+sseHost: "127.0.0.1"
 btpDestination: "btp"
 ```
 
@@ -155,19 +155,26 @@ circuitBreakerTimeout: 120000
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `transport` | `string` | `"http"` | Transport type: `stdio`, `http`, `sse` |
+| `transport` | `string` | `"streamable-http"` | Transport type: `stdio`, `http`, `streamable-http`, `sse` |
 | `httpPort` | `number` | `3001` | HTTP server port |
 | `ssePort` | `number` | `3002` | SSE server port |
-| `httpHost` | `string` | `"0.0.0.0"` | HTTP server host |
-| `sseHost` | `string` | `"0.0.0.0"` | SSE server host |
+| `httpHost` | `string` | `"127.0.0.1"` | HTTP server host (loopback by default; set `0.0.0.0` to expose) |
+| `sseHost` | `string` | `"127.0.0.1"` | SSE server host (loopback by default; set `0.0.0.0` to expose) |
 
-### Destination Configuration
+### Destination & Headers
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `btpDestination` | `string` | `undefined` | BTP destination name (for Cloud authorization) |
+| `btpDestination` | `string` | `undefined` | BTP destination name (for Cloud authorization). Must match a service key file. |
 | `targetUrl` | `string` | `undefined` | Override target URL (uses auth from `btpDestination` but forwards to this URL) |
-| `mcpUrl` | `string` | `undefined` | Direct MCP server URL (for local testing without authentication) |
+| `defaultHeaders` | `map` | `undefined` | Headers injected into every forwarded request; client headers take precedence |
+
+### Authentication Browser
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `browser` | `string` | `"system"` | OAuth2 login browser: `system`, `headless`, `chrome`, `edge`, `firefox`, `none` |
+| `browserAuthPort` | `number` | `undefined` | Port for the local OAuth2 callback server |
 
 ### Session Storage
 

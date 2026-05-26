@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-26
+
+### Security
+- **Default bind host changed from `0.0.0.0` to `127.0.0.1`** (loopback) for HTTP and SSE transports. The proxy holds auth tokens and runs locally, so it no longer listens on all network interfaces by default. Set `httpHost`/`sseHost` (or `MCP_HTTP_HOST`/`MCP_SSE_HOST`) to `0.0.0.0` to expose it intentionally.
+
+### Removed
+- **Interactive configuration wizard (TUI)** — removed the `mcp-abap-adt-proxy tui` subcommand and the `src/tui/` module (its `direct`/`mcpUrl` scenario no longer matched the BTP-only proxy and produced unusable configs). Client and proxy configuration is handled by the separate `@mcp-abap-adt/configurator` package (`mcp-conf`). Dropped the `@inquirer/prompts` dependency.
+- **Combined-launch test harness** — removed `tools/start-servers.js` and the `npm run test:servers` script. It started a local `mcp-abap-adt` server with the proxy in front of it via the long-removed `--mcp-url`/`--mcp` flags, which no longer applies to a pure authorization proxy.
+
+### Changed
+- **Documentation synced to the BTP-only model.** Removed stale references to the long-gone `x-mcp-url`/`--mcp-url`, `mcpDestination`, `cloudLlmHubUrl`/`CLOUD_LLM_HUB_URL`, `DEBUG_HTTP_REQUESTS`, and config-file auto-discovery/`MCP_PROXY_CONFIG`. Documented the actual options: `defaultHeaders`, `browser`/`browserAuthPort`, and `targetUrl`/`x-target-url`. Removed the obsolete `IMPLEMENTATION_ANALYSIS.md`.
+
 ## [1.2.0] - 2026-04-20
 
 ### Added

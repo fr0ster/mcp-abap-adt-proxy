@@ -18,29 +18,40 @@ See [YAML Configuration Guide](./YAML_CONFIG.md) for details.
 
 ### Mode 2: CLI params + environment variables + defaults
 
-Without `--config`, values are merged in this priority order:
+Without `--config`, values come from CLI parameters, environment variables, and
+built-in defaults. The config file is **not** consulted in this mode (and there is
+no auto-discovery).
 
-1. **CLI parameters** (`--btp`, `--mcp-url`, `--header`, etc.) — highest priority
-2. **Environment variables**
-3. **Configuration file** (`mcp-proxy-config.json` auto-discovered)
-4. **Default values** — lowest priority
+#### CLI parameters
+
+| Flag | Description |
+|------|-------------|
+| `--btp=<destination>` | BTP destination for Cloud authorization |
+| `--target-url=<url>` (alias `--url`) | Override target URL |
+| `--unsafe` | Persist tokens to disk (default: in-memory) |
+| `--header key=value` | Default header injected into every request (repeatable) |
+| `--browser=<type>` | OAuth2 login browser: `system`, `headless`, `chrome`, `edge`, `firefox`, `none` |
+| `--browser-auth-port=<port>` | Port for the local OAuth2 callback server |
+| `--transport`, `--http-port`, `--http-host`, `--sse-port`, `--sse-host` | Transport settings |
+
+Run `mcp-abap-adt-proxy --help` for the full list.
 
 ## Environment Variables
-
-### Required Variables
-
-- `CLOUD_LLM_HUB_URL` - URL of the cloud-llm-hub service
-  - Example: `https://cloud-llm-hub.example.com`
-  - **Note**: Only required if using proxy to cloud-llm-hub functionality
-
-### Optional Variables
 
 #### Server Configuration
 - `MCP_HTTP_PORT` - HTTP server port (default: `3001`)
 - `MCP_SSE_PORT` - SSE server port (default: `3002`)
-- `MCP_HTTP_HOST` - HTTP server host (default: `0.0.0.0`)
-- `MCP_SSE_HOST` - SSE server host (default: `0.0.0.0`)
-- `MCP_TRANSPORT` - Transport type: `stdio`, `streamable-http`, or `sse` (default: `streamable-http`)
+- `MCP_HTTP_HOST` - HTTP server host (default: `127.0.0.1`)
+- `MCP_SSE_HOST` - SSE server host (default: `127.0.0.1`)
+
+> **Note:** The default is `127.0.0.1` (loopback only) — the proxy runs locally and holds
+> auth tokens, so it does not listen on all interfaces by default. Set `httpHost`/`sseHost`
+> (or `MCP_HTTP_HOST`/`MCP_SSE_HOST`) to `0.0.0.0` only if you deliberately need to expose
+> it. (SSE additionally rejects non-local connections regardless of host.)
+- `MCP_TRANSPORT` - Transport type: `stdio`, `http`, `streamable-http`, or `sse`
+
+#### Session Storage
+- `MCP_PROXY_UNSAFE` - Set to `"true"` to persist tokens to disk (default: in-memory)
 
 #### Error Handling & Resilience
 - `MCP_PROXY_MAX_RETRIES` - Maximum number of retry attempts (default: `3`)
@@ -51,107 +62,41 @@ Without `--config`, values are merged in this priority order:
 
 #### Logging
 - `LOG_LEVEL` - Logging level: `debug`, `info`, `warn`, `error` (default: `info`)
-- `DEBUG_HTTP_REQUESTS` - Enable HTTP request logging (default: `false`)
 
-#### Configuration File
-- `MCP_PROXY_CONFIG` - Path to configuration file (optional)
+> **Note:** `--config` is the **only** way to load a config file. The
+> `MCP_PROXY_CONFIG` environment variable is **not** honored.
 
 ## Configuration File
 
-Create a JSON configuration file named `mcp-proxy-config.json` in one of these locations:
-
-1. Current working directory: `./mcp-proxy-config.json`
-2. Current working directory (hidden): `./.mcp-proxy-config.json`
-3. User home directory: `~/.mcp-proxy-config.json`
-
-### Configuration File Format
-
-```json
-{
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
-  "httpPort": 3001,
-  "ssePort": 3002,
-  "httpHost": "0.0.0.0",
-  "sseHost": "0.0.0.0",
-  "logLevel": "info",
-  "maxRetries": 3,
-  "retryDelay": 1000,
-  "requestTimeout": 60000,
-  "circuitBreakerThreshold": 5,
-  "circuitBreakerTimeout": 60000
-}
-```
-
-### Configuration File Fields
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `cloudLlmHubUrl` | string | `""` | URL of cloud-llm-hub service |
-| `httpPort` | number | `3001` | HTTP server port |
-| `ssePort` | number | `3002` | SSE server port |
-| `httpHost` | string | `"0.0.0.0"` | HTTP server host |
-| `sseHost` | string | `"0.0.0.0"` | SSE server host |
-| `logLevel` | string | `"info"` | Logging level |
-| `maxRetries` | number | `3` | Maximum retry attempts |
-| `retryDelay` | number | `1000` | Retry delay in milliseconds |
-| `requestTimeout` | number | `60000` | Request timeout in milliseconds |
-| `circuitBreakerThreshold` | number | `5` | Circuit breaker failure threshold |
-| `circuitBreakerTimeout` | number | `60000` | Circuit breaker timeout in milliseconds |
-
-## Configuration Precedence
-
-Environment variables **always override** configuration file values. This allows you to:
-
-1. Set default values in the configuration file
-2. Override specific values via environment variables
-3. Use different configurations for different environments
+For the YAML/JSON config-file format and the full field reference, see the
+[YAML Configuration Guide](./YAML_CONFIG.md). The file is loaded only via
+`--config=<path>` (or `-c`).
 
 ## Examples
 
-### Example 1: Environment Variables Only
+### Example 1: CLI parameters
 
 ```bash
-export CLOUD_LLM_HUB_URL="https://cloud-llm-hub.example.com"
+mcp-abap-adt-proxy --transport=streamable-http --btp=btp \
+  --header x-sap-destination=S4HANA_E19
+```
+
+### Example 2: Environment variables
+
+```bash
 export MCP_HTTP_PORT=8080
 export LOG_LEVEL=debug
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --btp=btp
 ```
 
-### Example 2: Configuration File
+### Example 3: Config file
 
-Create `mcp-proxy-config.json`:
-
-```json
-{
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
-  "httpPort": 3001,
-  "logLevel": "info"
-}
-```
-
-Run:
 ```bash
-mcp-abap-adt-proxy
+mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
 ```
 
-### Example 3: Mixed (File + Environment Override)
-
-Create `mcp-proxy-config.json`:
-
-```json
-{
-  "cloudLlmHubUrl": "https://cloud-llm-hub.example.com",
-  "httpPort": 3001,
-  "logLevel": "info"
-}
-```
-
-Run with override:
-```bash
-export MCP_HTTP_PORT=8080
-mcp-abap-adt-proxy
-# Uses httpPort=8080 from env, other values from file
-```
+When `--config` is used, all settings come from the file and CLI params are
+ignored. See [YAML Configuration Guide](./YAML_CONFIG.md).
 
 ## Validation
 
@@ -159,19 +104,21 @@ The configuration is validated on server startup. Errors will prevent the server
 
 ### Common Validation Errors
 
-- `CLOUD_LLM_HUB_URL must be a valid URL` - Invalid URL format
 - `MCP_HTTP_PORT must be between 1 and 65535` - Invalid port number
+- `MCP_SSE_PORT must be between 1 and 65535` - Invalid port number
 - `MCP_HTTP_PORT and MCP_SSE_PORT must be different` - Ports must be unique
 
 ### Common Validation Warnings
 
-- `CLOUD_LLM_HUB_URL is not set` - Proxy functionality won't work, but direct cloud and basic auth will
+- `No BTP destination provided (--btp)` - Proxy won't work unless requests include an `x-sap-destination` header
 - `MCP_PROXY_MAX_RETRIES should be between 0 and 10` - Retry count out of recommended range
+- `MCP_PROXY_RETRY_DELAY should be between 0 and 60000ms` - Retry delay out of recommended range
+- `MCP_PROXY_REQUEST_TIMEOUT should be between 1000 and 300000ms` - Timeout out of recommended range
 
 ## Best Practices
 
-1. **Use configuration files for defaults** - Set common values in `mcp-proxy-config.json`
-2. **Use environment variables for overrides** - Override specific values per environment
+1. **Use a config file for stable setups** - Keep per-subaccount settings in a YAML file loaded via `--config`
+2. **Use CLI params / env vars for quick overrides** - When not using `--config`
 3. **Validate configuration** - Check logs for validation warnings on startup
 4. **Set appropriate timeouts** - Adjust `requestTimeout` based on your network conditions
 5. **Configure circuit breaker** - Adjust thresholds based on your reliability requirements
@@ -181,13 +128,12 @@ The configuration is validated on server startup. Errors will prevent the server
 ### Server won't start
 
 - Check configuration validation errors in logs
-- Verify all required environment variables are set
 - Ensure port numbers are valid and not in use
 
 ### Proxy requests failing
 
-- Verify `CLOUD_LLM_HUB_URL` is set correctly
-- Check network connectivity to cloud-llm-hub
+- Verify the BTP destination (`--btp` or `btpDestination`) matches an existing service key
+- Check network connectivity to the target service
 - Review circuit breaker state in logs
 - Check token expiration errors
 

@@ -1,39 +1,41 @@
 # MCP ABAP ADT Proxy Configuration Example
-# Copy this file to mcp-proxy-config.yaml and customize for your environment
+# Copy this file and pass it explicitly: mcp-abap-adt-proxy --config=<path>
+# (There is no auto-discovery — the file is loaded ONLY via --config / -c.)
 
-# Transport configuration
-transport: http  # stdio | http | sse
+# --- Transport ---
+transport: streamable-http   # stdio | http | streamable-http | sse
 httpPort: 3001
+httpHost: "127.0.0.1"
 ssePort: 3002
-httpHost: "0.0.0.0"
-sseHost: "0.0.0.0"
+sseHost: "127.0.0.1"
 
-# Destination overrides (optional - can be overridden by command-line parameters)
-# BTP destination for Cloud authorization (Authorization: Bearer token)
-btpDestination: "btp"  # Uses service key from ~/.config/mcp-abap-adt/service-keys/btp.json
+# --- BTP authentication ---
+# BTP destination name. Must match a service-key file:
+#   ~/.config/mcp-abap-adt/service-keys/<btpDestination>.json
+btpDestination: "btp"
 
-# Target URL override (optional - overrides URL from service key's abap.url)
-# targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com/v1"
+# Optional: override the target URL. Auth still comes from the service key
+# above, but requests are forwarded here instead of the key's abap.url.
+targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com"
 
-# MCP destination for SAP ABAP connection (x-sap-jwt-token, x-sap-url, etc.)
-# mcpDestination: "mcp"  # Uses service key from ~/.config/mcp-abap-adt/service-keys/mcp.json
+# --- Default headers ---
+# Injected into every forwarded request. Client-supplied headers win over these.
+defaultHeaders:
+  x-sap-destination: "S4HANA_E19"
 
-# Direct MCP server URL (alternative to btpDestination, for local testing)
-# mcpUrl: "https://your-mcp-server.com/mcp/stream/http"
+# --- OAuth2 login browser ---
+browser: "system"        # system | headless | chrome | edge | firefox | none
+browserAuthPort: 7777    # port for the local OAuth2 callback server
 
-# Session storage mode
-unsafe: false  # If true, persists tokens to disk. If false, uses in-memory storage (secure)
+# --- Session storage ---
+unsafe: false   # true: persist tokens to disk. false: in-memory (secure, default)
 
-# Error handling & resilience
+# --- Error handling & resilience ---
 maxRetries: 3
-retryDelay: 1000  # milliseconds
-requestTimeout: 60000  # milliseconds
+retryDelay: 1000             # milliseconds
+requestTimeout: 60000        # milliseconds
 circuitBreakerThreshold: 5
-circuitBreakerTimeout: 60000  # milliseconds
+circuitBreakerTimeout: 60000 # milliseconds
 
-# Logging
-logLevel: "info"  # debug | info | warn | error
-
-# Cloud LLM Hub URL (optional - usually obtained from service keys)
-# cloudLlmHubUrl: "https://your-cloud-llm-hub.com"
-
+# --- Logging ---
+logLevel: "info"   # debug | info | warn | error

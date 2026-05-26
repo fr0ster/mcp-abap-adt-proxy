@@ -23,7 +23,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 │  ┌──────────────────────────────────────┐   │
 │  │   Request Interceptor                │   │
 │  │   - Extract x-sap-destination        │   │
-│  │   - Extract x-mcp-url               │   │
+│  │   - Extract x-target-url            │   │
 │  └──────────────┬───────────────────────┘   │
 │                 │                             │
 │  ┌──────────────▼───────────────────────┐   │
@@ -40,7 +40,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
          │
 ┌────────▼─────────────────────────────────────┐
 │     Target MCP Server                        │
-│     (URL from service key or x-mcp-url)      │
+│     (URL from service key or x-target-url)   │
 └───────────────────────────────────────────────┘
 ```
 
@@ -66,7 +66,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 
 **Responsibilities:**
 - Extract `x-sap-destination` header (for BTP authentication)
-- Extract `x-mcp-url` header (for direct MCP server URL)
+- Extract `x-target-url` header (optional target URL override)
 - Determine routing decision
 
 **Key Functions:**
@@ -74,8 +74,8 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 - `shouldProxy()` - Check if request should be proxied
 
 **Routing Strategy:**
-- `PROXY` - Proxy request with JWT authentication (when `x-sap-destination` or `x-mcp-url` is present)
-- `PASSTHROUGH` - No proxy headers found, forward unchanged
+- `PROXY` - Proxy request with JWT authentication (when `x-sap-destination` / `--btp` is present)
+- `UNKNOWN` - No BTP destination provided; request cannot be routed (rejected with `400`)
 
 ### 3. Proxy Client
 
@@ -127,10 +127,9 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 - Validate configuration
 - Merge configurations with precedence
 
-**Configuration Sources:**
-1. Environment variables (highest priority)
-2. Configuration file (`mcp-proxy-config.json`)
-3. Default values (lowest priority)
+**Configuration Sources (mutually exclusive):**
+- With `--config`/`-c`: loaded **only** from the given YAML/JSON file
+- Without `--config`: CLI params + environment variables + defaults
 
 ## Request Flow
 
@@ -145,7 +144,7 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
    ↓
 3. Header Analyzer
    - Extract x-sap-destination (for BTP auth)
-   - Extract x-mcp-url (for direct URL)
+   - Extract x-target-url (optional URL override)
    ↓
 4. Proxy Client
    ↓

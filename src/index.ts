@@ -264,7 +264,7 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
     });
 
     const port = httpConfig.port || 3001;
-    const host = httpConfig.host || '0.0.0.0';
+    const host = httpConfig.host || '127.0.0.1';
 
     return new Promise((resolve, reject) => {
       this.httpServer?.listen(port, host, () => {
@@ -635,7 +635,7 @@ Authorization source: ${authSourceObj}`;
     });
 
     const port = sseConfig.port || 3002;
-    const host = sseConfig.host || '0.0.0.0';
+    const host = sseConfig.host || '127.0.0.1';
 
     return new Promise((resolve, reject) => {
       httpServer.listen(port, host, () => {
