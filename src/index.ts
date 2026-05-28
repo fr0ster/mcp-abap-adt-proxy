@@ -695,9 +695,91 @@ Authorization source: ${authSourceObj}`;
 // Export for use in bin script
 export default McpAbapAdtProxyServer;
 
+/**
+ * Print CLI usage and exit.
+ */
+function printHelp(): void {
+  const help = `Usage: mcp-abap-adt-proxy [options]
+
+Authorization proxy for MCP clients (Cline, Claude Code, etc.) that cannot
+authenticate on their own to MCP servers deployed on SAP BTP.
+
+CONFIGURATION
+  -c, --config <path>         Load config from YAML/JSON file. CLI flags below
+                              override values from the file.
+
+AUTHENTICATION (BTP / XSUAA)
+  --btp <destination>         BTP destination name. Service key is read from
+                              ~/.config/mcp-abap-adt/service-keys/<dest>.json
+  --target-url <url>          Override target service URL (default: from service key)
+  --url <url>                 Alias for --target-url
+  --unsafe                    Persist session/tokens to disk (default: in-memory)
+  --header <key=value>        Inject a default header into every forwarded
+                              request. Repeatable. Client-supplied headers win.
+
+BROWSER AUTHORIZATION
+  --browser <mode>            Browser used for OAuth login. One of:
+                                system   - OS default browser (default)
+                                chrome   - Google Chrome
+                                edge     - Microsoft Edge
+                                firefox  - Firefox
+                                none     - Print URL to console and wait for
+                                           callback (for SSH/headless sessions)
+                                headless - Alias for 'none'
+  --browser-auth-port <port>  Local OAuth callback port. Must match the
+                              redirect_uri registered on XSUAA (default: 3333).
+
+TRANSPORT
+  --transport <type>          stdio | streamable-http | http | sse
+                              (auto-detected from stdin TTY if not set)
+  --stdio                     Shortcut for --transport stdio
+  --http                      Shortcut for --transport streamable-http
+  --sse                       Shortcut for --transport sse
+  --http-port <port>          HTTP transport port (default: 3001)
+  --http-host <host>          HTTP transport host (default: 127.0.0.1)
+  --sse-port <port>           SSE transport port (default: 3002)
+  --sse-host <host>           SSE transport host (default: 127.0.0.1)
+
+  -h, --help                  Show this help and exit
+
+ENVIRONMENT VARIABLES
+  MCP_TRANSPORT, MCP_HTTP_PORT, MCP_HTTP_HOST, MCP_SSE_PORT, MCP_SSE_HOST,
+  LOG_LEVEL, MCP_PROXY_UNSAFE, MCP_PROXY_MAX_RETRIES, MCP_PROXY_RETRY_DELAY,
+  MCP_PROXY_REQUEST_TIMEOUT, MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD,
+  MCP_PROXY_CIRCUIT_BREAKER_TIMEOUT
+
+See docs/CONFIGURATION.md for the full configuration reference.
+`;
+  process.stdout.write(help);
+}
+
 // Auto-start server when run directly (unless MCP_SKIP_AUTO_START is set)
 if (process.env.MCP_SKIP_AUTO_START !== 'true') {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    printHelp();
+    process.exit(0);
+  }
+
   const server = new McpAbapAdtProxyServer();
+
+  // Graceful shutdown: release the OAuth callback port, MCP server, and HTTP listener.
+  let shuttingDown = false;
+  const onSignal = (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger?.info('Received shutdown signal, releasing resources', { signal });
+    server
+      .shutdown()
+      .catch((error) => {
+        logger?.error('Error during shutdown', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => process.exit(0));
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+
   server.run().catch((error) => {
     logger?.error('Fatal error while running MCP proxy server', {
       type: 'SERVER_FATAL_ERROR',

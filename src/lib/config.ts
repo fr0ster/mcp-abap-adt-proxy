@@ -45,29 +45,17 @@ export function loadConfig(configPath?: string): ProxyConfig {
   // Do NOT use environment variable MCP_PROXY_CONFIG - only explicit --config parameter
   const finalConfigPath = configPath || getConfigPath();
 
-  // If --config is provided, load ONLY from that file (no merge with command line params)
+  // If --config is provided: load from file, apply defaults, then overlay explicit CLI flags.
+  // CLI flags override YAML values (YAML is just the baseline).
   if (finalConfigPath) {
-    // Warn if other CLI parameters are also provided (they will be ignored)
-    const conflictingParams = ['--btp', '--unsafe'].filter((param) =>
-      hasArg(param),
-    );
-
-    if (conflictingParams.length > 0) {
-      console.warn(
-        `Warning: --config is specified, but the following CLI parameters will be ignored: ${conflictingParams.join(', ')}. ` +
-          `Configuration will be loaded ONLY from ${finalConfigPath}. ` +
-          `To use CLI parameters, do not specify --config.`,
-      );
-    }
-
     try {
-      if (fs.existsSync(finalConfigPath)) {
-        const fileConfig = loadConfigFile(finalConfigPath);
-        // Apply defaults for missing values in file config
-        return applyDefaults(fileConfig);
-      } else {
+      if (!fs.existsSync(finalConfigPath)) {
         throw new Error(`Config file not found: ${finalConfigPath}`);
       }
+      const fileConfig = loadConfigFile(finalConfigPath);
+      const base = applyDefaults(fileConfig);
+      const cli = readCliOverrides();
+      return mergeCliOverrides(base, cli, finalConfigPath);
     } catch (error) {
       throw new Error(
         `Failed to load config from file ${finalConfigPath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -77,6 +65,76 @@ export function loadConfig(configPath?: string): ProxyConfig {
 
   // No --config provided: load ONLY from command line parameters and environment variables
   return loadFromEnv();
+}
+
+/**
+ * Read CLI flags that should override file/YAML configuration.
+ * Only includes keys that were explicitly provided on the command line.
+ */
+function readCliOverrides(): Partial<ProxyConfig> {
+  const overrides: Partial<ProxyConfig> = {};
+
+  const btp = getArgValue('--btp');
+  if (btp !== undefined) overrides.btpDestination = btp;
+
+  const targetUrl = getArgValue('--target-url') ?? getArgValue('--url');
+  if (targetUrl !== undefined) overrides.targetUrl = targetUrl;
+
+  if (hasArg('--unsafe')) overrides.unsafe = true;
+
+  const browser = getArgValue('--browser');
+  if (browser !== undefined) {
+    overrides.browser = browser as ProxyConfig['browser'];
+  }
+
+  const browserAuthPortStr = getArgValue('--browser-auth-port');
+  if (browserAuthPortStr !== undefined) {
+    overrides.browserAuthPort = parseInt(browserAuthPortStr, 10);
+  }
+
+  const headerArgs = getAllArgValues('--header');
+  if (headerArgs.length > 0) {
+    const headers: Record<string, string> = {};
+    for (const arg of headerArgs) {
+      const eqIndex = arg.indexOf('=');
+      if (eqIndex > 0) {
+        const key = arg.substring(0, eqIndex).toLowerCase();
+        const value = arg.substring(eqIndex + 1);
+        headers[key] = value;
+      }
+    }
+    overrides.defaultHeaders = headers;
+  }
+
+  return overrides;
+}
+
+/**
+ * Merge CLI overrides on top of file-based config. Logs which keys were overridden.
+ * `defaultHeaders` is merged per-key (CLI keys override YAML keys); other fields are replaced.
+ */
+function mergeCliOverrides(
+  base: ProxyConfig,
+  cli: Partial<ProxyConfig>,
+  configPath: string,
+): ProxyConfig {
+  const merged: ProxyConfig = { ...base, ...cli };
+
+  if (cli.defaultHeaders) {
+    merged.defaultHeaders = {
+      ...(base.defaultHeaders || {}),
+      ...cli.defaultHeaders,
+    };
+  }
+
+  const overriddenKeys = Object.keys(cli);
+  if (overriddenKeys.length > 0) {
+    console.warn(
+      `Note: CLI flags override values from ${configPath}: ${overriddenKeys.join(', ')}`,
+    );
+  }
+
+  return merged;
 }
 
 /**

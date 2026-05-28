@@ -4,17 +4,27 @@ This guide explains how to configure the MCP ABAP ADT Proxy server.
 
 ## Configuration Methods
 
-The proxy supports two mutually exclusive configuration modes:
+The proxy can be configured from a YAML/JSON file, from CLI parameters, or from a combination of both.
 
 ### Mode 1: Config file (`--config` / `-c`)
-
-When `--config` is specified, configuration is loaded **only** from the YAML/JSON file. Other CLI params are ignored with a warning.
 
 ```bash
 mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
 ```
 
-See [YAML Configuration Guide](./YAML_CONFIG.md) for details.
+The file provides the baseline values. **CLI flags override values from the file** — handy for tweaking a single setting (port, browser mode, headers) on top of a stable config.
+
+```bash
+# YAML provides everything; CLI overrides browser mode and callback port:
+mcp-abap-adt-proxy --config=mcp-proxy-config.yaml \
+  --browser none --browser-auth-port 8888
+```
+
+When CLI values override the file, the proxy logs a `Note: CLI flags override values from <path>: ...` warning so the override is visible.
+
+`--header key=value` flags are merged with `defaultHeaders` from the file (CLI keys win on conflict). All other overrides replace the file value entirely.
+
+See [YAML Configuration Guide](./YAML_CONFIG.md) for the file format.
 
 ### Mode 2: CLI params + environment variables + defaults
 
@@ -95,8 +105,14 @@ mcp-abap-adt-proxy --btp=btp
 mcp-abap-adt-proxy --config=mcp-proxy-config.yaml
 ```
 
-When `--config` is used, all settings come from the file and CLI params are
-ignored. See [YAML Configuration Guide](./YAML_CONFIG.md).
+### Example 4: Config file with CLI overrides
+
+```bash
+mcp-abap-adt-proxy --config=mcp-proxy-config.yaml \
+  --http-port=3003 --browser none --browser-auth-port=8888
+```
+
+YAML supplies the baseline; the four flags override `httpPort`, `browser`, and `browserAuthPort` from the file. See [YAML Configuration Guide](./YAML_CONFIG.md).
 
 ## Validation
 
@@ -118,7 +134,7 @@ The configuration is validated on server startup. Errors will prevent the server
 ## Best Practices
 
 1. **Use a config file for stable setups** - Keep per-subaccount settings in a YAML file loaded via `--config`
-2. **Use CLI params / env vars for quick overrides** - When not using `--config`
+2. **Use CLI params for quick overrides** - CLI flags override matching values from `--config` (handy for one-off tweaks like a different `--browser-auth-port`)
 3. **Validate configuration** - Check logs for validation warnings on startup
 4. **Set appropriate timeouts** - Adjust `requestTimeout` based on your network conditions
 5. **Configure circuit breaker** - Adjust thresholds based on your reliability requirements

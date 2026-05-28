@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-28
+
+### Added
+- **CLI flags override values from `--config`** — when a config file is loaded via `--config`/`-c`, explicit CLI flags (`--btp`, `--target-url`/`--url`, `--unsafe`, `--browser`, `--browser-auth-port`, `--header`) now override matching values from the file instead of being silently dropped. `--header` entries merge with `defaultHeaders` (CLI keys win on conflict). The proxy logs which keys were overridden so the precedence is visible.
+- **`--help` / `-h`** — full CLI usage printer covering auth, browser, transport flags and the documented environment variables. Previously the proxy had no help output at all, making the `--browser none` / `--browser-auth-port` flags effectively undiscoverable.
+- **Graceful shutdown on `SIGINT` / `SIGTERM`** — the proxy now wires both signals to `shutdown()`, which closes the MCP server and HTTP listener, clears pending JWT refresh timers, drops the token cache, and releases per-destination auth brokers. Previously these resources were only released on hard process exit.
+
+### Fixed
+- `BtpProxy.dispose()` now clears the token cache and the per-destination broker map in addition to refresh timers, so a clean shutdown actually releases all auth state.
+
 ## [1.2.1] - 2026-05-26
 
 ### Security

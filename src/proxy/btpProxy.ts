@@ -615,6 +615,8 @@ export class BtpProxy {
       clearTimeout(timer);
     }
     this.refreshTimers.clear();
+    this.tokenCache.clear();
+    this.btpAuthBrokers.clear();
   }
 
   /**

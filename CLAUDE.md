@@ -66,7 +66,7 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 - **src/router/headerAnalyzer.ts** - Extracts routing info from `x-sap-destination` and `x-target-url` headers; returns a `RoutingDecision` with strategy (PROXY, UNKNOWN)
 - **src/router/requestInterceptor.ts** - Intercepts incoming HTTP requests, calls `analyzeHeaders()`, extracts session ID
 - **src/proxy/cloudLlmHubProxy.ts** - Handles proxying with BTP/XSUAA auth injection, retry logic with exponential backoff, circuit breaker, and token caching (30-min TTL)
-- **src/lib/config.ts** - Configuration loading from YAML/JSON config files or env vars + CLI params (mutually exclusive: `--config` file ignores other CLI params)
+- **src/lib/config.ts** - Configuration loading from YAML/JSON config files or env vars + CLI params. With `--config`, CLI flags override matching values from the file (file is the baseline; `defaultHeaders` merge per key)
 - **src/lib/errorHandler.ts** - Retry logic (`retryWithBackoff()`) and circuit breaker (opens after threshold failures, resets after timeout)
 - **src/lib/transportConfig.ts** - Transport type detection: explicit `--transport` flag → `MCP_TRANSPORT` env var → auto-detect (stdio if not TTY, else streamable-http)
 - **src/lib/stores.ts** - Platform-specific auth store paths (Windows vs Unix) for service key files
@@ -119,9 +119,9 @@ npx jest --coverage
 
 ## Configuration
 
-Configuration loading is mutually exclusive:
+Configuration loading:
 
-1. **With `--config`/`-c` flag**: Loads ONLY from the specified YAML/JSON file (other CLI params are ignored with a warning)
+1. **With `--config`/`-c` flag**: file is the baseline. Explicit CLI flags (`--btp`, `--target-url`, `--unsafe`, `--browser`, `--browser-auth-port`, `--header`) override matching values from the file; `--header` entries merge with `defaultHeaders` (CLI keys win). Overridden keys are logged on startup.
 2. **Without `--config`**: Uses CLI params (`--btp`, `--target-url`, `--unsafe`, `--header`, `--browser`, `--browser-auth-port`) + environment variables + defaults
 
 Key environment variables: `MCP_HTTP_PORT`, `MCP_SSE_PORT`, `MCP_HTTP_HOST`, `MCP_SSE_HOST`, `MCP_TRANSPORT`, `LOG_LEVEL`, `MCP_PROXY_UNSAFE`, `MCP_PROXY_MAX_RETRIES`, `MCP_PROXY_REQUEST_TIMEOUT`, `MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD`.

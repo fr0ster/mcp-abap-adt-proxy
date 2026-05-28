@@ -35,11 +35,13 @@ mcp-abap-adt-proxy --config=/path/to/mcp-proxy-config.yaml
 
 Both `.yaml`/`.yml` and `.json` files are supported (format is detected by extension).
 
-## Configuration Modes (mutually exclusive)
+## Configuration Modes
 
-- **With `--config`**: configuration is loaded **only** from that file. Other CLI
-  params (`--btp`, `--unsafe`, …) are ignored with a warning. Any value missing
-  from the file falls back to its built-in default.
+- **With `--config`**: configuration is loaded from the file as the baseline.
+  CLI flags (`--btp`, `--target-url`, `--unsafe`, `--browser`, `--browser-auth-port`,
+  `--header`) override matching values from the file; `--header` entries are merged
+  per key with `defaultHeaders`. Any value missing from both falls back to its
+  built-in default. The proxy logs which keys were overridden on startup.
 - **Without `--config`**: configuration comes from CLI parameters and environment
   variables only (see [CONFIGURATION.md](./CONFIGURATION.md)). The config file is
   not consulted.
