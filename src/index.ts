@@ -728,13 +728,16 @@ BROWSER AUTHORIZATION
                                 chrome   - Google Chrome
                                 edge     - Microsoft Edge
                                 firefox  - Firefox
-                                none     - Print URL to console and wait for
-                                           callback (for SSH/headless sessions)
+                                none     - Print URL to console; complete login
+                                           via callback OR by pasting the code
+                                           (for SSH/headless/remote sessions)
                                 headless - Alias for 'none'
   --browser-auth-port <port>  Local OAuth callback port. Must match the
                               redirect_uri registered on XSUAA (default: 3333).
 
-  Run without auto-opening a browser (prints the URL, waits for callback):
+  Run without auto-opening a browser (prints the URL, then completes via the
+  localhost callback, the paste form at http://<host>:<port>/, or by pasting
+  the code in the terminal):
     mcp-abap-adt-proxy --btp <dest> --browser none --browser-auth-port 3333
 
 TRANSPORT
