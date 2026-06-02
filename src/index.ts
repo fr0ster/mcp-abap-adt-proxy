@@ -55,6 +55,49 @@ function getBodyId(body: unknown): unknown {
   return null;
 }
 
+type AuthFailureCategory =
+  | 'timeout'
+  | 'credentials'
+  | 'service-key'
+  | 'network'
+  | 'other';
+
+/**
+ * Classify an authentication failure into a human-readable reason so the proxy
+ * can report *why* it is exiting (timeout vs bad credentials vs network ...).
+ */
+function classifyAuthFailure(error: unknown): {
+  category: AuthFailureCategory;
+  reason: string;
+} {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/timeout/i.test(msg)) {
+    return {
+      category: 'timeout',
+      reason: 'the login URL was not completed in time',
+    };
+  }
+  if (/service key|missing required fields/i.test(msg)) {
+    return {
+      category: 'service-key',
+      reason: 'service key missing or incomplete',
+    };
+  }
+  if (/invalid_client|unauthorized|\b401\b|invalid credentials/i.test(msg)) {
+    return {
+      category: 'credentials',
+      reason: 'invalid credentials — UAA rejected the client',
+    };
+  }
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network|ENETUNREACH/i.test(msg)) {
+    return {
+      category: 'network',
+      reason: 'network error reaching the authentication server',
+    };
+  }
+  return { category: 'other', reason: msg };
+}
+
 /**
  * MCP ABAP ADT Proxy Server
  */
@@ -64,6 +107,7 @@ export class McpAbapAdtProxyServer {
   private config: ReturnType<typeof loadConfig>;
   private httpServer?: HttpServer;
   private btpProxy?: BtpProxy;
+  private authExiting = false;
 
   constructor(transportConfig?: TransportConfig, configPath?: string) {
     // Load config first to extract transport overrides from YAML/JSON file
@@ -172,19 +216,23 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
       return;
     }
 
-    // Eager initialization of BTP authentication
+    // Eager initialization of BTP authentication. Kept in the background so the
+    // server starts listening immediately (and, for --browser none, the auth URL
+    // is printed right away). If auth is requested but never completed, exit(1)
+    // so the proxy is restarted and the user gets a fresh login prompt.
     if (this.config.btpDestination) {
+      const dest = this.config.btpDestination;
       try {
         if (!this.btpProxy) {
           this.btpProxy = await createBtpProxy(this.config);
         }
-        // Trigger initialization (background) - this will open the browser
-        this.btpProxy.initialize(this.config.btpDestination);
       } catch (error) {
-        logger?.error('Failed to initialize BTP proxy for eager auth', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        await this.fatalAuthFailure(error, dest, 'startup');
+        return;
       }
+      this.btpProxy
+        .initialize(dest)
+        .catch((error) => this.fatalAuthFailure(error, dest, 'startup'));
     }
 
     if (this.transportConfig.type === 'streamable-http') {
@@ -320,10 +368,28 @@ Authorization source: ${authSourceObj}`;
       this.btpProxy = await createBtpProxy(this.config);
     }
 
+    // Authentication is separated from forwarding: an auth failure is fatal
+    // (the proxy exits so it can be restarted), while a downstream/forward error
+    // is returned to the client without killing the proxy.
+    let jwtToken: string;
     try {
       // Get JWT token (cached, auto-refresh)
-      const jwtToken = await this.btpProxy.getJwtToken(destination);
+      jwtToken = await this.btpProxy.getJwtToken(destination);
+    } catch (authError) {
+      logger?.error('Proxy request failed: authentication error', {
+        type: 'PROXY_REQUEST_AUTH_ERROR',
+        destination,
+        error: authError instanceof Error ? authError.message : String(authError),
+      });
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Authentication failed' }));
+      }
+      await this.fatalAuthFailure(authError, destination, 'request');
+      return;
+    }
 
+    try {
       // Get target URL
       const targetUrl =
         intercepted.routingDecision.targetUrl ||
@@ -666,6 +732,45 @@ Authorization source: ${authSourceObj}`;
         reject(error);
       });
     });
+  }
+
+  /**
+   * Authentication was requested but could not be completed. Report the reason
+   * clearly, release resources, and exit(1) so the proxy is restarted (and the
+   * user gets a fresh login prompt) instead of running unauthenticated. Mirrors
+   * the one-shot `mcp-auth` command, which exits on a failed/incomplete login.
+   */
+  private async fatalAuthFailure(
+    error: unknown,
+    destination: string,
+    phase: 'startup' | 'request',
+  ): Promise<void> {
+    if (this.authExiting) return;
+    this.authExiting = true;
+
+    const { category, reason } = classifyAuthFailure(error);
+    const detail = error instanceof Error ? error.message : String(error);
+
+    logger?.error('Authentication not completed — exiting', {
+      type: 'AUTH_FATAL_EXIT',
+      destination,
+      phase,
+      category,
+      reason,
+      error: detail,
+    });
+    console.error(
+      `[MCP Proxy] ✗ Authentication failed for destination "${destination}" (${phase}): ${reason}.\n` +
+        `[MCP Proxy]   ${detail}\n` +
+        `[MCP Proxy] Exiting (code 1) so the proxy can be restarted to retry authentication.`,
+    );
+
+    try {
+      await this.shutdown();
+    } catch {
+      // best-effort cleanup; exit regardless
+    }
+    process.exit(1);
   }
 
   /**

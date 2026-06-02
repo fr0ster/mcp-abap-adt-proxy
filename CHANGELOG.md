@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-02
+
+### Added
+- **Exit on incomplete authentication.** When authentication is requested but not completed — at startup (eager auth) or on a request that needs a token — the proxy now logs a categorised reason (timeout / invalid credentials / service key / network) and exits with code 1, so it can be restarted to retry (mirroring the one-shot `mcp-auth` command) instead of running in a permanently unauthenticated state. A downstream/forward error (after auth succeeds) is still returned to the client without exiting.
+
+### Changed
+- Bump `@mcp-abap-adt/auth-broker` `^1.0.5` → `^1.0.6`: the broker no longer starts a redundant second browser login after an interactive session-login failure, so the real cause (e.g. login timeout) is reported instead of a misleading `Port <n> is already in use`.
+
 ## [1.4.0] - 2026-06-02
 
 ### Added

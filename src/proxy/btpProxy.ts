@@ -225,8 +225,9 @@ export class BtpProxy {
         destination,
         error: error instanceof Error ? error.message : String(error),
       });
-      // We don't throw here to avoid crashing the server on startup,
-      // but the user will see the error in logs/stderr (via getJwtToken)
+      // Re-throw so the server can decide to exit (auth requested but not
+      // completed) instead of running in a permanently unauthenticated state.
+      throw error;
     }
   }
 
