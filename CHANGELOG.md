@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-02
+
+### Added
+- **Manual paste login for `--browser none` / `headless`** (via `@mcp-abap-adt/auth-providers@1.1.0`). When the browser runs on a different machine than the proxy, login can be completed by opening the paste form at `http://<host>:<browser-auth-port>/` and pasting the `code` (or the whole redirected URL), or by pasting the code in the terminal — in addition to the existing automatic localhost callback.
+
+### Fixed
+- **`--browser none` now prints the authorization URL.** The per-destination `AuthorizationCodeProvider` was created without a logger, so the "Open this URL" prompt from `browserAuth` was silently dropped and login could never be completed in headless mode. The proxy now passes its logger to the provider; `auth-providers@1.1.0` additionally falls back to `stderr` when no logger is supplied.
+- **Platform-correct service-key path in `--help` and errors.** The "service key not found" hint and `--help` hard-coded the Unix `~/.config/...` path, which is wrong on Windows (`%USERPROFILE%\Documents\mcp-abap-adt\service-keys`). Both now show the real resolved directory and mention the `AUTH_BROKER_PATH` override.
+
+### Changed
+- Bump `@mcp-abap-adt/auth-providers` `^1.0.5` → `^1.1.0`.
+
 ## [1.3.0] - 2026-05-28
 
 ### Added
