@@ -29,6 +29,7 @@ import {
   extractTransportFields,
 } from './lib/config.js';
 import { logger } from './lib/logger.js';
+import { getPlatformPaths } from './lib/stores.js';
 import {
   parseTransportConfig,
   type TransportConfig,
@@ -699,6 +700,9 @@ export default McpAbapAdtProxyServer;
  * Print CLI usage and exit.
  */
 function printHelp(): void {
+  // Show the real, platform-specific directory where service keys are read from
+  // (Windows: %USERPROFILE%\Documents\mcp-abap-adt\service-keys; Unix: ~/.config/...)
+  const serviceKeyDir = getPlatformPaths('service-keys')[0];
   const help = `Usage: mcp-abap-adt-proxy [options]
 
 Authorization proxy for MCP clients (Cline, Claude Code, etc.) that cannot
@@ -710,7 +714,8 @@ CONFIGURATION
 
 AUTHENTICATION (BTP / XSUAA)
   --btp <destination>         BTP destination name. Service key is read from
-                              ~/.config/mcp-abap-adt/service-keys/<dest>.json
+                              ${serviceKeyDir}${require('node:path').sep}<dest>.json
+                              (override the base dir with AUTH_BROKER_PATH)
   --target-url <url>          Override target service URL (default: from service key)
   --url <url>                 Alias for --target-url
   --unsafe                    Persist session/tokens to disk (default: in-memory)
@@ -723,11 +728,17 @@ BROWSER AUTHORIZATION
                                 chrome   - Google Chrome
                                 edge     - Microsoft Edge
                                 firefox  - Firefox
-                                none     - Print URL to console and wait for
-                                           callback (for SSH/headless sessions)
+                                none     - Print URL to console; complete login
+                                           via callback OR by pasting the code
+                                           (for SSH/headless/remote sessions)
                                 headless - Alias for 'none'
   --browser-auth-port <port>  Local OAuth callback port. Must match the
                               redirect_uri registered on XSUAA (default: 3333).
+
+  Run without auto-opening a browser (prints the URL, then completes via the
+  localhost callback, the paste form at http://<host>:<port>/, or by pasting
+  the code in the terminal):
+    mcp-abap-adt-proxy --btp <dest> --browser none --browser-auth-port 3333
 
 TRANSPORT
   --transport <type>          stdio | streamable-http | http | sse

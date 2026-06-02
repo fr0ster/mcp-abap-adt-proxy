@@ -19,7 +19,7 @@ import {
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
-import { getPlatformStores } from '../lib/stores.js';
+import { getPlatformPaths, getPlatformStores } from '../lib/stores.js';
 import type { RoutingDecision } from '../router/headerAnalyzer.js';
 
 /**
@@ -279,9 +279,10 @@ export class BtpProxy {
     }
 
     if (!authConfig) {
+      const serviceKeyDir = getPlatformPaths('service-keys')[0];
       logger?.error('Service key not found for destination', {
         destination,
-        hint: 'Ensure service key file exists in ~/.config/mcp-abap-adt/service-keys/',
+        hint: `Ensure service key file "${destination}.json" exists in ${serviceKeyDir} (override the base dir with AUTH_BROKER_PATH)`,
       });
       // We cannot proceed without config, but we'll let it fail with a clear message
       // Or we could throw here.
@@ -294,6 +295,10 @@ export class BtpProxy {
     const providerConfig: any = {
       browser: this.config.browser,
       redirectPort: this.config.browserAuthPort || 3333,
+      // Pass a logger so browserAuth can surface the "Open this URL" prompt in
+      // 'none'/'headless' mode. Without it, startBrowserAuth gets a null logger
+      // and silently drops the authorization URL.
+      logger: loggerAdapter,
       ...(authConfig
         ? {
             uaaUrl: authConfig.uaaUrl,
@@ -1179,6 +1184,7 @@ export class BtpProxy {
           clientSecret: 'placeholder',
           browser: loadedConfig.browser,
           redirectPort: loadedConfig.browserAuthPort,
+          logger: loggerAdapter,
         }),
       },
       'none',

@@ -59,6 +59,7 @@ jest.mock('../../lib/config', () => ({
 }));
 
 jest.mock('../../lib/stores', () => ({
+    getPlatformPaths: jest.fn().mockReturnValue(['/mock/service-keys']),
     getPlatformStores: jest.fn().mockReturnValue(
         Promise.resolve({
             serviceKeyStore: {
