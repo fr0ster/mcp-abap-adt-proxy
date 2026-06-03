@@ -56,13 +56,13 @@ Options:
                            Useful for direct OData service testing or non-standard MCP URLs
   --config=<file>, -c     Load configuration from YAML or JSON file
                            Alternative to command-line parameters
-  --env-file=<path>        Load a .env file for ${VAR} interpolation in config/headers
+  --env-file=<path>        Load a .env file for \${VAR} interpolation in config/headers
                            Overrides the config's "envFile" field
   --unsafe                 Enable file-based session storage (persists tokens to disk)
   --header key=value       Add default header to every forwarded request (repeatable)
-                           Values support ${VAR} / ${VAR:-default} interpolation
+                           Values support \${VAR} / \${VAR:-default} interpolation
                            Example: --header x-sap-destination=S4HANA
-                           Example: --header x-sap-password=${SAP_PASSWORD}
+                           Example: --header x-sap-password=\${SAP_PASSWORD}
   --help, -h              Show this help message
   --version, -v           Show version number
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-06-04
+
+### Fixed
+- **`--help` / `--version` crashed in 1.6.0.** The new `${VAR}` / `${VAR:-default}` examples added to the `--help` text were placed inside a JavaScript template literal, so Node tried to evaluate them and the binary failed to parse (`SyntaxError: Missing } in template expression`) — breaking every invocation, including `--version`. The `$` is now escaped so the placeholders render literally.
+
 ## [1.6.0] - 2026-06-04
 
 ### Added
