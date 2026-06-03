@@ -3,6 +3,9 @@
  * Supports ${VAR} and ${VAR:-default} in string values.
  */
 
+import * as fs from 'node:fs';
+import * as dotenv from 'dotenv';
+
 const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
 
 /**
@@ -61,4 +64,25 @@ export function interpolateConfig(
     return out;
   }
   return value;
+}
+
+/**
+ * Parse a .env file into a flat map. Throws if the path is given but missing —
+ * a specified-yet-absent secret source is a configuration error, not a no-op.
+ */
+export function loadEnvFile(envFilePath: string): Record<string, string> {
+  if (!fs.existsSync(envFilePath)) {
+    throw new Error(`env file not found: ${envFilePath}`);
+  }
+  return dotenv.parse(fs.readFileSync(envFilePath, 'utf-8'));
+}
+
+/**
+ * Build a lookup over process.env (highest priority) then the parsed .env map.
+ */
+export function buildLookup(
+  envFileMap: Record<string, string>,
+): (key: string) => string | undefined {
+  return (key: string): string | undefined =>
+    process.env[key] ?? envFileMap[key];
 }
