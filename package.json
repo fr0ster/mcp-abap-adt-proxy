@@ -1,6 +1,6 @@
 {
   "name": "@mcp-abap-adt/proxy",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "MCP proxy server for SAP ABAP ADT - proxies local requests to cloud-llm-hub with JWT authentication",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -71,6 +71,7 @@
     "@mcp-abap-adt/logger": "^0.1.4",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "axios": "^1.15.1",
+    "dotenv": "^17.4.2",
     "js-yaml": "^4.1.1",
     "zod": "^4.3.6"
   },

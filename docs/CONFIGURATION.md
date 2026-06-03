@@ -24,6 +24,11 @@ When CLI values override the file, the proxy logs a `Note: CLI flags override va
 
 `--header key=value` flags are merged with `defaultHeaders` from the file (CLI keys win on conflict). All other overrides replace the file value entirely.
 
+Config string values and `--header` values support `${VAR}` / `${VAR:-default}`
+interpolation, resolved from `process.env` then a `.env` (`envFile` in YAML or
+`--env-file`). `process.env` wins; an unresolved `${VAR}` without a default fails
+at startup. See [YAML Configuration Guide](./YAML_CONFIG.md) for details.
+
 See [YAML Configuration Guide](./YAML_CONFIG.md) for the file format.
 
 ### Mode 2: CLI params + environment variables + defaults
@@ -40,6 +45,7 @@ no auto-discovery).
 | `--target-url=<url>` (alias `--url`) | Override target URL |
 | `--unsafe` | Persist tokens to disk (default: in-memory) |
 | `--header key=value` | Default header injected into every request (repeatable) |
+| `--env-file <path>` | Path to a `.env` file supplying variables for `${VAR}` interpolation in config/headers (overrides YAML `envFile`) |
 | `--browser=<type>` | OAuth2 login browser: `system`, `headless`, `chrome`, `edge`, `firefox`, `none` |
 | `--browser-auth-port=<port>` | Port for the local OAuth2 callback server |
 | `--transport`, `--http-port`, `--http-host`, `--sse-port`, `--sse-host` | Transport settings |

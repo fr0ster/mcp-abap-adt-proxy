@@ -5,6 +5,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
+import {
+  buildLookup,
+  interpolateConfig,
+  interpolateString,
+  loadEnvFile,
+} from './envInterpolation.js';
 
 export interface ProxyConfig {
   httpPort: number;
@@ -52,8 +58,19 @@ export function loadConfig(configPath?: string): ProxyConfig {
       if (!fs.existsSync(finalConfigPath)) {
         throw new Error(`Config file not found: ${finalConfigPath}`);
       }
-      const fileConfig = loadConfigFile(finalConfigPath);
-      const base = applyDefaults(fileConfig);
+      const fileConfig = loadConfigFile(finalConfigPath) as Record<
+        string,
+        unknown
+      >;
+      const envFilePath = resolveEnvFilePath(fileConfig, finalConfigPath);
+      const envFileMap = envFilePath ? loadEnvFile(envFilePath) : {};
+      const lookup = buildLookup(envFileMap);
+      const interpolated = interpolateConfig(
+        fileConfig,
+        lookup,
+      ) as Partial<ProxyConfig> & { envFile?: unknown };
+      delete interpolated.envFile;
+      const base = applyDefaults(interpolated);
       const cli = readCliOverrides();
       return mergeCliOverrides(base, cli, finalConfigPath);
     } catch (error) {
@@ -178,6 +195,24 @@ function loadConfigFile(filePath: string): Partial<ProxyConfig> {
 }
 
 /**
+ * Resolve the .env path for the file-config path: --env-file wins (relative to
+ * cwd); otherwise the YAML `envFile` field, resolved relative to the config
+ * file's directory. Returns undefined when neither is set.
+ */
+function resolveEnvFilePath(
+  rawConfig: Record<string, unknown>,
+  configPath: string,
+): string | undefined {
+  const cliEnvFile = getArgValue('--env-file');
+  if (cliEnvFile !== undefined) return path.resolve(cliEnvFile);
+  const yamlEnvFile = rawConfig.envFile;
+  if (typeof yamlEnvFile === 'string') {
+    return path.resolve(path.dirname(configPath), yamlEnvFile);
+  }
+  return undefined;
+}
+
+/**
  * Load raw config from file for transport field extraction
  */
 export function loadRawConfigFile(
@@ -256,17 +291,24 @@ function loadFromEnv(): ProxyConfig {
     ? parseInt(browserAuthPortStr, 10)
     : undefined;
 
-  // Parse repeatable --header key=value arguments
+  // Parse repeatable --header key=value arguments, interpolating ${VAR}
   const headerArgs = getAllArgValues('--header');
   let defaultHeaders: Record<string, string> | undefined;
   if (headerArgs.length > 0) {
+    const cliEnvFile = getArgValue('--env-file');
+    const envFileMap = cliEnvFile ? loadEnvFile(path.resolve(cliEnvFile)) : {};
+    const lookup = buildLookup(envFileMap);
     defaultHeaders = {};
     for (const arg of headerArgs) {
       const eqIndex = arg.indexOf('=');
       if (eqIndex > 0) {
         const key = arg.substring(0, eqIndex).toLowerCase();
-        const value = arg.substring(eqIndex + 1);
-        defaultHeaders[key] = value;
+        const rawValue = arg.substring(eqIndex + 1);
+        defaultHeaders[key] = interpolateString(
+          rawValue,
+          lookup,
+          `--header ${key}`,
+        );
       }
     }
   }

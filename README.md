@@ -98,7 +98,7 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
 
 MCP clients like Cline and Claude Code cannot set arbitrary request headers. Use default headers to inject SAP-specific headers (e.g. `x-sap-destination`, `x-sap-client`) that the target MCP server requires.
 
-Client-supplied headers always take precedence over defaults.
+Precedence: client-supplied request headers always win over `defaultHeaders`. `Authorization` is the exception — it is always managed by the proxy (replaced with the destination JWT) and **cannot** be set via `defaultHeaders`.
 
 Via YAML config (`defaultHeaders` map):
 ```yaml
@@ -108,6 +108,28 @@ defaultHeaders:
   x-sap-destination: S4HANA_E19
   x-sap-client: "100"
 ```
+
+**Per-user ABAP credentials.** `defaultHeaders` is the supported place to supply your own SAP login/password for on-premise / `NoAuthentication` destinations. The upstream `cloud-llm-hub` is a **shared** server with no default service user, so it expects each caller's own `x-sap-login` / `x-sap-password` on every request. Because the proxy runs **locally on each user's machine**, it carries *your* identity.
+
+Do not hardcode secrets. Reference environment variables with `${VAR}` (or `${VAR:-default}`); values are resolved from `process.env` or an explicitly-pointed `.env` file:
+
+```yaml
+btpDestination: mcp
+envFile: secrets.env            # resolved relative to this config file's dir
+defaultHeaders:
+  x-sap-destination: S4HANA_E19
+  x-sap-login: ${SAP_USER}
+  x-sap-password: ${SAP_PASSWORD}
+```
+
+`secrets.env` (user-local, `chmod 600`, never committed):
+
+```dotenv
+SAP_USER=MY_SAP_USER
+SAP_PASSWORD=my-sap-password
+```
+
+Resolution order is `process.env` → `.env` → `${VAR:-default}`. `process.env` wins; an unresolved `${VAR}` without a default fails the proxy at startup. Override the `.env` path at launch with `--env-file <path>`. This closes both auth layers from one local config: the **service layer** (`Authorization: Bearer <JWT>`, from the destination service key) and the **ABAP layer** (`x-sap-login` / `x-sap-password`).
 
 Via CLI (`--header`, repeatable):
 ```bash

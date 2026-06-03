@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-04
+
+### Added
+- **Environment-variable interpolation in config + `.env` support.** Config string values (and `--header` values) may now contain `${VAR}` / `${VAR:-default}` placeholders, resolved from `process.env` and an explicitly-pointed `.env` file. This makes `defaultHeaders` the per-user auth-injection point for ABAP credentials (`x-sap-login` / `x-sap-password`) on shared servers like `cloud-llm-hub` — **without** storing secrets as plaintext in the YAML. (#4, #5)
+  - `.env` source is explicit only: `envFile: <path>` in the config (resolved relative to the config file's directory) or `--env-file <path>` on the command line (overrides `envFile`). There is no `cwd` auto-discovery.
+  - Resolution priority: `process.env` → `.env` → `${VAR:-default}`. `process.env` wins over the `.env` file.
+  - **Fail-fast:** a `${VAR}` without a default that cannot be resolved aborts startup with an error naming the variable and the field it came from, so a request never silently goes out with an empty credential.
+  - `Authorization` remains proxy-managed (destination JWT) and cannot be set via `defaultHeaders`.
+
 ## [1.5.0] - 2026-06-02
 
 ### Added

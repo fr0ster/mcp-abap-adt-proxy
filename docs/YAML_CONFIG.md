@@ -116,18 +116,34 @@ targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com/v1"
 
 Auth tokens come from the `btp` service key, but requests are forwarded to `targetUrl` instead of the URL in the service key.
 
-### Example 3: BTP Auth with Default SAP Headers
+### Example 3: BTP Auth with Per-User ABAP Credentials
 
 ```yaml
 transport: streamable-http
 httpPort: 3001
 btpDestination: "btp"
+envFile: "secrets.env"   # resolved relative to this file's directory
 defaultHeaders:
   x-sap-destination: "S4HANA_E19"
+  x-sap-login: "${SAP_USER}"
+  x-sap-password: "${SAP_PASSWORD}"
 ```
 
-Every forwarded request gets the `x-sap-destination` header unless the client
-already supplied one.
+Every forwarded request gets `x-sap-destination` (unless the client supplies one)
+plus the caller's `x-sap-login` / `x-sap-password`, resolved from environment
+variables.
+
+#### Environment-variable interpolation
+
+String config values may contain `${VAR}` or `${VAR:-default}` placeholders:
+
+- Values resolve from `process.env` first, then the `envFile`, then `:-default`.
+- `process.env` overrides the same key in the `envFile`.
+- A `${VAR}` without a default that cannot be resolved fails the proxy at startup
+  with an error naming the variable.
+- `envFile` is resolved relative to the config file's directory; `--env-file <path>`
+  on the command line overrides it. There is no automatic `.env` discovery.
+- The `envFile` is user-local and must never be committed.
 
 ### Example 4: SSE Transport
 
@@ -170,6 +186,7 @@ circuitBreakerTimeout: 120000
 | `btpDestination` | `string` | `undefined` | BTP destination name (for Cloud authorization). Must match a service key file. |
 | `targetUrl` | `string` | `undefined` | Override target URL (uses auth from `btpDestination` but forwards to this URL) |
 | `defaultHeaders` | `map` | `undefined` | Headers injected into every forwarded request; client headers take precedence |
+| `envFile` | `string` | `undefined` | Path to a `.env` file (resolved relative to the config file) supplying variables for `${VAR}` interpolation; overridden by `--env-file` |
 
 ### Authentication Browser
 
