@@ -19,9 +19,30 @@ btpDestination: "btp"
 targetUrl: "https://your-service.cfapps.eu10.hana.ondemand.com"
 
 # --- Default headers ---
-# Injected into every forwarded request. Client-supplied headers win over these.
+# Injected into every forwarded request. Client-supplied request headers win
+# over these; `Authorization` is always managed by the proxy (destination JWT)
+# and CANNOT be set here.
+#
+# This is the per-user ABAP credential injection point. The upstream
+# cloud-llm-hub is a SHARED server with no default service user, so on-premise /
+# NoAuthentication destinations require each caller's own SAP login/password on
+# every request. The proxy runs locally on YOUR machine, so it holds YOUR
+# identity.
+#
+# Do NOT hardcode secrets here. Reference environment variables with ${VAR} (or
+# ${VAR:-default}); values come from process.env or the envFile below. A ${VAR}
+# without a default that cannot be resolved fails the proxy at startup.
 defaultHeaders:
   x-sap-destination: "S4HANA_E19"
+  x-sap-login: "${SAP_USER}"
+  x-sap-password: "${SAP_PASSWORD}"
+
+# --- Secret source ---
+# Optional .env file holding the variables referenced above. Path is resolved
+# relative to THIS config file's directory. Override at launch with --env-file.
+# Keep it user-local with restrictive permissions (chmod 600); never commit it.
+# process.env takes priority over values in this file.
+envFile: "secrets.env"
 
 # --- OAuth2 login browser ---
 browser: "system"        # system | headless | chrome | edge | firefox | none
