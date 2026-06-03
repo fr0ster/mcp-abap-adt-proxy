@@ -128,6 +128,8 @@ Key environment variables: `MCP_HTTP_PORT`, `MCP_SSE_PORT`, `MCP_HTTP_HOST`, `MC
 
 The `--header key=value` CLI flag (repeatable) and `defaultHeaders` YAML map inject default headers into every forwarded request. Client-supplied headers take precedence over defaults.
 
+Config string values and `--header` values support `${VAR}` / `${VAR:-default}` interpolation, resolved from `process.env` then a `.env` file (`envFile:` in the config, resolved relative to the config file's directory, or `--env-file <path>` which overrides it). `process.env` wins; an unresolved `${VAR}` without a default fails at startup. This is the per-user injection point for ABAP credentials (`x-sap-login` / `x-sap-password`) so secrets stay out of the YAML. Interpolation lives in `src/lib/envInterpolation.ts`.
+
 See `docs/CONFIGURATION.md` for full configuration reference.
 
 ## Plans and Specs
