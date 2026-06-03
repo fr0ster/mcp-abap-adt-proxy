@@ -8,6 +8,7 @@ import * as yaml from 'js-yaml';
 import {
   buildLookup,
   interpolateConfig,
+  interpolateString,
   loadEnvFile,
 } from './envInterpolation.js';
 
@@ -290,17 +291,24 @@ function loadFromEnv(): ProxyConfig {
     ? parseInt(browserAuthPortStr, 10)
     : undefined;
 
-  // Parse repeatable --header key=value arguments
+  // Parse repeatable --header key=value arguments, interpolating ${VAR}
   const headerArgs = getAllArgValues('--header');
   let defaultHeaders: Record<string, string> | undefined;
   if (headerArgs.length > 0) {
+    const cliEnvFile = getArgValue('--env-file');
+    const envFileMap = cliEnvFile ? loadEnvFile(path.resolve(cliEnvFile)) : {};
+    const lookup = buildLookup(envFileMap);
     defaultHeaders = {};
     for (const arg of headerArgs) {
       const eqIndex = arg.indexOf('=');
       if (eqIndex > 0) {
         const key = arg.substring(0, eqIndex).toLowerCase();
-        const value = arg.substring(eqIndex + 1);
-        defaultHeaders[key] = value;
+        const rawValue = arg.substring(eqIndex + 1);
+        defaultHeaders[key] = interpolateString(
+          rawValue,
+          lookup,
+          `--header ${key}`,
+        );
       }
     }
   }

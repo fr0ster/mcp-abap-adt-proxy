@@ -124,3 +124,40 @@ describe('config file env interpolation', () => {
     expect(config.envFile).toBeUndefined();
   });
 });
+
+describe('--header interpolation (env-only path)', () => {
+  const originalArgv = process.argv;
+  const originalEnv = process.env;
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-hdr-'));
+  });
+  afterEach(() => {
+    process.argv = originalArgv;
+    process.env = originalEnv;
+  });
+
+  it('interpolates ${VAR} in --header from process.env', () => {
+    process.env = { ...originalEnv, SAP_USER: 'bob' };
+    process.argv = ['node', 'proxy', '--header', 'x-sap-login=${SAP_USER}'];
+    const config = loadConfig();
+    expect(config.defaultHeaders).toEqual({ 'x-sap-login': 'bob' });
+  });
+
+  it('interpolates ${VAR} in --header from --env-file', () => {
+    fs.writeFileSync(path.join(dir, '.env'), 'SAP_USER=carol\n');
+    process.env = { ...originalEnv };
+    delete process.env.SAP_USER;
+    process.argv = [
+      'node',
+      'proxy',
+      '--header',
+      'x-sap-login=${SAP_USER}',
+      '--env-file',
+      path.join(dir, '.env'),
+    ];
+    const config = loadConfig();
+    expect(config.defaultHeaders).toEqual({ 'x-sap-login': 'carol' });
+  });
+});
