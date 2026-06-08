@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Updated dev/runtime dependencies to latest within their semver ranges (axios, zod, js-yaml, `@mcp-abap-adt/interfaces`, biome, jest toolchain, tsx, `@types/node`). Runtime `dependencies` ranges are unchanged, so consumer installs are unaffected.
+- Bumped `@modelcontextprotocol/inspector` (dev) to `^0.22.0`.
+- Removed unused `commander` dev dependency.
+
 ## [1.6.2] - 2026-06-08
 
 ### Fixed
