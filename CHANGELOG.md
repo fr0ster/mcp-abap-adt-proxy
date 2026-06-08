@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-06-08
+
+### Fixed
+- Bumped `@mcp-abap-adt/auth-broker` to `^1.0.7`, which moves `tsx` (and its transitive `esbuild`) out of runtime dependencies. Installing the proxy (including `npm i -g`) no longer pulls `esbuild`, so Windows/macOS package managers stop prompting about esbuild's `allow-scripts` / ignored build script during install. Runtime behavior is unchanged.
+
 ## [1.6.1] - 2026-06-04
 
 ### Fixed
