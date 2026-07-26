@@ -9,7 +9,9 @@ const bin = path.resolve(__dirname, '../../../bin/mcp-abap-adt-proxy.js');
 const dist = path.resolve(__dirname, '../../../dist/index.js');
 
 // These tests drive the built binary. Without dist/ there is nothing to test.
-const describeBuilt = fs.existsSync(dist) ? describe : describe.skip;
+// POSIX-only: the test drives process trees via `ps` and POSIX signals.
+const canRun = fs.existsSync(dist) && process.platform !== 'win32';
+const describeBuilt = canRun ? describe : describe.skip;
 
 const HTTP_PORT = 3099;
 const CALLBACK_PORT = 7899;
