@@ -62,6 +62,7 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 
 ### Key Components
 
+- **bin/mcp-abap-adt-proxy.js** - CLI entry point. Handles `--help`/`--version`, then loads `dist/index.js` **in-process** (`require`, not `spawn`). It must stay that way: a spawned child is orphaned by any signal the launcher does not forward and keeps holding the HTTP and OAuth callback ports.
 - **src/index.ts** - Main server class (`McpAbapAdtProxyServer`) supporting stdio, HTTP, and SSE transports
 - **src/router/headerAnalyzer.ts** - Extracts routing info from `x-sap-destination` and `x-target-url` headers; returns a `RoutingDecision` with strategy (PROXY, UNKNOWN)
 - **src/router/requestInterceptor.ts** - Intercepts incoming HTTP requests, calls `analyzeHeaders()`, extracts session ID

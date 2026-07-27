@@ -1,0 +1,231 @@
+import { describe, it, expect, beforeAll, afterAll, afterEach } from '@jest/globals';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as net from 'node:net';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+const bin = path.resolve(__dirname, '../../../bin/mcp-abap-adt-proxy.js');
+const dist = path.resolve(__dirname, '../../../dist/index.js');
+
+// These tests drive the built binary. Without dist/ there is nothing to test.
+// POSIX-only: the test drives process trees via `ps` and POSIX signals.
+const canRun = fs.existsSync(dist) && process.platform !== 'win32';
+const describeBuilt = canRun ? describe : describe.skip;
+
+const HTTP_PORT = 3099;
+const CALLBACK_PORT = 7899;
+// Generous: a cold CI runner loads the whole server dependency tree before the
+// callback server binds. Only a launcher that never binds at all should hit this.
+const BIND_TIMEOUT_MS = 45000;
+
+// Ask by connecting, never by binding. A binding probe holds the port while it
+// answers, and these tests poll exactly while the process under test is trying
+// to bind the same port — the probe then occasionally wins that race and kills
+// the proxy with EADDRINUSE, manufacturing the failure it claims to observe.
+//
+// Connecting is also address-agnostic: `browserAuth` binds the wildcard via
+// `server.listen(PORT)`, and a connection to 127.0.0.1 reaches it either way.
+// A binding probe has to match the server's address exactly, because Linux and
+// macOS disagree about whether a wildcard bind conflicts with a loopback one.
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port, host: '127.0.0.1' });
+    const settle = (free: boolean) => {
+      socket.destroy();
+      resolve(free);
+    };
+    socket.setTimeout(1000);
+    socket.once('connect', () => settle(false));
+    socket.once('error', () => settle(true));
+    socket.once('timeout', () => settle(false));
+  });
+}
+
+async function waitFor(
+  fn: () => Promise<boolean>,
+  timeoutMs = 20000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await fn()) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Descendants must be collected BEFORE the parent dies: an orphan is
+// re-parented to init/systemd, so afterwards it is no longer reachable
+// by walking down from the launcher pid.
+function descendantsOf(pid: number): number[] {
+  const out = execFileSync('ps', ['-eo', 'pid,ppid'], { encoding: 'utf-8' });
+  const byParent = new Map<number, number[]>();
+  for (const line of out.trim().split('\n').slice(1)) {
+    const [p, pp] = line.trim().split(/\s+/).map(Number);
+    if (!Number.isFinite(p) || !Number.isFinite(pp)) continue;
+    if (!byParent.has(pp)) byParent.set(pp, []);
+    byParent.get(pp)?.push(p);
+  }
+  const found: number[] = [];
+  const stack = [pid];
+  while (stack.length > 0) {
+    const cur = stack.pop() as number;
+    for (const child of byParent.get(cur) ?? []) {
+      found.push(child);
+      stack.push(child);
+    }
+  }
+  return found;
+}
+
+// A destination whose UAA host is never contacted: with browser 'none' the
+// proxy binds the callback port, prints the URL and waits. That is a stable
+// "up and holding ports" state, reachable with no network and no real key.
+function makeFixture(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-signals-'));
+  fs.mkdirSync(path.join(dir, 'service-keys'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'service-keys', 'signaltest.json'),
+    JSON.stringify({
+      credentials: {
+        url: 'http://127.0.0.1:9',
+        clientid: 'test-client',
+        clientsecret: 'test-secret',
+      },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(dir, 'config.yaml'),
+    [
+      'transport: http',
+      `httpPort: ${HTTP_PORT}`,
+      'httpHost: "127.0.0.1"',
+      'btpDestination: "signaltest"',
+      'targetUrl: "http://127.0.0.1:9"',
+      'browser: "none"',
+      `browserAuthPort: ${CALLBACK_PORT}`,
+      'logLevel: "info"',
+      '',
+    ].join('\n'),
+  );
+  return dir;
+}
+
+describeBuilt('bin signal handling', () => {
+  let dir: string;
+  let child: ChildProcess | undefined;
+  // Every pid seen while the launcher was still alive. Recorded up front because
+  // cleanup cannot rediscover them later: on the regression these tests exist to
+  // catch, the launcher dies and its child is re-parented, so walking down from
+  // the launcher pid finds nothing.
+  let watched: number[] = [];
+
+  function watchProcessTree(launcherPid: number): number[] {
+    const descendants = descendantsOf(launcherPid);
+    watched = [launcherPid, ...descendants];
+    return descendants;
+  }
+
+  // Start the launcher and wait until it holds the callback port. If it never
+  // does, the child's own output is the only thing that explains why, so it is
+  // captured and put in the failure message — a bare "expected true, got false"
+  // is unactionable on a CI runner you cannot log into.
+  async function startAndWaitForBind(): Promise<{
+    launcherPid: number;
+    descendants: number[];
+  }> {
+    let output = '';
+    child = spawn('node', [bin, '--config', path.join(dir, 'config.yaml')], {
+      env: { ...process.env, AUTH_BROKER_PATH: dir },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout?.on('data', (b: Buffer) => {
+      output += b.toString();
+    });
+    child.stderr?.on('data', (b: Buffer) => {
+      output += b.toString();
+    });
+    const launcherPid = child.pid as number;
+
+    const bound = await waitFor(
+      async () => !(await portIsFree(CALLBACK_PORT)),
+      BIND_TIMEOUT_MS,
+    );
+    if (!bound) {
+      throw new Error(
+        `launcher never bound port ${CALLBACK_PORT} within ${BIND_TIMEOUT_MS} ms ` +
+          `(platform=${process.platform}, exitCode=${child.exitCode}, ` +
+          `signal=${child.signalCode}).\n--- launcher output ---\n` +
+          `${output || '(no output)'}\n--- end ---`,
+      );
+    }
+    return { launcherPid, descendants: watchProcessTree(launcherPid) };
+  }
+
+  beforeAll(() => {
+    dir = makeFixture();
+  });
+
+  afterAll(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  afterEach(async () => {
+    // Kill every recorded pid unconditionally. Gating this on the launcher still
+    // being alive would skip cleanup in exactly the failing case that matters —
+    // leaving a server bound to CALLBACK_PORT, which would make the next test see
+    // the port as "bound" and pass for the wrong reason.
+    const pids = new Set(watched);
+    if (child?.pid) pids.add(child.pid);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+    watched = [];
+    child = undefined;
+    // Do not hand the next test a port that is still going down.
+    await waitFor(() => portIsFree(CALLBACK_PORT), 10000);
+  });
+
+  it('SIGTERM releases the callback port and leaves no surviving process', async () => {
+    const { launcherPid, descendants: before } = await startAndWaitForBind();
+
+    const exited = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
+    process.kill(launcherPid, 'SIGTERM');
+    await exited;
+
+    const released = await waitFor(() => portIsFree(CALLBACK_PORT), 10000);
+    expect(released).toBe(true);
+    expect(before.filter(isAlive)).toEqual([]);
+  }, 120000);
+
+  it('SIGHUP shuts down gracefully rather than dropping the process', async () => {
+    const { launcherPid } = await startAndWaitForBind();
+
+    const ended = new Promise<{ code: number | null; signal: string | null }>(
+      (resolve) => {
+        child?.once('exit', (code, signal) => resolve({ code, signal }));
+      },
+    );
+    process.kill(launcherPid, 'SIGHUP');
+    const { code, signal } = await ended;
+
+    // Graceful: the handler ran and exited deliberately.
+    expect(signal).toBeNull();
+    expect(code).toBe(0);
+    const released = await waitFor(() => portIsFree(CALLBACK_PORT), 10000);
+    expect(released).toBe(true);
+  }, 120000);
+});

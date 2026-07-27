@@ -895,6 +895,9 @@ if (process.env.MCP_SKIP_AUTO_START !== 'true') {
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
+  // A closing terminal should release the OAuth callback port and the HTTP
+  // listener the same way an explicit stop does.
+  process.on('SIGHUP', onSignal);
 
   server.run().catch((error) => {
     logger?.error('Fatal error while running MCP proxy server', {

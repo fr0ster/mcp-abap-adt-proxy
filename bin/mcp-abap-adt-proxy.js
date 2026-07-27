@@ -3,7 +3,7 @@
 /**
  * MCP ABAP ADT Proxy Server Launcher
  *
- * Simple launcher that spawns the main server process.
+ * Parses --help/--version, then loads the main server in-process.
  *
  * Usage:
  *   mcp-abap-adt-proxy [options]
@@ -13,7 +13,6 @@
 
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
 
 // Parse command line arguments
 function parseArgs() {
@@ -158,68 +157,12 @@ function main() {
     return;
   }
 
-  // Pass all arguments to server
-  const serverArgs = process.argv.slice(2);
-  const nodeExecPath = process.execPath;
-  const resolvedServerPath = path.resolve(serverPath);
-
-  // Verify server file exists
-  if (!fs.existsSync(resolvedServerPath)) {
-    process.stderr.write(`[MCP Proxy] ✗ Server file not found: ${resolvedServerPath}\n`);
-    if (process.platform === 'win32') {
-      setTimeout(() => process.exit(1), 30000);
-    } else {
-      process.exit(1);
-    }
-    return;
-  }
-
-  const serverEnv = {
-    ...process.env,
-  };
-
-  // Debug logging for Windows
-  if (process.platform === 'win32') {
-    process.stderr.write(`[MCP Proxy] Spawning server: ${nodeExecPath} ${resolvedServerPath}\n`);
-    process.stderr.write(`[MCP Proxy] CWD: ${process.cwd()}\n`);
-  }
-
-  // Spawn the server process
-  const serverProcess = spawn(nodeExecPath, [resolvedServerPath, ...serverArgs], {
-    stdio: ['inherit', 'inherit', 'inherit'],
-    env: serverEnv,
-    cwd: process.cwd(),
-    shell: false,
-  });
-
-  // Handle server process exit
-  serverProcess.on('close', (code) => {
-    if (code !== 0 && code !== null) {
-      process.stderr.write(`[MCP Proxy] Server exited with code: ${code}\n`);
-    }
-    process.exit(code || 0);
-  });
-
-  // Handle server process errors
-  serverProcess.on('error', (error) => {
-    process.stderr.write(`[MCP Proxy] ✗ Failed to start server: ${error.message}\n`);
-    if (error.stack) {
-      process.stderr.write(error.stack + '\n');
-    }
-    if (process.platform === 'win32') {
-      setTimeout(() => process.exit(1), 30000);
-    } else {
-      process.exit(1);
-    }
-  });
-
-  // Forward SIGINT (Ctrl+C) to server process
-  process.on('SIGINT', () => {
-    serverProcess.kill('SIGINT');
-    setTimeout(() => {
-      process.exit(0);
-    }, 500);
-  });
+  // The server is loaded in this process, not spawned as a child. A child
+  // would be orphaned by any signal the launcher does not forward — SIGTERM
+  // from `kill`/`pkill`, SIGHUP from a closing terminal, or an MCP client
+  // stopping the server — and would keep holding the HTTP and OAuth callback
+  // ports. In-process, signals reach the server's own handler directly.
+  require(serverPath);
 }
 
 // Run launcher
