@@ -252,11 +252,23 @@ Order matters: call `server.close()` **first** to stop accepting, then
 current code uses (lines 337-340) — leaves a window in which a new connection is accepted
 after the destroy and then keeps `close()` waiting on it.
 
-It must not hang on a browser holding a keep-alive connection. Note that
-`server.keepAliveTimeout = 0` (line 205) does the opposite of what its comment claims —
-per the Node documentation, 0 *disables* the keep-alive timeout, so idle connections are
-never reaped. `closeAllConnections()` is what actually prevents the hang; do not carry the
-`keepAliveTimeout = 0` line over.
+An idle keep-alive connection does not block the close, and the `keepAliveTimeout = 0`
+line (line 205) is not what saves it. Measured on Node 25 with one live keep-alive socket
+held open, `server.close()` completed in 0-3 ms at `keepAliveTimeout` of 0, 5000 and
+72000 alike: since Node 19 `server.close()` closes idle connections itself. The full
+`startBrowserAuth` flow settles and frees the port in ~10 ms with a keep-alive socket held
+and new connections arriving concurrently.
+
+So `closeAllConnections()` earns its place for connections with a request still in flight,
+not for idle ones, and `keepAliveTimeout = 0` can be dropped as a no-op rather than as a
+fix. Do not restate the old claim that it inverts its own comment — that was asserted from
+the documentation and contradicted by measurement.
+
+One limit worth stating: deleting `closeAllConnections` from the prototype on Node 25 to
+imitate Node 18.0/18.1 still freed the port, but that only exercises Node 25's `close()`
+semantics. It says nothing about how real Node 18.0/18.1 behaves, where `close()` predates
+the idle-connection change. The `engines.node` raise to `>=18.2.0` stands on
+`closeAllConnections` being called at all, not on this experiment.
 
 `closeAllConnections()` landed in **Node 18.2.0**, while `engines.node` currently allows
 `>=18.0.0`. Raise it to `>=18.2.0` as part of this change rather than writing a

@@ -266,7 +266,11 @@ already handles SIGTERM correctly; it just never received it."
 - Consumes: `portIsFree`, `waitFor`, `isAlive`, `descendantsOf` and `makeFixture` from Task 1's test file.
 - Produces: nothing consumed by later tasks.
 
-**What this does and does not buy.** After Task 1 a SIGHUP already terminates the process and the OS reclaims its ports — Node's default action for SIGHUP with no handler is to exit. This task does not fix a port leak. It makes a closing terminal go through the same graceful path as SIGINT and SIGTERM, so the session and MCP server are closed deliberately instead of the process vanishing mid-request.
+**What this buys — corrected after measurement.** This paragraph originally claimed that SIGHUP already terminates the process, so the task only bought tidiness. That is wrong during an in-flight login, and the correction matters.
+
+`node_modules/@mcp-abap-adt/auth-providers/dist/auth/browserAuth.js:275` registers `process.once('SIGHUP', cleanup)` while the OAuth callback server is listening. Registering any listener for a signal suppresses Node's default action for it. So during a login, SIGHUP does **not** kill the proxy: the browserAuth cleanup runs, the process stays alive, and it lingers until the 30-second authentication timeout exits it with code 1 — still holding its ports for that whole window. Closing a terminal mid-login therefore leaves a proxy running for another half minute.
+
+With this task's handler registered, SIGHUP runs the same graceful shutdown as SIGINT and SIGTERM and the process exits promptly with code 0. That is a real port-release improvement in the login window, not only a tidier exit.
 
 That difference is observable in how the process ends, which is what the test asserts. Killed by the default action, a process reports `code: null, signal: 'SIGHUP'`; run through `onSignal`, it reports `code: 0, signal: null` because the handler ends with `process.exit(0)`. Asserting on the exit status rather than on a log line keeps the test independent of where the logger happens to write.
 
