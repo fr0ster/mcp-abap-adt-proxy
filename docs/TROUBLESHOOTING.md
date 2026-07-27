@@ -68,6 +68,58 @@ lsof -i :3001
 kill -9 <PID>
 ```
 
+#### Error: "Port N is already in use" naming your browserAuthPort
+
+**Symptoms:**
+- Startup fails with `Token provider error for <destination>: Port <n> is already in use. Please specify a different port or free the port.`
+- The number is the one from `browserAuthPort` (or `--browser-auth-port`), not `httpPort`
+- It often appears on the *second* start: the first run worked, you stopped it, and now the port is still taken
+
+The callback port is only needed while you are logging in. It is bound when the
+login window opens and released as soon as the authorization code has been
+exchanged for a token — the proxy keeps running afterwards without it. So a
+callback port that stays busy means something is still holding it.
+
+**Diagnose — find out what actually holds it:**
+
+```bash
+# Linux
+ss -ltnp | grep :7777
+# macOS
+lsof -nP -iTCP:7777 -sTCP:LISTEN
+```
+
+Three things it usually turns out to be:
+
+1. **An unrelated program on the same number.** The proxy's callback port and
+   another service's main port are easy to collide by accident. Check what the
+   command line actually is before assuming it is a proxy.
+
+2. **A proxy you thought you had stopped — in versions before 1.6.3.** The
+   launcher forwarded only `SIGINT`, so `kill`, `pkill`, a closing terminal or
+   an MCP client stopping the server killed the launcher and left the real
+   server running. Look for it under its inner name, not the CLI name:
+
+   ```bash
+   ps -eo pid,ppid,args | grep '[d]ist/index.js'
+   ```
+
+   A parent PID of 1 (or `systemd --user`) means it was orphaned. Upgrade to
+   1.6.3 or later, and kill any strays once:
+
+   ```bash
+   pkill -f 'proxy/dist/index.js'
+   ```
+
+3. **Another proxy still inside its login window.** The port is held for the
+   entire interactive login, so two proxies configured with the same
+   `browserAuthPort` cannot log in at the same time. This is expected. Give each
+   config its own port, or complete one login before starting the next.
+
+**Note:** the main `httpPort` being free is not evidence that the proxy is gone.
+Prior to 1.6.3, an orphaned server held *both* ports, so if only the callback
+port looks busy, suspect cause 1 or 3 rather than a stray process.
+
 ### 2. Proxy Requests Failing
 
 #### Error: "--btp parameter is required for stdio transport"

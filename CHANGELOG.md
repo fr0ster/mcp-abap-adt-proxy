@@ -7,10 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-07-27
+
+### Fixed
+- **Stopping the proxy left it running, holding its ports.** `bin/mcp-abap-adt-proxy.js` spawned the server as a child process and forwarded only `SIGINT`. Everything that stops a process with `SIGTERM` — `kill`, `pkill`, a service manager, an MCP client shutting the server down — killed the launcher while the server survived, re-parented to `init`/`systemd`, still holding both the HTTP port and the OAuth callback port. A later start then failed with `Port <n> is already in use`, naming the port from `browserAuthPort`.
+
+  The orphan was easy to miss: in `ps` it appears as `dist/index.js`, not `mcp-abap-adt-proxy`, and it is no longer attached to the terminal it was started from. Only `Ctrl+C` shut down cleanly.
+
+  The launcher no longer spawns anything — it loads the server in the same process, so signals reach the shutdown handler that was already there and already correct. It used the same Node executable, an unmodified environment, inherited stdio and the same arguments, so the child bought nothing.
+
+- **Closing a terminal mid-login left the proxy running for another 30 seconds.** `SIGHUP` is now handled alongside `SIGINT` and `SIGTERM`. It previously did not terminate the proxy at all during a login: `@mcp-abap-adt/auth-providers` registers its own `SIGHUP` listener while the callback server is open, and any registered listener suppresses Node's default terminate. The process lingered — holding its ports — until the authentication timeout exited it with code 1.
+
 ### Changed
 - Updated dev/runtime dependencies to latest within their semver ranges (axios, zod, js-yaml, `@mcp-abap-adt/interfaces`, biome, jest toolchain, tsx, `@types/node`). Runtime `dependencies` ranges are unchanged, so consumer installs are unaffected.
 - Bumped `@modelcontextprotocol/inspector` (dev) to `^0.22.0`.
 - Removed unused `commander` dev dependency.
+
+### Notes
+- The `browserAuthPort` collision that remains is by design: the callback port is held for the whole interactive login, so two proxies whose login windows overlap cannot share one. Give each config its own, or stagger the logins.
+- Not addressed here, and tracked for `@mcp-abap-adt/auth-providers`: a callback that arrives without a `code` parameter leaves the callback socket open for the lifetime of the process, and a failed token exchange releases it about 300 ms after the login promise has already been rejected.
 
 ## [1.6.2] - 2026-06-08
 
