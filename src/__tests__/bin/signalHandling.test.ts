@@ -105,6 +105,17 @@ function makeFixture(): string {
 describeBuilt('bin signal handling', () => {
   let dir: string;
   let child: ChildProcess | undefined;
+  // Every pid seen while the launcher was still alive. Recorded up front because
+  // cleanup cannot rediscover them later: on the regression these tests exist to
+  // catch, the launcher dies and its child is re-parented, so walking down from
+  // the launcher pid finds nothing.
+  let watched: number[] = [];
+
+  function watchProcessTree(launcherPid: number): number[] {
+    const descendants = descendantsOf(launcherPid);
+    watched = [launcherPid, ...descendants];
+    return descendants;
+  }
 
   beforeAll(() => {
     dir = makeFixture();
@@ -114,23 +125,24 @@ describeBuilt('bin signal handling', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  afterEach(() => {
-    // Belt and braces: never leave a test server behind holding a port.
-    if (child?.pid && isAlive(child.pid)) {
-      for (const pid of descendantsOf(child.pid)) {
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {
-          /* already gone */
-        }
-      }
+  afterEach(async () => {
+    // Kill every recorded pid unconditionally. Gating this on the launcher still
+    // being alive would skip cleanup in exactly the failing case that matters —
+    // leaving a server bound to CALLBACK_PORT, which would make the next test see
+    // the port as "bound" and pass for the wrong reason.
+    const pids = new Set(watched);
+    if (child?.pid) pids.add(child.pid);
+    for (const pid of pids) {
       try {
-        process.kill(child.pid, 'SIGKILL');
+        process.kill(pid, 'SIGKILL');
       } catch {
         /* already gone */
       }
     }
+    watched = [];
     child = undefined;
+    // Do not hand the next test a port that is still going down.
+    await waitFor(() => portIsFree(CALLBACK_PORT), 10000);
   });
 
   it('SIGTERM releases the callback port and leaves no surviving process', async () => {
@@ -143,7 +155,7 @@ describeBuilt('bin signal handling', () => {
     const bound = await waitFor(async () => !(await portIsFree(CALLBACK_PORT)));
     expect(bound).toBe(true);
 
-    const before = descendantsOf(launcherPid);
+    const before = watchProcessTree(launcherPid);
 
     const exited = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
     process.kill(launcherPid, 'SIGTERM');
@@ -163,6 +175,8 @@ describeBuilt('bin signal handling', () => {
 
     const bound = await waitFor(async () => !(await portIsFree(CALLBACK_PORT)));
     expect(bound).toBe(true);
+
+    watchProcessTree(launcherPid);
 
     const ended = new Promise<{ code: number | null; signal: string | null }>(
       (resolve) => {
