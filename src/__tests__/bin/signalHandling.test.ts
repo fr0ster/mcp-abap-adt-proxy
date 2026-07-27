@@ -19,17 +19,26 @@ const CALLBACK_PORT = 7899;
 // callback server binds. Only a launcher that never binds at all should hit this.
 const BIND_TIMEOUT_MS = 45000;
 
-// Probe the same address the callback server binds. `browserAuth` calls
-// `server.listen(PORT)` with no host — the wildcard — so probing 127.0.0.1
-// asks a different question. Linux answers both the same way, because a bound
-// wildcard also blocks a specific loopback bind; macOS does not, and the probe
-// reported a held port as free. Bind the wildcard here for the same reason
-// auth-providers' own isPortAvailable() does.
+// Ask by connecting, never by binding. A binding probe holds the port while it
+// answers, and these tests poll exactly while the process under test is trying
+// to bind the same port — the probe then occasionally wins that race and kills
+// the proxy with EADDRINUSE, manufacturing the failure it claims to observe.
+//
+// Connecting is also address-agnostic: `browserAuth` binds the wildcard via
+// `server.listen(PORT)`, and a connection to 127.0.0.1 reaches it either way.
+// A binding probe has to match the server's address exactly, because Linux and
+// macOS disagree about whether a wildcard bind conflicts with a loopback one.
 function portIsFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const s = net.createServer();
-    s.once('error', () => resolve(false));
-    s.listen(port, () => s.close(() => resolve(true)));
+    const socket = net.connect({ port, host: '127.0.0.1' });
+    const settle = (free: boolean) => {
+      socket.destroy();
+      resolve(free);
+    };
+    socket.setTimeout(1000);
+    socket.once('connect', () => settle(false));
+    socket.once('error', () => settle(true));
+    socket.once('timeout', () => settle(false));
   });
 }
 
