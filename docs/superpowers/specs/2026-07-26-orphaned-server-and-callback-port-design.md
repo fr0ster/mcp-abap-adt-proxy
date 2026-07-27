@@ -274,6 +274,22 @@ the idle-connection change. The `engines.node` raise to `>=18.2.0` stands on
 `>=18.0.0`. Raise it to `>=18.2.0` as part of this change rather than writing a
 socket-tracking fallback for two patch releases of an already end-of-life major.
 
+**Measured, after change #1 landed.** Two proxies started simultaneously on one
+`browserAuthPort`, both needing an interactive login:
+
+```
+                              installed 1.6.2      this branch
+survivor's exit on SIGTERM    signal=SIGTERM       code=0 (graceful)
+callback port after SIGTERM   still bound          free
+processes left behind         2                    0
+parallel-start collision      1 of 2 survives      1 of 2 survives
+```
+
+Change #1 fixes the release-on-stop half completely. The collision half is unchanged and
+was never in its scope: the proxy that loses the race exits with code 1 and "already in
+use", because the winner legitimately holds the port for the whole login window. That is
+the case change #3 addresses, and this is the evidence for it.
+
 ### 3. Ephemeral port by default — deferred
 
 `listen(0)` and report the bound port. Deferred until #1 and #2 have settled: with correct
