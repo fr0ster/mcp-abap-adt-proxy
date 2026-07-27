@@ -19,11 +19,17 @@ const CALLBACK_PORT = 7899;
 // callback server binds. Only a launcher that never binds at all should hit this.
 const BIND_TIMEOUT_MS = 45000;
 
+// Probe the same address the callback server binds. `browserAuth` calls
+// `server.listen(PORT)` with no host — the wildcard — so probing 127.0.0.1
+// asks a different question. Linux answers both the same way, because a bound
+// wildcard also blocks a specific loopback bind; macOS does not, and the probe
+// reported a held port as free. Bind the wildcard here for the same reason
+// auth-providers' own isPortAvailable() does.
 function portIsFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const s = net.createServer();
     s.once('error', () => resolve(false));
-    s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
+    s.listen(port, () => s.close(() => resolve(true)));
   });
 }
 
