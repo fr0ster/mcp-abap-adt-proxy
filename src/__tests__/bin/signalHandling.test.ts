@@ -15,6 +15,9 @@ const describeBuilt = canRun ? describe : describe.skip;
 
 const HTTP_PORT = 3099;
 const CALLBACK_PORT = 7899;
+// Generous: a cold CI runner loads the whole server dependency tree before the
+// callback server binds. Only a launcher that never binds at all should hit this.
+const BIND_TIMEOUT_MS = 45000;
 
 function portIsFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -117,6 +120,42 @@ describeBuilt('bin signal handling', () => {
     return descendants;
   }
 
+  // Start the launcher and wait until it holds the callback port. If it never
+  // does, the child's own output is the only thing that explains why, so it is
+  // captured and put in the failure message — a bare "expected true, got false"
+  // is unactionable on a CI runner you cannot log into.
+  async function startAndWaitForBind(): Promise<{
+    launcherPid: number;
+    descendants: number[];
+  }> {
+    let output = '';
+    child = spawn('node', [bin, '--config', path.join(dir, 'config.yaml')], {
+      env: { ...process.env, AUTH_BROKER_PATH: dir },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout?.on('data', (b: Buffer) => {
+      output += b.toString();
+    });
+    child.stderr?.on('data', (b: Buffer) => {
+      output += b.toString();
+    });
+    const launcherPid = child.pid as number;
+
+    const bound = await waitFor(
+      async () => !(await portIsFree(CALLBACK_PORT)),
+      BIND_TIMEOUT_MS,
+    );
+    if (!bound) {
+      throw new Error(
+        `launcher never bound port ${CALLBACK_PORT} within ${BIND_TIMEOUT_MS} ms ` +
+          `(platform=${process.platform}, exitCode=${child.exitCode}, ` +
+          `signal=${child.signalCode}).\n--- launcher output ---\n` +
+          `${output || '(no output)'}\n--- end ---`,
+      );
+    }
+    return { launcherPid, descendants: watchProcessTree(launcherPid) };
+  }
+
   beforeAll(() => {
     dir = makeFixture();
   });
@@ -146,16 +185,7 @@ describeBuilt('bin signal handling', () => {
   });
 
   it('SIGTERM releases the callback port and leaves no surviving process', async () => {
-    child = spawn('node', [bin, '--config', path.join(dir, 'config.yaml')], {
-      env: { ...process.env, AUTH_BROKER_PATH: dir },
-      stdio: 'ignore',
-    });
-    const launcherPid = child.pid as number;
-
-    const bound = await waitFor(async () => !(await portIsFree(CALLBACK_PORT)));
-    expect(bound).toBe(true);
-
-    const before = watchProcessTree(launcherPid);
+    const { launcherPid, descendants: before } = await startAndWaitForBind();
 
     const exited = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
     process.kill(launcherPid, 'SIGTERM');
@@ -164,19 +194,10 @@ describeBuilt('bin signal handling', () => {
     const released = await waitFor(() => portIsFree(CALLBACK_PORT), 10000);
     expect(released).toBe(true);
     expect(before.filter(isAlive)).toEqual([]);
-  }, 60000);
+  }, 120000);
 
   it('SIGHUP shuts down gracefully rather than dropping the process', async () => {
-    child = spawn('node', [bin, '--config', path.join(dir, 'config.yaml')], {
-      env: { ...process.env, AUTH_BROKER_PATH: dir },
-      stdio: 'ignore',
-    });
-    const launcherPid = child.pid as number;
-
-    const bound = await waitFor(async () => !(await portIsFree(CALLBACK_PORT)));
-    expect(bound).toBe(true);
-
-    watchProcessTree(launcherPid);
+    const { launcherPid } = await startAndWaitForBind();
 
     const ended = new Promise<{ code: number | null; signal: string | null }>(
       (resolve) => {
@@ -191,5 +212,5 @@ describeBuilt('bin signal handling', () => {
     expect(code).toBe(0);
     const released = await waitFor(() => portIsFree(CALLBACK_PORT), 10000);
     expect(released).toBe(true);
-  }, 60000);
+  }, 120000);
 });
