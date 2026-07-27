@@ -149,4 +149,28 @@ describeBuilt('bin signal handling', () => {
     expect(released).toBe(true);
     expect(before.filter(isAlive)).toEqual([]);
   }, 60000);
+
+  it('SIGHUP shuts down gracefully rather than dropping the process', async () => {
+    child = spawn('node', [bin, '--config', path.join(dir, 'config.yaml')], {
+      env: { ...process.env, AUTH_BROKER_PATH: dir },
+      stdio: 'ignore',
+    });
+    const launcherPid = child.pid as number;
+
+    const bound = await waitFor(async () => !(await portIsFree(CALLBACK_PORT)));
+    expect(bound).toBe(true);
+
+    const ended = new Promise<{ code: number | null; signal: string | null }>(
+      (resolve) => {
+        child?.once('exit', (code, signal) => resolve({ code, signal }));
+      },
+    );
+    process.kill(launcherPid, 'SIGHUP');
+    const { code, signal } = await ended;
+
+    // Graceful: the handler ran and exited deliberately.
+    expect(signal).toBeNull();
+    expect(code).toBe(0);
+    expect(await portIsFree(CALLBACK_PORT)).toBe(true);
+  }, 60000);
 });
