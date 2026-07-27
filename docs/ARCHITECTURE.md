@@ -44,6 +44,36 @@ The MCP ABAP ADT Proxy is a simple middleware server that sits between MCP clien
 └───────────────────────────────────────────────┘
 ```
 
+## Process Model
+
+**Location:** `bin/mcp-abap-adt-proxy.js`
+
+The CLI entry point handles `--help` and `--version`, then loads
+`dist/index.js` **in the same process** with `require`. It does not spawn a
+child, and must not start doing so again.
+
+That constraint is the whole point. The launcher previously spawned the server
+and forwarded only `SIGINT`, so `SIGTERM` — what `kill`, `pkill`, service
+managers and MCP clients send — killed the launcher and left the server running,
+re-parented to `init`/`systemd`, still holding its HTTP port and, if a login was
+in progress, its OAuth callback port. Running in one process means every signal
+reaches the server directly.
+
+Shutdown is handled in `src/index.ts`: `SIGINT`, `SIGTERM` and `SIGHUP` all run
+the same handler, which closes the MCP server and the HTTP listener and releases
+the callback port. The handler is idempotent, so repeated or overlapping signals
+shut down once.
+
+`SIGHUP` is registered deliberately rather than left to Node's default. During a
+login, `@mcp-abap-adt/auth-providers` registers its own `SIGHUP` listener for
+cleanup — and any registered listener suppresses the default terminate — so
+without this handler a closing terminal did not stop the proxy at all; it kept
+running, holding its ports, until the authentication timeout.
+
+Regression tests for this live in `src/__tests__/bin/signalHandling.test.ts` and
+`src/__tests__/bin/callbackPortLifecycle.test.ts`. They drive the built binary,
+so they need `npm run build` first, and they are POSIX-only.
+
 ## Component Architecture
 
 ### 1. Request Interceptor

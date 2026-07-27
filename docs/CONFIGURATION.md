@@ -70,6 +70,24 @@ three ways — whichever happens first wins:
 mcp-abap-adt-proxy --btp <dest> --browser none --browser-auth-port 3333
 ```
 
+#### How long the callback port is held
+
+The callback port is bound when the login window opens and released as soon as
+the authorization code has been exchanged for a token. The proxy keeps running
+without it — it is not a listening port of the running proxy, only of the login.
+
+Two consequences:
+
+- **Two proxies can share one `browserAuthPort`, as long as their logins do not
+  overlap.** Whichever opens its login window first holds the port; a second one
+  starting during that window fails with `Port <n> is already in use` and exits.
+  Give each config its own port if you start several proxies at once.
+- **A callback port that stays busy after a login means something else holds
+  it.** See [Troubleshooting](./TROUBLESHOOTING.md#error-port-n-is-already-in-use-naming-your-browserauthport).
+
+Choose a number that no other local service uses. The proxy's callback port and
+some other tool's main port colliding is the most common cause of this error.
+
 ## Environment Variables
 
 #### Server Configuration

@@ -91,7 +91,7 @@ For detailed setup instructions for Cline and GitHub Copilot, see the **[Client 
 - `--btp=<destination>` - Overrides `x-sap-destination` header (takes precedence)
 - `--url=<url>` - Overrides MCP server URL (required if service key lacks URL)
 - `--browser=<browser>` - Browser to use: `system` (default), `chrome`, `edge`, `firefox`, `headless`
-- `--browser-auth-port=<port>` - Port for OAuth2 callback (default: 3333)
+- `--browser-auth-port=<port>` - Port for the OAuth2 callback (default: 3333). Bound only while you are logging in, then released — see [How long the callback port is held](./docs/CONFIGURATION.md#how-long-the-callback-port-is-held)
 - `--unsafe` - Enables file-based session storage (persists tokens to disk). By default, sessions are stored in-memory (secure, lost on restart)
 
 **Default Headers:**

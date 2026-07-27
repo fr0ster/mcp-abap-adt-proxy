@@ -74,7 +74,9 @@ defaultHeaders:
 
 # OAuth2 login browser
 browser: "system"      # system | headless | chrome | edge | firefox | none
-browserAuthPort: 7777  # port for the local OAuth2 callback server
+browserAuthPort: 7777  # port for the local OAuth2 callback server;
+                       # bound only while you are logging in, then released.
+                       # Pick a number no other local service listens on.
 
 # Session storage mode
 unsafe: false  # If true, persists tokens to disk. If false, uses in-memory storage (secure)
@@ -193,7 +195,7 @@ circuitBreakerTimeout: 120000
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `browser` | `string` | `"system"` | OAuth2 login browser: `system`, `headless`, `chrome`, `edge`, `firefox`, `none` |
-| `browserAuthPort` | `number` | `undefined` | Port for the local OAuth2 callback server |
+| `browserAuthPort` | `number` | `3333` | Port for the local OAuth2 callback server. Bound only for the duration of an interactive login, then released — see [How long the callback port is held](./CONFIGURATION.md#how-long-the-callback-port-is-held) |
 
 ### Session Storage
 
