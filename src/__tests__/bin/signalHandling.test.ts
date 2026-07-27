@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from '@jest/globals';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
@@ -110,6 +110,10 @@ describeBuilt('bin signal handling', () => {
     dir = makeFixture();
   });
 
+  afterAll(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   afterEach(() => {
     // Belt and braces: never leave a test server behind holding a port.
     if (child?.pid && isAlive(child.pid)) {
@@ -171,6 +175,7 @@ describeBuilt('bin signal handling', () => {
     // Graceful: the handler ran and exited deliberately.
     expect(signal).toBeNull();
     expect(code).toBe(0);
-    expect(await portIsFree(CALLBACK_PORT)).toBe(true);
+    const released = await waitFor(() => portIsFree(CALLBACK_PORT), 10000);
+    expect(released).toBe(true);
   }, 60000);
 });

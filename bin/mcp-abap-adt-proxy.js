@@ -3,7 +3,7 @@
 /**
  * MCP ABAP ADT Proxy Server Launcher
  *
- * Simple launcher that spawns the main server process.
+ * Parses --help/--version, then loads the main server in-process.
  *
  * Usage:
  *   mcp-abap-adt-proxy [options]
