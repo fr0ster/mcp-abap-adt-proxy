@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-07-29
+
+### Fixed
+- **The two callback-port leaks that 1.6.3 deferred are now closed**, through
+  `@mcp-abap-adt/auth-providers@1.2.0`. 1.6.3 fixed the half that survived stopping the
+  proxy — the orphaned server — and recorded these as outstanding: a callback arriving
+  without a `code` parameter left the socket bound for the lifetime of the process, and a
+  failed token exchange released it about 300 ms after the login promise had already been
+  rejected. Both are gone: the port is released when the login ends by any means, and the
+  promise settles only once the socket is actually free.
+- **An interactive login can no longer strand a port by being abandoned.** The OIDC and
+  SAML flows in the dependency had no timeout at all, so a user who closed the tab left the
+  port held until the process exited. Every flow now has one.
+
+### Changed
+- Requires `@mcp-abap-adt/auth-broker` `^1.0.8` (was `^1.0.7`) and
+  `@mcp-abap-adt/auth-providers` `^1.2.0` (was `^1.1.0`).
+- **`engines.node` is now `>=18.2.0`** (was `>=18.0.0`), matching the floor those packages
+  require for `server.closeAllConnections()`.
+
+### Notes
+- No change in this package's own code. `src/__tests__/bin/callbackPortLifecycle.test.ts`
+  was written in 1.6.3 against behaviour rather than implementation, and passes unchanged
+  against the rewritten dependency — including the case that starts a second proxy on the
+  same configured auth port while the first is still running.
+- Two proxies whose interactive logins overlap still cannot share one `browserAuthPort`.
+  That is inherent: the port is held for the duration of a login.
+
+
 ## [1.6.3] - 2026-07-27
 
 ### Fixed
