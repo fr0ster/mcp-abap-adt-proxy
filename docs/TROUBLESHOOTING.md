@@ -89,7 +89,7 @@ ss -ltnp | grep :7777
 lsof -nP -iTCP:7777 -sTCP:LISTEN
 ```
 
-Three things it usually turns out to be:
+Four things it usually turns out to be:
 
 1. **An unrelated program on the same number.** The proxy's callback port and
    another service's main port are easy to collide by accident. Check what the
@@ -123,9 +123,12 @@ Three things it usually turns out to be:
    life. Unlike cause 2, the process is one you meant to be running, so it looks
    innocent. Fixed in 1.6.4 via `@mcp-abap-adt/auth-providers@1.2.0`.
 
-**Note:** the main `httpPort` being free is not evidence that the proxy is gone.
-Prior to 1.6.3, an orphaned server held *both* ports, so if only the callback
-port looks busy, suspect cause 1 or 3 rather than a stray process.
+**Note:** the main `httpPort` being free is not evidence that the proxy is gone,
+but it does narrow things down. An orphaned server from before 1.6.3 held *both*
+ports, so when only the callback port looks busy the culprit is one of the causes
+that leaves the main port alone: an unrelated program on the same number (1), a
+proxy still inside its login window (3), or — before 1.6.4 — a running proxy
+whose earlier login leaked the socket (4).
 
 ### 2. Proxy Requests Failing
 
