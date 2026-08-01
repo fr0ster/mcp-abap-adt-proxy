@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proxy now builds one with `browserCallbackStrategy({ browser, port, timeoutMs })` at both places
   it constructs the provider — an internal change with no configuration impact (see below).
 
+### Fixed
+- **The no-destination placeholder broker's callback port collided with the proxy's own.** The
+  `AuthorizationCodeProvider` built for `BtpProxy.create()`'s default broker never had its own
+  port fallback; an unset `browserAuthPort` fell through to `auth-providers@1.2.0`'s internal
+  default of `3001` — the same port the proxy's own HTTP server listens on by default. Making the
+  migration to `auth-providers@2.0.0` explicit is what surfaced it. Both call sites now share the
+  documented `3333` default. This only affects logins with no destination configured, which use
+  placeholder credentials and could never complete a real login anyway.
+
 ### Changed
 - **`--browser-auth-port` keeps its meaning and its `3333` default.** Nothing changes for existing
   configs or CLI invocations — the port still lands inside the strategy instead of a bare config

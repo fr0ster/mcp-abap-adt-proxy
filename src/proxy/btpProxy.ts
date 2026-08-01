@@ -1214,15 +1214,17 @@ export class BtpProxy {
           clientSecret: 'placeholder',
           authorization: browserCallbackStrategy({
             browser: loadedConfig.browser,
-            // This call site never had its own `|| 3333` fallback: it relied
-            // on auth-providers@1.2.0 defaulting an omitted `redirectPort` to
-            // 3001 internally. auth-providers@2.0.0's own default for an
-            // omitted port is 61001, so the old number has to be spelled out
-            // here explicitly to keep this placeholder broker's behaviour
-            // unchanged — this is a fallback that predates and is unrelated
-            // to the documented `--browser-auth-port` default of 3333 used
-            // below for real destinations.
-            port: loadedConfig.browserAuthPort || 3001,
+            // This call site never had its own fallback: it passed
+            // `redirectPort` straight through and relied on
+            // auth-providers@1.2.0 defaulting an omitted value to 3001
+            // internally — which is this proxy's own default `httpPort`
+            // (src/lib/config.ts). An omitted `browserAuthPort` therefore
+            // told the callback server to bind the port the proxy already
+            // listens on, failing every such login with "Port 3001 is
+            // already in use". Both call sites now share the one documented
+            // default instead of leaving this one to an invisible, colliding
+            // number.
+            port: loadedConfig.browserAuthPort || DEFAULT_BROWSER_AUTH_PORT,
             timeoutMs: INTERACTIVE_LOGIN_TIMEOUT_MS,
           }),
           logger: loggerAdapter,
