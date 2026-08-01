@@ -35,6 +35,9 @@ jest.mock('@mcp-abap-adt/auth-providers', () => {
     return {
         AuthorizationCodeProvider: jest.fn().mockImplementation(() => ({})),
         ClientCredentialsProvider: jest.fn().mockImplementation(() => ({})),
+        browserCallbackStrategy: jest.fn().mockImplementation((options) => ({
+            __mockStrategyOptions: options,
+        })),
     };
 });
 
