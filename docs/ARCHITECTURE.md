@@ -64,11 +64,19 @@ the same handler, which closes the MCP server and the HTTP listener and releases
 the callback port. The handler is idempotent, so repeated or overlapping signals
 shut down once.
 
-`SIGHUP` is registered deliberately rather than left to Node's default. During a
-login, `@mcp-abap-adt/auth-providers` registers its own `SIGHUP` listener for
-cleanup — and any registered listener suppresses the default terminate — so
-without this handler a closing terminal did not stop the proxy at all; it kept
-running, holding its ports, until the authentication timeout.
+`SIGHUP` is registered deliberately rather than left to Node's default, because
+Node terminates on it only while nothing has registered a listener. That used to
+matter for a second reason as well: `@mcp-abap-adt/auth-providers` registered its
+own `SIGHUP` listener during a login, which suppressed the default terminate, so
+without this handler a closing terminal did not stop the proxy at all — it kept
+running and holding its ports until the authentication timeout.
+
+That is no longer how the provider works. Since `auth-providers@1.2.0` the
+callback socket has one owner and one release point, and the port is freed when
+the login scope ends however it ends; `2.0.0` registers no process signal
+handlers at all. The proxy's own handler is what shuts it down, and it is worth
+keeping registered rather than relying on Node's default, which a future
+dependency could suppress again just as silently.
 
 Regression tests for this live in `src/__tests__/bin/signalHandling.test.ts` and
 `src/__tests__/bin/callbackPortLifecycle.test.ts`. They drive the built binary,

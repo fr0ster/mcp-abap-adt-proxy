@@ -83,8 +83,16 @@ mcp-abap-adt-proxy --btp <dest> --browser none --browser-auth-port 3333
 #### How long the callback port is held
 
 The callback port is bound when the login window opens and released as soon as
-the authorization code has been exchanged for a token. The proxy keeps running
-without it — it is not a listening port of the running proxy, only of the login.
+the authorization code arrives — **before** it is exchanged for a token, not
+after. The exchange is a round trip to the identity provider, and holding the
+socket across it would keep the port busy for reasons that have nothing to do
+with receiving the callback. The proxy keeps running without it: this is not a
+listening port of the running proxy, only of the login.
+
+The release is also unconditional. Since `auth-providers@1.2.0` the socket has
+one owner and one release point, and it is freed on whatever ends the login
+first — the code arriving, an explicit failure, the timeout, or cancellation —
+so a settled login always means the port is already free.
 
 Two consequences:
 
