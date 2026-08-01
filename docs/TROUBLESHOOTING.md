@@ -123,6 +123,12 @@ Four things it usually turns out to be:
    life. Unlike cause 2, the process is one you meant to be running, so it looks
    innocent. Fixed in 1.6.4 via `@mcp-abap-adt/auth-providers@1.2.0`.
 
+   Since `auth-providers@2.0.0` such a request no longer ends the login at all:
+   it is answered `400`, counted, and the login keeps waiting. If a login then
+   times out, the error names the tally — `3 incomplete request(s) reached
+   /callback and were ignored.` — which tells you something was probing the
+   callback port while you were logging in.
+
 **Note:** the main `httpPort` being free is not evidence that the proxy is gone,
 but it does narrow things down. An orphaned server from before 1.6.3 held *both*
 ports, so when only the callback port looks busy the culprit is one of the causes

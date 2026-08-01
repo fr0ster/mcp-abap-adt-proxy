@@ -19,3 +19,9 @@ mcp-proxy-config.json
 .mcp-proxy-config.json
 
 src/index.ts
+
+# Git worktrees
+.worktrees/
+
+# Superpowers scratch (ledger, briefs, review packages)
+.superpowers/

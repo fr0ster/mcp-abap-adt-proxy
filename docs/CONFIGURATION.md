@@ -55,16 +55,26 @@ Run `mcp-abap-adt-proxy --help` for the full list.
 ### Headless login (`--browser none`)
 
 With `--browser none` (or `headless`) the proxy does **not** open a browser. It
-prints the authorization URL to the console and waits. Complete login in any of
-three ways — whichever happens first wins:
+prints the authorization URL to the console and waits. Complete login in one of
+two ways — whichever happens first wins:
 
 - **Automatic callback** — open the URL on the **same machine** as the proxy;
   the browser redirects to `http://localhost:<browser-auth-port>/callback`.
 - **Paste form** — if your browser is on a **different machine**, open
   `http://<proxy-host>:<browser-auth-port>/` and paste the `code` from the
   address bar (or the whole redirected URL).
-- **Terminal** — paste the code into the proxy's terminal and press Enter
-  (interactive terminals only).
+
+As of `@mcp-abap-adt/auth-providers` 2.0.0, pasting the code straight into the
+proxy's terminal is **no longer supported**. The callback strategy reads no
+stdin at all, deliberately: under an MCP stdio transport, stdin carries the
+protocol itself, so a provider that read from it there would corrupt the
+stream. If you relied on terminal paste, use the paste form above instead —
+it covers the same "my browser is somewhere else" case without touching
+stdin.
+
+You have **5 minutes** from when the URL is printed to complete the login;
+after that the callback server times out and the attempt fails. Run the same
+command again to retry.
 
 ```bash
 mcp-abap-adt-proxy --btp <dest> --browser none --browser-auth-port 3333
@@ -73,8 +83,16 @@ mcp-abap-adt-proxy --btp <dest> --browser none --browser-auth-port 3333
 #### How long the callback port is held
 
 The callback port is bound when the login window opens and released as soon as
-the authorization code has been exchanged for a token. The proxy keeps running
-without it — it is not a listening port of the running proxy, only of the login.
+the authorization code arrives — **before** it is exchanged for a token, not
+after. The exchange is a round trip to the identity provider, and holding the
+socket across it would keep the port busy for reasons that have nothing to do
+with receiving the callback. The proxy keeps running without it: this is not a
+listening port of the running proxy, only of the login.
+
+The release is also unconditional. Since `auth-providers@1.2.0` the socket has
+one owner and one release point, and it is freed on whatever ends the login
+first — the code arriving, an explicit failure, the timeout, or cancellation —
+so a settled login always means the port is already free.
 
 Two consequences:
 

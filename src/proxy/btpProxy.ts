@@ -6,7 +6,11 @@
  */
 
 import { AuthBroker, type ILogger } from '@mcp-abap-adt/auth-broker';
-import { AuthorizationCodeProvider } from '@mcp-abap-adt/auth-providers';
+import {
+  AuthorizationCodeProvider,
+  type AuthorizationCodeProviderConfig,
+  browserCallbackStrategy,
+} from '@mcp-abap-adt/auth-providers';
 import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces';
 import {
   HEADER_ACCEPT,
@@ -21,6 +25,24 @@ import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
 import { getPlatformPaths, getPlatformStores } from '../lib/stores.js';
 import type { RoutingDecision } from '../router/headerAnalyzer.js';
+
+/**
+ * Default port for the local OAuth2 callback server, kept away from the
+ * proxy's own default HTTP port (3001). auth-providers@2.0.0's own default
+ * (61001) is deliberately not inherited here: this port is documented as
+ * `--browser-auth-port` and may be registered with the identity provider, so
+ * silently moving it would break every proxy already relying on 3333.
+ */
+const DEFAULT_BROWSER_AUTH_PORT = 3333;
+
+/**
+ * auth-providers@2.0.0's `browserCallbackStrategy` defaults `timeoutMs` to 30
+ * seconds — sized for an unattended caller. Here the login is driven by a
+ * person: a browser tab has to open, and they may need to type credentials or
+ * complete MFA before the redirect lands. Five minutes gives them room to do
+ * that without the callback server tearing itself down mid-login.
+ */
+const INTERACTIVE_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Adapter to convert proxy Logger to ILogger interface expected by AuthBroker
@@ -292,21 +314,28 @@ export class BtpProxy {
 
     // Always use AuthorizationCodeProvider (enforced)
     // Map IAuthorizationConfig (uaaClientId) to ProviderConfig (clientId)
-    // Default redirectPort to 3333 to avoid conflict with main proxy port (default 3001)
-    const providerConfig: any = {
-      browser: this.config.browser,
-      redirectPort: this.config.browserAuthPort || 3333,
-      // Pass a logger so browserAuth can surface the "Open this URL" prompt in
-      // 'none'/'headless' mode. Without it, startBrowserAuth gets a null logger
-      // and silently drops the authorization URL.
+    // How the login is conducted is now a strategy the provider config
+    // carries under `authorization`; the callback port lives inside it.
+    //
+    // uaaUrl/clientId/clientSecret fall back to '' rather than being omitted
+    // when authConfig is missing: AuthorizationCodeProviderConfig declares
+    // them required, and the provider's own constructor already treats an
+    // empty string the same as absent, throwing its "Missing required
+    // fields" ValidationError — which is the clear failure this was always
+    // meant to produce.
+    const providerConfig: AuthorizationCodeProviderConfig = {
+      authorization: browserCallbackStrategy({
+        browser: this.config.browser,
+        port: this.config.browserAuthPort || DEFAULT_BROWSER_AUTH_PORT,
+        timeoutMs: INTERACTIVE_LOGIN_TIMEOUT_MS,
+      }),
+      // Pass a logger so the callback strategy can surface the "Open this
+      // URL" prompt in 'none'/'headless' mode. Without it, the callback
+      // server gets a null logger and silently drops the authorization URL.
       logger: loggerAdapter,
-      ...(authConfig
-        ? {
-            uaaUrl: authConfig.uaaUrl,
-            clientId: authConfig.uaaClientId,
-            clientSecret: authConfig.uaaClientSecret,
-          }
-        : {}),
+      uaaUrl: authConfig?.uaaUrl ?? '',
+      clientId: authConfig?.uaaClientId ?? '',
+      clientSecret: authConfig?.uaaClientSecret ?? '',
     };
 
     const tokenProvider = new AuthorizationCodeProvider(providerConfig);
@@ -1183,8 +1212,21 @@ export class BtpProxy {
           uaaUrl: 'https://placeholder.authentication.sap.hana.ondemand.com',
           clientId: 'placeholder',
           clientSecret: 'placeholder',
-          browser: loadedConfig.browser,
-          redirectPort: loadedConfig.browserAuthPort,
+          authorization: browserCallbackStrategy({
+            browser: loadedConfig.browser,
+            // This call site never had its own fallback: it passed
+            // `redirectPort` straight through and relied on
+            // auth-providers@1.2.0 defaulting an omitted value to 3001
+            // internally — which is this proxy's own default `httpPort`
+            // (src/lib/config.ts). An omitted `browserAuthPort` therefore
+            // told the callback server to bind the port the proxy already
+            // listens on, failing every such login with "Port 3001 is
+            // already in use". Both call sites now share the one documented
+            // default instead of leaving this one to an invisible, colliding
+            // number.
+            port: loadedConfig.browserAuthPort || DEFAULT_BROWSER_AUTH_PORT,
+            timeoutMs: INTERACTIVE_LOGIN_TIMEOUT_MS,
+          }),
           logger: loggerAdapter,
         }),
       },

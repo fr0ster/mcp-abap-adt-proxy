@@ -1,6 +1,9 @@
 import { jest } from '@jest/globals';
 import { AuthBroker } from '@mcp-abap-adt/auth-broker';
-import { ClientCredentialsProvider } from '@mcp-abap-adt/auth-providers';
+import {
+    browserCallbackStrategy,
+    ClientCredentialsProvider,
+} from '@mcp-abap-adt/auth-providers';
 import axios from 'axios';
 import {
     BtpProxy,
@@ -35,6 +38,9 @@ jest.mock('@mcp-abap-adt/auth-providers', () => {
     return {
         AuthorizationCodeProvider: jest.fn().mockImplementation(() => ({})),
         ClientCredentialsProvider: jest.fn().mockImplementation(() => ({})),
+        browserCallbackStrategy: jest.fn().mockImplementation((options) => ({
+            __mockStrategyOptions: options,
+        })),
     };
 });
 
@@ -77,6 +83,11 @@ jest.mock('../../lib/stores', () => ({
 // Mock axios
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
+
+// Reference to the mocked strategy builder, so tests can assert what it was
+// built with — the port and timeout are exactly the values that silently
+// stopped being passed if this call regressed, and nothing else would notice.
+const mockBrowserCallbackStrategy = browserCallbackStrategy as jest.Mock;
 
 describe('BtpProxy', () => {
     let btpProxy: BtpProxy;
@@ -271,6 +282,48 @@ describe('BtpProxy', () => {
                     }),
                 }),
             );
+            // The per-destination provider (btpProxy.ts's getOrCreateBtpAuthBroker)
+            // must build its authorization strategy with the documented default
+            // port when the proxy config carries no browserAuthPort override.
+            expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
+                expect.objectContaining({ port: 3333 }),
+            );
+        });
+
+        it('should build the per-destination authorization strategy with a configured browserAuthPort', async () => {
+            // A fresh instance so getOrCreateBtpAuthBroker's per-destination
+            // broker map starts empty and this destination is actually built,
+            // not reused from a previous test.
+            const proxyWithPort = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001,
+                ssePort: 3002,
+                httpHost: '0.0.0.0',
+                sseHost: '0.0.0.0',
+                logLevel: 'info',
+                browser: 'chrome',
+                browserAuthPort: 9999,
+            } as any);
+
+            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
+                serviceUrl: 'https://btp-mcp.example.com',
+            });
+            mockAxiosInstance.request.mockResolvedValue({
+                data: { jsonrpc: '2.0', id: 1, result: { success: true } },
+            });
+
+            await proxyWithPort.proxyRequest(
+                mockRequest,
+                {
+                    strategy: RoutingStrategy.PROXY,
+                    reason: 'btp',
+                    btpDestination: 'configured-port-dest',
+                },
+                { ...mockHeaders, 'x-sap-destination': 'configured-port-dest' },
+            );
+
+            expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
+                expect.objectContaining({ browser: 'chrome', port: 9999 }),
+            );
         });
 
         it('should retry with refreshed token on 401 response', async () => {
@@ -366,6 +419,33 @@ describe('BtpProxy', () => {
 
             // getToken should be called only once
             expect(mockAuthBroker.getToken).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('BtpProxy.create() default (no-destination) broker', () => {
+        // This is the placeholder-credential broker used only when no
+        // destination is configured. It cannot complete a real login, but it
+        // still builds an authorization strategy at construction time, and
+        // that strategy's port must not silently collide with the proxy's
+        // own default httpPort (3001) — see the "Fixed" entry in CHANGELOG.md
+        // for 2.0.0.
+        it('builds it with the documented default port when browserAuthPort is not set', async () => {
+            await BtpProxy.create();
+
+            expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
+                expect.objectContaining({ port: 3333 }),
+            );
+        });
+
+        it('builds it with the configured browserAuthPort when one is set', async () => {
+            await BtpProxy.create({
+                browser: 'firefox',
+                browserAuthPort: 9999,
+            } as any);
+
+            expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
+                expect.objectContaining({ browser: 'firefox', port: 9999 }),
+            );
         });
     });
 });
