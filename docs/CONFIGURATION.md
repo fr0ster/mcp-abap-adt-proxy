@@ -55,16 +55,26 @@ Run `mcp-abap-adt-proxy --help` for the full list.
 ### Headless login (`--browser none`)
 
 With `--browser none` (or `headless`) the proxy does **not** open a browser. It
-prints the authorization URL to the console and waits. Complete login in any of
-three ways — whichever happens first wins:
+prints the authorization URL to the console and waits. Complete login in one of
+two ways — whichever happens first wins:
 
 - **Automatic callback** — open the URL on the **same machine** as the proxy;
   the browser redirects to `http://localhost:<browser-auth-port>/callback`.
 - **Paste form** — if your browser is on a **different machine**, open
   `http://<proxy-host>:<browser-auth-port>/` and paste the `code` from the
   address bar (or the whole redirected URL).
-- **Terminal** — paste the code into the proxy's terminal and press Enter
-  (interactive terminals only).
+
+As of `@mcp-abap-adt/auth-providers` 2.0.0, pasting the code straight into the
+proxy's terminal is **no longer supported**. The callback strategy reads no
+stdin at all, deliberately: under an MCP stdio transport, stdin carries the
+protocol itself, so a provider that read from it there would corrupt the
+stream. If you relied on terminal paste, use the paste form above instead —
+it covers the same "my browser is somewhere else" case without touching
+stdin.
+
+You have **5 minutes** from when the URL is printed to complete the login;
+after that the callback server times out and the attempt fails. Run the same
+command again to retry.
 
 ```bash
 mcp-abap-adt-proxy --btp <dest> --browser none --browser-auth-port 3333

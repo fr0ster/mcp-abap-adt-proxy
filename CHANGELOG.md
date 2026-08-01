@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-01
+
+### Breaking Changes
+- **Pasting the authorization code into the proxy's terminal no longer works.** A headless login
+  (`--browser none`/`headless`) used to accept the code three ways; the terminal was one of them.
+  `auth-providers@2.0.0`'s callback strategy reads no stdin at all — deliberately, since under an
+  MCP stdio transport stdin carries the protocol itself, and reading from it there would corrupt
+  the stream. **If you relied on terminal paste**, switch to one of the two remaining paths: let
+  the automatic callback reach the proxy (browser on the same machine), or open
+  `http://<proxy-host>:<browser-auth-port>/` and use the paste form the callback server already
+  serves there — it covers the same "my browser is elsewhere" case without touching stdin. See
+  [Configuration Guide](./docs/CONFIGURATION.md#headless-login---browser-none).
+- **Requires `@mcp-abap-adt/auth-providers` `^2.0.0`** (was `^1.2.0`). That release is what removes
+  the terminal-paste channel above; it also replaces the `browser`/`redirectPort` fields on
+  `AuthorizationCodeProviderConfig` with an `authorization` strategy the consumer supplies. The
+  proxy now builds one with `browserCallbackStrategy({ browser, port, timeoutMs })` at both places
+  it constructs the provider — an internal change with no configuration impact (see below).
+
+### Changed
+- **`--browser-auth-port` keeps its meaning and its `3333` default.** Nothing changes for existing
+  configs or CLI invocations — the port still lands inside the strategy instead of a bare config
+  field.
+- **The login timeout is now explicit and longer.** `browserCallbackStrategy` defaults to a
+  30-second `timeoutMs`, sized for an unattended caller; this proxy drives a browser login for a
+  person, so both call sites now pass 5 minutes instead, giving room to open a tab, sign in and
+  clear MFA before the callback server gives up.
+
 ## [1.6.4] - 2026-07-29
 
 ### Fixed
