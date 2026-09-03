@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own data carries no conditions, while distributing it — or a modified version —
   means passing on the same freedoms, source included.
 
-  Copyright © 2024 Oleksii Kyslytsia.
+  Copyright © 2025–2026 Oleksii Kyslytsia.
 
 
 ## [2.0.0] - 2026-08-01
