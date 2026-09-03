@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Licence
+
+- **This tool is now `GPL-3.0-only`.** It was MIT up to and including 2.0.0, and
+  those versions stay MIT — a licence change is not retroactive.
+
+  A finished tool rather than a library to build on, so it takes the full GPL
+  rather than the LGPL its own dependencies carry: running it and using it on your
+  own data carries no conditions, while distributing it — or a modified version —
+  means passing on the same freedoms, source included.
+
+  Copyright © 2024 Oleksii Kyslytsia.
+
+
 ## [2.0.0] - 2026-08-01
 
 ### Breaking Changes
