@@ -67,7 +67,6 @@
     "@mcp-abap-adt/auth-stores": "^1.0.4",
     "@mcp-abap-adt/connection": "^9.0.0",
     "@mcp-abap-adt/header-validator": "^0.1.8",
-    "@mcp-abap-adt/interfaces": "^7.0.0",
     "@mcp-abap-adt/interfaces-adt": "^6.0.0",
     "@mcp-abap-adt/interfaces-network": "^1.0.0",
     "@mcp-abap-adt/logger": "^0.1.4",

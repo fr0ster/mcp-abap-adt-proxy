@@ -5,15 +5,17 @@
 import type { IncomingMessage } from 'node:http';
 import { validateProxyHeaders } from '@mcp-abap-adt/header-validator';
 import {
-  HEADER_AUTHORIZATION,
-  HEADER_MCP_SESSION_ID,
   HEADER_SAP_JWT_TOKEN,
   HEADER_SAP_PASSWORD,
   HEADER_SAP_REFRESH_TOKEN,
   HEADER_SAP_UAA_CLIENT_SECRET,
+} from '@mcp-abap-adt/interfaces-adt';
+import {
+  HEADER_AUTHORIZATION,
+  HEADER_MCP_SESSION_ID,
   HEADER_SESSION_ID,
   HEADER_X_MCP_SESSION_ID,
-} from '@mcp-abap-adt/interfaces';
+} from '@mcp-abap-adt/interfaces-network';
 import { logger } from '../lib/logger.js';
 import { analyzeHeaders, type RoutingDecision } from './headerAnalyzer.js';
 

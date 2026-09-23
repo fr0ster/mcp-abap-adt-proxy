@@ -14,9 +14,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from 'node:http';
-import {
-  HEADER_BTP_DESTINATION,
-} from '@mcp-abap-adt/interfaces';
+import { HEADER_BTP_DESTINATION } from '@mcp-abap-adt/interfaces-adt';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

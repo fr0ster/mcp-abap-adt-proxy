@@ -4,7 +4,6 @@ import {
     browserCallbackStrategy,
     ClientCredentialsProvider,
 } from '@mcp-abap-adt/auth-providers';
-import axios from 'axios';
 import {
     BtpProxy,
     type ProxyRequest,
@@ -80,9 +79,6 @@ jest.mock('../../lib/stores', () => ({
     ),
 }));
 
-// Mock axios
-jest.mock('axios');
-const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 // Reference to the mocked strategy builder, so tests can assert what it was
 // built with — the port and timeout are exactly the values that silently
@@ -95,22 +91,11 @@ describe('BtpProxy', () => {
     let mockTokenProvider: ClientCredentialsProvider;
     let mockServiceKeyStore: any;
     let mockSessionStore: any;
-    let mockAxiosInstance: any;
 
     beforeEach(() => {
         jest.clearAllMocks();
 
         process.env.NODE_ENV = 'test';
-
-        // Setup axios mock
-        mockAxiosInstance = {
-            request: jest.fn(),
-            interceptors: {
-                request: { use: jest.fn() },
-                response: { use: jest.fn() },
-            },
-        };
-        mockedAxios.create.mockReturnValue(mockAxiosInstance);
 
         // Setup AuthBroker mocks
         mockTokenProvider = new ClientCredentialsProvider({
