@@ -30,6 +30,8 @@ export interface StartedInstance {
 
 interface Owned extends StartedInstance {
   server: Server;
+  /** Released on stop, alongside the port. */
+  facade: CredentialFacade;
   idle?: NodeJS.Timeout;
   /** Kept so a request can re-arm the countdown with the same length. */
   idleTimeoutMs: number;
@@ -107,6 +109,7 @@ export class ProxySupervisor {
       destination: options.destination,
       startedAt: new Date().toISOString(),
       server,
+      facade,
       idleTimeoutMs,
     };
     this.owned.set(instanceId, started);
@@ -144,6 +147,11 @@ export class ProxySupervisor {
       await new Promise<void>((resolve) =>
         target.server.close(() => resolve()),
       );
+      // The port is half of it. The broker behind the credential holds cached
+      // service-key lookups and, when it was built for a browser login, a
+      // callback server — letting go of the listener and keeping those would be
+      // releasing the visible resource and holding the rest.
+      (target.facade as { dispose?: () => void }).dispose?.();
       this.owned.delete(target.instanceId);
       this.registry.forget(target.port);
       stopped.push(this.describe(target));
@@ -176,6 +184,7 @@ export class ProxySupervisor {
     const {
       server: _server,
       idle: _idle,
+      facade: _facade,
       idleTimeoutMs: _idleTimeoutMs,
       ...rest
     } = owned;

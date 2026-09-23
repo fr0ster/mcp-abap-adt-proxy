@@ -19,7 +19,8 @@
     "dev": "npx @modelcontextprotocol/inspector node ./dist/index.js",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "prepublishOnly": "npm run build",
-    "test-destination": "npx tsx tools/test-destination.ts"
+    "test-destination": "npx tsx tools/test-destination.ts",
+    "start:mcp": "node ./bin/mcp-abap-adt-proxy-mcp.js"
   },
   "keywords": [
     "abap",
@@ -88,6 +89,7 @@
     "CHANGELOG.md"
   ],
   "bin": {
-    "mcp-abap-adt-proxy": "./bin/mcp-abap-adt-proxy.js"
+    "mcp-abap-adt-proxy": "./bin/mcp-abap-adt-proxy.js",
+    "mcp-abap-adt-proxy-mcp": "./bin/mcp-abap-adt-proxy-mcp.js"
   }
 }

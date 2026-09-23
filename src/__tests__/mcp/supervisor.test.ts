@@ -138,6 +138,33 @@ describe('ProxySupervisor', () => {
     expect(await portIsFree(started.port)).toBe(true);
   });
 
+  it('releases the credential it was given when the instance stops', async () => {
+    let disposed = 0;
+    const own = new ProxySupervisor({
+      registry: new InstanceRegistry(dir, () => true),
+      proxyFor: async () =>
+        ({
+          ...facade,
+          dispose: () => {
+            disposed += 1;
+          },
+        }) as never,
+    });
+
+    const started = await own.start({ destination: 'D1' });
+    await own.stop(started.instanceId);
+
+    // Closing the listener frees the port; the broker and its cached
+    // credential behind it are the other half of "hold nothing".
+    expect(disposed).toBe(1);
+  });
+
+  it('survives a credential with nothing to dispose', async () => {
+    const started = await supervisor.start({ destination: 'D1' });
+
+    await expect(supervisor.stop(started.instanceId)).resolves.toHaveLength(1);
+  });
+
   it('does not count another session’s instances as its own', async () => {
     const registry = new InstanceRegistry(dir, () => true);
     registry.record({
