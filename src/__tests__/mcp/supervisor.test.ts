@@ -24,6 +24,14 @@ const facade = {
   getTargetUrl: async () => 'http://127.0.0.1:1',
 };
 
+/**
+ * A loaded proxy config. The port in it is deliberately one that collides —
+ * four of the real configs say 3001 — because the supervisor is supposed to
+ * ignore it and take a free one.
+ */
+const cfg = (destination: string) =>
+  ({ btpDestination: destination, httpPort: 3001 }) as never;
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'supervisor-'));
   supervisor = new ProxySupervisor({
@@ -49,34 +57,45 @@ function portIsFree(port: number): Promise<boolean> {
 
 describe('ProxySupervisor', () => {
   it('starts a listener on a free port and reports where it is', async () => {
-    const started = await supervisor.start({ destination: 'D1' });
+    const started = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
 
     expect(started.port).toBeGreaterThan(0);
     expect(started.url).toBe(`http://127.0.0.1:${started.port}`);
     expect(await portIsFree(started.port)).toBe(false);
   });
 
+  it('ignores the port written in the config, which is how they collide', async () => {
+    const started = await supervisor.start({
+      name: 'cfg-D1',
+      config: cfg('D1'),
+    });
+
+    // Four of the configs on disk say 3001. Honouring that is the bug.
+    expect(started.port).not.toBe(3001);
+  });
+
   it('never puts two instances on one port', async () => {
-    const first = await supervisor.start({ destination: 'D1' });
-    const second = await supervisor.start({ destination: 'D2' });
+    const first = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
+    const second = await supervisor.start({ name: 'cfg-D2', config: cfg('D2') });
 
     expect(second.port).not.toBe(first.port);
   });
 
   it('writes a record other sessions can see', async () => {
-    const started = await supervisor.start({ destination: 'D1' });
+    const started = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
 
     expect(new InstanceRegistry(dir, () => true).live()).toEqual([
       expect.objectContaining({
         port: started.port,
         destination: 'D1',
+        config: 'cfg-D1',
         pid: process.pid,
       }),
     ]);
   });
 
   it('gives the port back on stop', async () => {
-    const started = await supervisor.start({ destination: 'D1' });
+    const started = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
 
     await supervisor.stop(started.instanceId);
 
@@ -84,7 +103,7 @@ describe('ProxySupervisor', () => {
   });
 
   it('takes its record with it on stop', async () => {
-    const started = await supervisor.start({ destination: 'D1' });
+    const started = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
 
     await supervisor.stop(started.instanceId);
 
@@ -92,8 +111,8 @@ describe('ProxySupervisor', () => {
   });
 
   it('stops every instance it owns when asked for none in particular', async () => {
-    const first = await supervisor.start({ destination: 'D1' });
-    const second = await supervisor.start({ destination: 'D2' });
+    const first = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
+    const second = await supervisor.start({ name: 'cfg-D2', config: cfg('D2') });
 
     const stopped = await supervisor.stop();
 
@@ -104,8 +123,8 @@ describe('ProxySupervisor', () => {
   });
 
   it('stops only the instance named, leaving the others alone', async () => {
-    const first = await supervisor.start({ destination: 'D1' });
-    const second = await supervisor.start({ destination: 'D2' });
+    const first = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
+    const second = await supervisor.start({ name: 'cfg-D2', config: cfg('D2') });
 
     await supervisor.stop(first.instanceId);
 
@@ -116,7 +135,7 @@ describe('ProxySupervisor', () => {
   });
 
   it('reports nothing stopped for an instance it does not own', async () => {
-    await supervisor.start({ destination: 'D1' });
+    await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
 
     const stopped = await supervisor.stop('someone-elses-instance');
 
@@ -126,7 +145,8 @@ describe('ProxySupervisor', () => {
 
   it('stops an instance that has been idle too long', async () => {
     const started = await supervisor.start({
-      destination: 'D1',
+      name: 'cfg-D1',
+      config: cfg('D1'),
       idleTimeoutMs: 40,
     });
 
@@ -151,7 +171,7 @@ describe('ProxySupervisor', () => {
         }) as never,
     });
 
-    const started = await own.start({ destination: 'D1' });
+    const started = await own.start({ name: 'cfg-D1', config: cfg('D1') });
     await own.stop(started.instanceId);
 
     // Closing the listener frees the port; the broker and its cached
@@ -160,7 +180,7 @@ describe('ProxySupervisor', () => {
   });
 
   it('survives a credential with nothing to dispose', async () => {
-    const started = await supervisor.start({ destination: 'D1' });
+    const started = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
 
     await expect(supervisor.stop(started.instanceId)).resolves.toHaveLength(1);
   });
@@ -172,10 +192,11 @@ describe('ProxySupervisor', () => {
       port: 4999,
       url: 'http://127.0.0.1:4999',
       destination: 'THEIRS',
+      config: 'theirs',
       startedAt: new Date().toISOString(),
     });
 
-    await supervisor.start({ destination: 'D1' });
+    await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
 
     expect(supervisor.mine()).toHaveLength(1);
     expect(supervisor.others().map((o) => o.destination)).toEqual(['THEIRS']);

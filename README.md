@@ -61,13 +61,27 @@ Register it like any other MCP server:
 }
 ```
 
-It offers three tools:
+It works from the proxy configs you already keep:
+
+```
+~/.config/mcp-abap-adt/proxy/<name>.yaml     (Windows: Documents\mcp-abap-adt\proxy\)
+```
+
+These are the same files `mcp-abap-adt-proxy --config <file>` takes. Starting a
+proxy is therefore **choosing a name**, not assembling settings — and
+credentials stay in the config, resolved through `${VAR}` interpolation, rather
+than travelling through a tool call.
 
 | Tool | What it does |
 |---|---|
-| `proxy_start` | Starts a proxy for a BTP destination and returns the URL it bound. Takes a **free port**, so several sessions can each run their own without colliding. |
+| `proxy_configs` | Lists the configs available, by the name `proxy_start` takes. Call it first — the names cannot be guessed. |
+| `proxy_start` | Starts a proxy from one of those configs and returns the URL it bound. The **port is not taken from the config**: a free one is bound instead. |
 | `proxy_stop` | Stops a proxy this session started, freeing its port and releasing its credential. Proxies started by other sessions are never touched. |
 | `proxy_status` | Lists this session's proxies and any others on this machine. Records whose process has died are pruned when read, so it cannot report a ghost. |
+
+**The config name is the unit, not the destination.** Several configs commonly
+name the same `btpDestination` and differ in target URL and headers — a
+destination cannot tell them apart.
 
 **Every proxy runs inside the management process.** Closing the session — or
 `SIGINT`, or `SIGTERM` — stops all of them and frees their ports. This is

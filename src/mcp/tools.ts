@@ -1,5 +1,12 @@
 // src/mcp/tools.ts
 import { z } from 'zod';
+import { loadConfig } from '../lib/config.js';
+import {
+  describeConfig,
+  listProxyConfigs,
+  proxyConfigDir,
+  resolveProxyConfig,
+} from './configs.js';
 import { DEFAULT_IDLE_TIMEOUT_MS, type ProxySupervisor } from './supervisor.js';
 
 /**
@@ -33,31 +40,58 @@ const text = (body: string): ToolResult => ({
   content: [{ type: 'text', text: body }],
 });
 
-export function createProxyTools(supervisor: ProxySupervisor): ProxyTool[] {
+export function createProxyTools(
+  supervisor: ProxySupervisor,
+  configDir: string = proxyConfigDir(),
+): ProxyTool[] {
   return [
+    {
+      name: 'proxy_configs',
+      title: 'List the proxy configs available',
+      description:
+        'List the proxy configurations on this machine, by the name ' +
+        'proxy_start takes. Each one already carries its destination, target ' +
+        'URL, default headers and timeouts, so starting a proxy is choosing a ' +
+        'name — not assembling settings. Call this first; the names cannot be ' +
+        'guessed.',
+      inputSchema: {},
+      handler: async () => {
+        const configs = listProxyConfigs(configDir);
+        if (configs.length === 0) {
+          return text(`No proxy configs found in ${configDir}.`);
+        }
+        return text(
+          [
+            `Proxy configs in ${configDir}:`,
+            ...configs.map((c) => {
+              const about = describeConfig(c);
+              const where = c.destination
+                ? ` — destination ${c.destination}`
+                : '';
+              return `  ${c.name}${where}${about ? `\n      ${about}` : ''}`;
+            }),
+            '',
+            'Start one with proxy_start { "config": "<name>" }.',
+          ].join('\n'),
+        );
+      },
+    },
+
     {
       name: 'proxy_start',
       title: 'Start an authenticating proxy',
       description:
-        'Start a local proxy that authenticates against a SAP BTP destination ' +
-        'and forwards requests to it. Returns the URL to point a client at. ' +
-        'The proxy takes a free port, so several may run at once without ' +
-        `colliding. ${SHUTDOWN_REMINDER}`,
+        'Start a local proxy from one of the configs proxy_configs lists. The ' +
+        'config supplies the destination, target URL, default headers and ' +
+        'timeouts — including any credentials, which stay in the config and ' +
+        'are never passed through here. The port is NOT taken from the config: ' +
+        'a free one is bound instead, so several proxies can run at once, and ' +
+        `the URL that comes back is the one actually bound. ${SHUTDOWN_REMINDER}`,
       inputSchema: {
-        destination: z
+        config: z
           .string()
-          .describe('BTP destination name, as its service key is filed'),
-        targetUrl: z
-          .string()
-          .optional()
           .describe(
-            'Override the target URL. Authentication still comes from the destination.',
-          ),
-        headers: z
-          .record(z.string(), z.string())
-          .optional()
-          .describe(
-            'Default headers added to every forwarded request. Client headers win.',
+            'Name of a proxy config, as proxy_configs lists it (for example "nvcr_d24").',
           ),
         idleTimeoutMs: z
           .number()
@@ -67,15 +101,17 @@ export function createProxyTools(supervisor: ProxySupervisor): ProxyTool[] {
           ),
       },
       handler: async (args) => {
+        const name = String(args.config);
+        const file = resolveProxyConfig(name, configDir);
         const started = await supervisor.start({
-          destination: String(args.destination),
-          targetUrl: args.targetUrl as string | undefined,
-          headers: args.headers as Record<string, string> | undefined,
+          name,
+          config: loadConfig(file),
           idleTimeoutMs: args.idleTimeoutMs as number | undefined,
         });
         return text(
           [
             `Proxy running at ${started.url}`,
+            `  config:      ${started.name}`,
             `  instanceId:  ${started.instanceId}`,
             `  destination: ${started.destination}`,
             '',
@@ -114,7 +150,7 @@ export function createProxyTools(supervisor: ProxySupervisor): ProxyTool[] {
           [
             `Stopped ${stopped.length} ${stopped.length === 1 ? 'proxy' : 'proxies'}:`,
             ...stopped.map(
-              (s) => `  ${s.url} (${s.destination}) — port ${s.port} released`,
+              (s) => `  ${s.url} — config ${s.name} — port ${s.port} released`,
             ),
           ].join('\n'),
         );
@@ -142,7 +178,7 @@ export function createProxyTools(supervisor: ProxySupervisor): ProxyTool[] {
           lines.push('Started by this session:');
           for (const m of mine) {
             lines.push(
-              `  ${m.url} — ${m.destination} — instanceId ${m.instanceId}`,
+              `  ${m.url} — config ${m.name} (destination ${m.destination}) — instanceId ${m.instanceId}`,
             );
           }
           lines.push('', SHUTDOWN_REMINDER);
@@ -153,7 +189,9 @@ export function createProxyTools(supervisor: ProxySupervisor): ProxyTool[] {
         if (others.length > 0) {
           lines.push('', 'Started by another session (not yours to stop):');
           for (const o of others) {
-            lines.push(`  ${o.url} — ${o.destination} — pid ${o.pid}`);
+            lines.push(
+              `  ${o.url} — config ${o.config} (destination ${o.destination}) — pid ${o.pid}`,
+            );
           }
         }
         return text(lines.join('\n'));

@@ -1,6 +1,7 @@
 // src/mcp/supervisor.ts
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import type { ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
 import {
   type CredentialFacade,
@@ -13,15 +14,27 @@ import { type InstanceRecord, InstanceRegistry } from './registry.js';
 export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 export interface StartOptions {
-  destination: string;
-  targetUrl?: string;
-  headers?: Record<string, string>;
+  /**
+   * The config's name, as it is filed in the proxy config directory. This is
+   * the unit, not the destination: four configs on disk name the same
+   * `btpDestination` and differ in target and headers, so a destination cannot
+   * identify one.
+   */
+  name: string;
+  /**
+   * The loaded config. Its `httpPort` is deliberately IGNORED — four of the
+   * configs on disk say 3001, which is exactly the collision this mode exists
+   * to end. The port comes from the OS.
+   */
+  config: ProxyConfig;
   /** `0` turns the backstop off. */
   idleTimeoutMs?: number;
 }
 
 export interface StartedInstance {
   instanceId: string;
+  /** The config that was started. */
+  name: string;
   url: string;
   port: number;
   destination: string;
@@ -77,9 +90,9 @@ export class ProxySupervisor {
 
     const handle = createProxyRequestHandler({
       config: {
-        btpDestination: options.destination,
-        targetUrl: options.targetUrl,
-        defaultHeaders: options.headers,
+        btpDestination: options.config.btpDestination,
+        targetUrl: options.config.targetUrl,
+        defaultHeaders: options.config.defaultHeaders,
       },
       proxy: async () => facade,
       // Deliberately no policy: an authentication failure answers the request
@@ -104,9 +117,10 @@ export class ProxySupervisor {
     const port = await listenOnFreePort(server, this.host);
     const started: Owned = {
       instanceId,
+      name: options.name,
       port,
       url: `http://${this.host}:${port}`,
-      destination: options.destination,
+      destination: options.config.btpDestination ?? '(none)',
       startedAt: new Date().toISOString(),
       server,
       facade,
@@ -118,6 +132,7 @@ export class ProxySupervisor {
       port,
       url: started.url,
       destination: started.destination,
+      config: started.name,
       startedAt: started.startedAt,
     });
 
@@ -128,8 +143,9 @@ export class ProxySupervisor {
     logger?.info('Proxy started by the MCP mode', {
       type: 'MCP_MODE_PROXY_STARTED',
       instanceId,
+      name: options.name,
       port,
-      destination: options.destination,
+      destination: started.destination,
     });
     return this.describe(started);
   }

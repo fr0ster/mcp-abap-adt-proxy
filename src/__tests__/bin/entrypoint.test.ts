@@ -55,3 +55,16 @@ describe('mcp mode entrypoint', () => {
     expect(out).toMatch(/THIS process/);
   });
 });
+
+describe('mcp mode help names the config-driven contract', () => {
+  it('names proxy_configs and says where the configs live', () => {
+    const out = execFileSync('node', [mcpBin, '--help'], { encoding: 'utf-8' });
+    expect(out).toContain('proxy_configs');
+    expect(out).toContain('mcp-abap-adt/proxy/');
+  });
+
+  it('says the port does not come from the config', () => {
+    const out = execFileSync('node', [mcpBin, '--help'], { encoding: 'utf-8' });
+    expect(out).toMatch(/PORT does not come from it/);
+  });
+});

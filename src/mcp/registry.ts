@@ -18,6 +18,8 @@ export interface InstanceRecord {
   port: number;
   url: string;
   destination: string;
+  /** Which proxy config was started. */
+  config: string;
   startedAt: string;
 }
 

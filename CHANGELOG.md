@@ -37,8 +37,21 @@ what the proxy holds while it runs and how an SSE response reaches the client.
   and the two are kept apart so every plain proxy does not carry a management
   surface it never uses.
 
-  Each proxy takes a **free port**, so several sessions can run their own
-  without colliding on 3001, and `proxy_start` returns the URL actually bound.
+  **It works from the proxy configs already on disk** —
+  `~/.config/mcp-abap-adt/proxy/<name>.yaml`, the same files
+  `mcp-abap-adt-proxy --config` takes. `proxy_configs` lists them and
+  `proxy_start` takes one by name, so starting a proxy is choosing a name
+  rather than assembling settings, and credentials stay in the config behind
+  `${VAR}` interpolation instead of travelling through a tool call.
+
+  The config NAME is the unit, not the destination: several configs commonly
+  name the same `btpDestination` and differ in target URL and headers, so a
+  destination cannot identify one.
+
+  Each proxy takes a **free port**, and the port written in the config is
+  deliberately ignored — four of the configs in a real directory say 3001, so
+  honouring it is precisely the collision this mode exists to end.
+  `proxy_start` returns the URL actually bound.
   `proxy_stop` frees the port and releases the credential; it never touches a
   proxy another session started, which `proxy_status` shows and marks as such.
 

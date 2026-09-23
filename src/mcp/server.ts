@@ -23,12 +23,11 @@ export function createMcpModeServer(config: ProxyConfig): {
   supervisor: ProxySupervisor;
 } {
   const supervisor = new ProxySupervisor({
+    // The config a tool loaded is the whole story — destination, target,
+    // headers, browser, timeouts. `config` here is only the fallback for
+    // anything a proxy config leaves out.
     proxyFor: async (options) =>
-      createBtpProxy({
-        ...config,
-        btpDestination: options.destination,
-        targetUrl: options.targetUrl ?? config.targetUrl,
-      }),
+      createBtpProxy({ ...config, ...options.config }),
   });
 
   // Read rather than written down: a version literal here drifts from the one

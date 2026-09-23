@@ -34,14 +34,27 @@ Usage:
   mcp-abap-adt-proxy-mcp [options]
 
 Tools offered to the client:
-  proxy_start    Start a proxy for a BTP destination. Takes a FREE port, so
-                 several sessions can run their own without colliding, and
-                 returns the URL that was actually bound.
+  proxy_configs  List the proxy configs on this machine, by the name
+                 proxy_start takes. Call this first — the names cannot be
+                 guessed.
+  proxy_start    Start a proxy from one of those configs. The config supplies
+                 the destination, target URL, default headers and timeouts;
+                 the PORT does not come from it — a free one is bound, so
+                 several proxies can run at once, and the URL returned is the
+                 one actually bound.
   proxy_stop     Stop a proxy this session started, freeing its port and
                  releasing its credential. Proxies belonging to other sessions
                  are never touched.
   proxy_status   List this session's proxies and any others on this machine.
                  Records whose process has died are pruned when read.
+
+Where the configs live:
+  Unix:     ~/.config/mcp-abap-adt/proxy/<name>.yaml
+  Windows:  %USERPROFILE%\\Documents\\mcp-abap-adt\\proxy\\<name>.yaml
+
+  The same files 'mcp-abap-adt-proxy --config <file>' takes. Credentials stay
+  in them, resolved through \${VAR} interpolation, and are never passed
+  through a tool call.
 
 Options:
   --config=<file>, -c     Load configuration from a YAML or JSON file

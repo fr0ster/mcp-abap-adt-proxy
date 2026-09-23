@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstanceRegistry } from '../../mcp/registry.js';
@@ -17,6 +17,7 @@ import { ProxySupervisor } from '../../mcp/supervisor.js';
 import { createProxyTools } from '../../mcp/tools.js';
 
 let dir: string;
+let configDir: string;
 let supervisor: ProxySupervisor;
 let tools: ReturnType<typeof createProxyTools>;
 
@@ -33,6 +34,17 @@ const textOf = async (name: string, args: Record<string, unknown> = {}) => {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'proxy-tools-'));
+  configDir = mkdtempSync(join(tmpdir(), 'proxy-tools-cfg-'));
+  // Two configs naming the SAME destination, which is the case a destination
+  // argument could not have told apart.
+  writeFileSync(
+    join(configDir, 'nvcr_d24.yaml'),
+    'btpDestination: "nvcr"\nhttpPort: 3001\ntargetUrl: "https://d24.example"\n',
+  );
+  writeFileSync(
+    join(configDir, 'nvcr_cr2.yaml'),
+    'btpDestination: "nvcr"\nhttpPort: 3001\ntargetUrl: "https://cr2.example"\n',
+  );
   supervisor = new ProxySupervisor({
     registry: new InstanceRegistry(dir, () => true),
     proxyFor: async () =>
@@ -41,21 +53,50 @@ beforeEach(() => {
         getTargetUrl: async () => 'http://127.0.0.1:1',
       }) as never,
   });
-  tools = createProxyTools(supervisor);
+  tools = createProxyTools(supervisor, configDir);
 });
 
 afterEach(async () => {
   await supervisor.stop();
   rmSync(dir, { recursive: true, force: true });
+  rmSync(configDir, { recursive: true, force: true });
 });
 
 describe('the proxy tools', () => {
-  it('offers exactly start, stop and status', () => {
+  it('offers configs, start, stop and status', () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'proxy_configs',
       'proxy_start',
       'proxy_status',
       'proxy_stop',
     ]);
+  });
+
+  it('lists the configs by the name proxy_start takes', async () => {
+    const listed = await textOf('proxy_configs');
+
+    expect(listed).toMatch(/nvcr_d24/);
+    expect(listed).toMatch(/nvcr_cr2/);
+    expect(listed).toMatch(/proxy_start/);
+  });
+
+  it('starts the config it is named, not a destination', async () => {
+    // Both configs name destination "nvcr"; only the config name separates them.
+    const text = await textOf('proxy_start', { config: 'nvcr_cr2' });
+
+    expect(text).toMatch(/nvcr_cr2/);
+  });
+
+  it('ignores the port in the config, which is how they collide', async () => {
+    const text = await textOf('proxy_start', { config: 'nvcr_d24' });
+
+    expect(text).not.toMatch(/:3001\b/);
+  });
+
+  it('names the configs that DO exist when given one that does not', async () => {
+    await expect(
+      textOf('proxy_start', { config: 'nvcr_d25' }),
+    ).rejects.toThrow(/nvcr_d24/);
   });
 
   it('tells the client, in the start description, to stop what it started', () => {
@@ -66,7 +107,7 @@ describe('the proxy tools', () => {
   });
 
   it('repeats it in the answer, next to the url', async () => {
-    const text = await textOf('proxy_start', { destination: 'D1' });
+    const text = await textOf('proxy_start', { config: 'nvcr_d24' });
 
     expect(text).toMatch(/http:\/\/127\.0\.0\.1:\d+/);
     expect(text.toLowerCase()).toMatch(/proxy_stop/);
@@ -79,13 +120,13 @@ describe('the proxy tools', () => {
   });
 
   it('starts a proxy the supervisor then owns', async () => {
-    await textOf('proxy_start', { destination: 'D1' });
+    await textOf('proxy_start', { config: 'nvcr_d24' });
 
     expect(supervisor.mine()).toHaveLength(1);
   });
 
   it('stops the instance it is given', async () => {
-    await textOf('proxy_start', { destination: 'D1' });
+    await textOf('proxy_start', { config: 'nvcr_d24' });
     const [started] = supervisor.mine();
 
     await textOf('proxy_stop', { instanceId: started.instanceId });
@@ -94,8 +135,8 @@ describe('the proxy tools', () => {
   });
 
   it('stops everything when told nothing in particular', async () => {
-    await textOf('proxy_start', { destination: 'D1' });
-    await textOf('proxy_start', { destination: 'D2' });
+    await textOf('proxy_start', { config: 'nvcr_d24' });
+    await textOf('proxy_start', { config: 'nvcr_cr2' });
 
     await textOf('proxy_stop');
 
@@ -114,13 +155,14 @@ describe('the proxy tools', () => {
       port: 4999,
       url: 'http://127.0.0.1:4999',
       destination: 'THEIRS',
+      config: 'theirs',
       startedAt: new Date().toISOString(),
     });
-    await textOf('proxy_start', { destination: 'MINE' });
+    await textOf('proxy_start', { config: 'nvcr_d24' });
 
     const text = await textOf('proxy_status');
 
-    expect(text).toMatch(/MINE/);
+    expect(text).toMatch(/nvcr_d24/);
     expect(text).toMatch(/THEIRS/);
     // Another session's proxy is shown so the agent can see it, and marked so
     // it does not try to stop it.
