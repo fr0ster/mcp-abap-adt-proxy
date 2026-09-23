@@ -371,10 +371,10 @@ Authorization source: ${authSourceObj}`;
     // Authentication is separated from forwarding: an auth failure is fatal
     // (the proxy exits so it can be restarted), while a downstream/forward error
     // is returned to the client without killing the proxy.
-    let jwtToken: string;
+    let authorization: string | null;
     try {
-      // Get JWT token (cached, auto-refresh)
-      jwtToken = await this.btpProxy.getJwtToken(destination);
+      // The credential's header value, renewed behind this call when it needs to be
+      authorization = await this.btpProxy.getAuthorizationHeader(destination);
     } catch (authError) {
       logger?.error('Proxy request failed: authentication error', {
         type: 'PROXY_REQUEST_AUTH_ERROR',
@@ -396,7 +396,13 @@ Authorization source: ${authSourceObj}`;
         (await this.btpProxy.getTargetUrl(destination));
 
       // Forward request transparently (inject default headers from config)
-      await forwardRequest(req, res, targetUrl, jwtToken, this.config.defaultHeaders);
+      await forwardRequest(
+        req,
+        res,
+        targetUrl,
+        authorization,
+        this.config.defaultHeaders,
+      );
     } catch (error) {
       logger?.error('Proxy request failed', {
         type: 'PROXY_REQUEST_ERROR',
@@ -597,14 +603,15 @@ Authorization source: ${authSourceObj}`;
 
         // Read request body
         let body: unknown;
+        let rawBody: Buffer | undefined;
         try {
           const chunks: Buffer[] = [];
           for await (const chunk of req) {
             chunks.push(chunk);
           }
           if (chunks.length > 0) {
-            const bodyString = Buffer.concat(chunks).toString('utf-8');
-            body = JSON.parse(bodyString);
+            rawBody = Buffer.concat(chunks);
+            body = JSON.parse(rawBody.toString('utf-8'));
           }
         } catch (error) {
           logger?.error('Failed to parse SSE POST request body', {
@@ -654,25 +661,44 @@ Authorization source: ${authSourceObj}`;
 
 
 
-        // Handle proxy request via BtpProxy (JSON-RPC mode for SSE)
+        // Forward through the same transparent pipe the other path uses.
+        //
+        // This used to rebuild the request by hand and carry it over axios,
+        // which buffered the response and rewrapped it as a JSON-RPC envelope.
+        // The body above was already read — the JSON-RPC `id` in it is what the
+        // error envelopes below have to echo — so it is handed over rather than
+        // piped. The response still streams, which is the direction that
+        // carries an event stream.
         try {
           if (!this.btpProxy) {
             this.btpProxy = await createBtpProxy(this.config);
           }
 
-          const proxyResponse = await this.btpProxy.proxyRequest(
-            {
-              method: intercepted.method,
-              url: intercepted.url,
-              data: body,
-              id: getBodyId(body) as string | number | null,
-            },
-            intercepted.routingDecision,
-            intercepted.headers,
-          );
+          const destination =
+            intercepted.routingDecision.btpDestination ??
+            this.config.btpDestination;
+          if (!destination) {
+            throw new Error('No BTP destination for this request');
+          }
 
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(proxyResponse));
+          const authorization =
+            await this.btpProxy.getAuthorizationHeader(destination);
+          const targetUrl =
+            intercepted.routingDecision.targetUrl ||
+            (await this.btpProxy.getTargetUrl(destination));
+
+          await forwardRequest(
+            req,
+            res,
+            targetUrl,
+            authorization,
+            this.config.defaultHeaders,
+            // The bytes as they arrived, not the parse re-serialised: the
+            // client's `content-length` is forwarded unchanged, and a
+            // re-serialised body differs from it by whatever whitespace the
+            // sender used.
+            rawBody,
+          );
         } catch (error) {
           logger?.error('Failed to process SSE POST request', {
             type: 'SSE_POST_PROCESS_ERROR',

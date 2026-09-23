@@ -52,6 +52,16 @@ beforeAll(async () => {
       return;
     }
 
+    if (url === '/echo-body' && req.method === 'POST') {
+      let seen = '';
+      req.on('data', (chunk) => { seen += chunk; });
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ seen, contentLength: req.headers['content-length'] ?? null }));
+      });
+      return;
+    }
+
     if (url === '/echo-headers') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ authorization: req.headers['authorization'] ?? null }));
@@ -150,6 +160,20 @@ describe('forwardRequest', () => {
     expect(JSON.parse(body).authorization).toBe('Bearer abc123');
   });
 
+  // The SSE path reads the body before forwarding, because the JSON-RPC id in
+  // it is what an error envelope has to echo. Once read, the stream is spent —
+  // piping the request would forward an empty body.
+  it('forwards a body that was already read off the request', async () => {
+    const payload = JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'ping' });
+    const { body } = await makeProxiedRequest(
+      'POST', '/echo-body', payload, 'Bearer t', undefined, undefined,
+      Buffer.from(payload),
+    );
+    const echoed = JSON.parse(body);
+    expect(echoed.seen).toBe(payload);
+    expect(echoed.contentLength).toBe(String(Buffer.byteLength(payload)));
+  });
+
   // A credential that is not a header answers `null` — a certificate
   // authenticates through TLS and has none. `null` must reach the backend as an
   // ABSENT header; an empty `Authorization` is a different thing and some
@@ -170,13 +194,22 @@ async function makeProxiedRequest(
   authorization: string | null,
   targetUrlOverride?: string,
   defaultHeaders?: Record<string, string>,
+  preReadBody?: Buffer,
 ): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
   const targetUrl = targetUrlOverride || `http://localhost:${backendPort}`;
 
   return new Promise((resolve) => {
     // Create a local HTTP server that acts as "client side"
     const testServer = createServer(async (req, res) => {
-      await forwardRequest(req, res, targetUrl, authorization, defaultHeaders);
+      if (preReadBody) {
+        // Spend the stream the way the SSE path does, then hand over the bytes.
+        for await (const _chunk of req) {
+          /* drained */
+        }
+      }
+      await forwardRequest(
+        req, res, targetUrl, authorization, defaultHeaders, preReadBody,
+      );
     });
 
     testServer.listen(0, () => {

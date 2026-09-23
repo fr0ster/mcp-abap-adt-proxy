@@ -26,6 +26,11 @@ const HOP_BY_HOP_HEADERS = new Set([
  * `authorization` is a complete header VALUE, not a token: it is what
  * `IAuthProvider.authorizationHeader()` answers, `Bearer <token>` and all.
  * Composing `Bearer` here as well would send `Bearer Bearer <token>`.
+ *
+ * `requestBody` is for a caller that has already read the request: the SSE path
+ * parses the JSON-RPC body because an error envelope has to echo its `id`, and
+ * a stream read once cannot be piped. The RESPONSE still streams either way,
+ * which is the direction that carries an event stream.
  */
 export async function forwardRequest(
   clientReq: http.IncomingMessage,
@@ -33,6 +38,7 @@ export async function forwardRequest(
   targetBaseUrl: string,
   authorization: string | null,
   defaultHeaders?: Record<string, string>,
+  requestBody?: Buffer,
 ): Promise<void> {
   const targetUrl = new URL(clientReq.url || '/', targetBaseUrl);
 
@@ -136,7 +142,12 @@ export async function forwardRequest(
       resolve();
     });
 
-    // Pipe client request body to backend
-    clientReq.pipe(proxyReq);
+    // Pipe client request body to backend — or write what the caller already
+    // read off it, since a spent stream pipes nothing.
+    if (requestBody === undefined) {
+      clientReq.pipe(proxyReq);
+    } else {
+      proxyReq.end(requestBody);
+    }
   });
 }

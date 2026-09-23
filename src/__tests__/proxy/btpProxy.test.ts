@@ -158,54 +158,6 @@ describe('BtpProxy', () => {
         delete process.env.MCP_PROXY_VERBOSE;
     });
 
-    describe('Initialization', () => {
-        it('should initialize axios with correct config', () => {
-            expect(axios.create).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    timeout: 60000,
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                }),
-            );
-        });
-
-        it('should set up interceptors', () => {
-            expect(mockAxiosInstance.interceptors.request.use).toHaveBeenCalled();
-            expect(mockAxiosInstance.interceptors.response.use).toHaveBeenCalled();
-        });
-
-        it('should log requests via interceptor', () => {
-            // Get the request interceptor callback
-            const requestInterceptor =
-                mockAxiosInstance.interceptors.request.use.mock.calls[0][0];
-
-            // Call it
-            const config = { method: 'POST', url: '/test' };
-            requestInterceptor(config);
-
-            expect(logger.debug).toHaveBeenCalledWith(
-                'Proxying request to target service',
-                expect.any(Object),
-            );
-        });
-
-        it('should log responses via interceptor', () => {
-            // Get the response interceptor callback
-            const responseInterceptor =
-                mockAxiosInstance.interceptors.response.use.mock.calls[0][0];
-
-            // Call it
-            const response = { status: 200, config: { url: '/test' } };
-            responseInterceptor(response);
-
-            expect(logger.debug).toHaveBeenCalledWith(
-                'Received response from target service',
-                expect.any(Object),
-            );
-        });
-    });
-
     describe('shouldWriteStderr', () => {
         const originalEnv = process.env;
 
@@ -233,64 +185,96 @@ describe('BtpProxy', () => {
         });
     });
 
-    describe('proxyRequest', () => {
-        const mockRequest: ProxyRequest = {
-            jsonrpc: '2.0',
-            method: 'tools/call',
-            params: { name: 'test' },
-            id: 1,
-        };
-
-        const mockHeaders = {
-            'content-type': 'application/json',
-        };
-
-
-
-        it('should authenticate with BTP when x-sap-destination is present', async () => {
-            const routingDecision = {
-                strategy: RoutingStrategy.PROXY,
-                reason: 'btp',
-                btpDestination: 'test-dest',
-            };
-
-            // Mock service key getting URL
+    describe('the credential facade', () => {
+        beforeEach(() => {
+            (mockAuthBroker as any).createTokenRefresher = jest.fn(
+                (destination: string) => ({
+                    getToken: async () => `token-for-${destination}`,
+                    refreshToken: async () => `fresh-token-for-${destination}`,
+                }),
+            );
             mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
                 serviceUrl: 'https://btp-mcp.example.com',
             });
+        });
 
-            mockAxiosInstance.request.mockResolvedValue({
-                data: {
-                    jsonrpc: '2.0',
-                    id: 1,
-                    result: { success: true },
+        it('answers with a complete header value, not a bare token', async () => {
+            const header = await btpProxy.getAuthorizationHeader('D1');
+
+            expect(header).toBe('Bearer token-for-D1');
+        });
+
+        it('asks the credential on every call, keeping no token of its own', async () => {
+            let handed = 0;
+            (mockAuthBroker as any).createTokenRefresher = jest.fn(() => ({
+                getToken: async () => {
+                    handed += 1;
+                    return `t${handed}`;
                 },
-            });
+                refreshToken: async () => 't-fresh',
+            }));
 
-            const response = await btpProxy.proxyRequest(
-                mockRequest,
-                routingDecision,
-                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
-            );
+            const first = await btpProxy.getAuthorizationHeader('D1');
+            const second = await btpProxy.getAuthorizationHeader('D1');
 
-            expect(mockAuthBroker.getToken).toHaveBeenCalledWith('test-dest');
-            expect(mockAxiosInstance.request).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    url: 'https://btp-mcp.example.com/mcp/stream/http',
-                    headers: expect.objectContaining({
-                        Authorization: 'Bearer mock-jwt-token',
-                    }),
-                }),
-            );
-            // The per-destination provider (btpProxy.ts's getOrCreateBtpAuthBroker)
-            // must build its authorization strategy with the documented default
-            // port when the proxy config carries no browserAuthPort override.
-            expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
-                expect.objectContaining({ port: 3333 }),
+            // A cache here would serve the stale token and hide the renewal the
+            // broker exists to do — which is what the deleted tokenCache did.
+            expect(first).toBe('Bearer t1');
+            expect(second).toBe('Bearer t2');
+            expect(handed).toBe(2);
+        });
+
+        it('builds the credential once per destination', async () => {
+            await btpProxy.getAuthorizationHeader('D1');
+            await btpProxy.getAuthorizationHeader('D1');
+
+            expect(
+                (mockAuthBroker as any).createTokenRefresher,
+            ).toHaveBeenCalledTimes(1);
+        });
+
+        it('lets go of the credential on dispose, so nothing outlives a stop', async () => {
+            await btpProxy.getAuthorizationHeader('D1');
+            btpProxy.dispose();
+            await btpProxy.getAuthorizationHeader('D1');
+
+            expect(
+                (mockAuthBroker as any).createTokenRefresher,
+            ).toHaveBeenCalledTimes(2);
+        });
+
+        it('takes the target url from the service key', async () => {
+            expect(await btpProxy.getTargetUrl('D1')).toBe(
+                'https://btp-mcp.example.com',
             );
         });
 
-        it('should build the per-destination authorization strategy with a configured browserAuthPort', async () => {
+        it('lets a configured targetUrl win over the service key', async () => {
+            const overridden = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001,
+                ssePort: 3002,
+                httpHost: '0.0.0.0',
+                sseHost: '0.0.0.0',
+                logLevel: 'info',
+                targetUrl: 'https://override.example.com',
+            } as any);
+
+            expect(await overridden.getTargetUrl('D1')).toBe(
+                'https://override.example.com',
+            );
+        });
+
+        it('refuses a destination whose service key carries no url', async () => {
+            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue(
+                null,
+            );
+
+            await expect(btpProxy.getTargetUrl('D1')).rejects.toThrow(
+                /No target URL found/,
+            );
+        });
+
+        it('builds the per-destination authorization strategy with a configured browserAuthPort', async () => {
             // A fresh instance so getOrCreateBtpAuthBroker's per-destination
             // broker map starts empty and this destination is actually built,
             // not reused from a previous test.
@@ -304,123 +288,14 @@ describe('BtpProxy', () => {
                 browserAuthPort: 9999,
             } as any);
 
-            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
-                serviceUrl: 'https://btp-mcp.example.com',
-            });
-            mockAxiosInstance.request.mockResolvedValue({
-                data: { jsonrpc: '2.0', id: 1, result: { success: true } },
-            });
-
-            await proxyWithPort.proxyRequest(
-                mockRequest,
-                {
-                    strategy: RoutingStrategy.PROXY,
-                    reason: 'btp',
-                    btpDestination: 'configured-port-dest',
-                },
-                { ...mockHeaders, 'x-sap-destination': 'configured-port-dest' },
-            );
+            await proxyWithPort.getAuthorizationHeader('configured-port-dest');
 
             expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
                 expect.objectContaining({ browser: 'chrome', port: 9999 }),
             );
         });
-
-        it('should retry with refreshed token on 401 response', async () => {
-            const routingDecision = {
-                strategy: RoutingStrategy.PROXY,
-                reason: 'btp',
-                btpDestination: 'test-dest',
-            };
-
-            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
-                serviceUrl: 'https://btp-mcp.example.com',
-            });
-
-            // First call returns expired token, second returns fresh one
-            (mockAuthBroker.getToken as jest.Mock)
-                .mockResolvedValueOnce('expired-token')
-                .mockResolvedValueOnce('fresh-token');
-
-            // First request fails with 401, second succeeds
-            const axiosError = new Error('Request failed with status code 401') as any;
-            axiosError.response = { status: 401, data: { error: 'Unauthorized' } };
-            axiosError.isAxiosError = true;
-            axiosError.config = { url: 'https://btp-mcp.example.com/mcp/stream/http' };
-
-            (mockedAxios.isAxiosError as unknown as jest.Mock).mockImplementation(
-                (err: any) => err?.isAxiosError === true,
-            );
-
-            mockAxiosInstance.request
-                .mockRejectedValueOnce(axiosError)
-                .mockResolvedValueOnce({
-                    data: {
-                        jsonrpc: '2.0',
-                        id: 1,
-                        result: { success: true },
-                    },
-                });
-
-            const response = await btpProxy.proxyRequest(
-                mockRequest,
-                routingDecision,
-                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
-            );
-
-            // Token should be fetched twice: first cached/normal, then force-refreshed
-            expect(mockAuthBroker.getToken).toHaveBeenCalledTimes(2);
-            // Request should be retried
-            expect(mockAxiosInstance.request).toHaveBeenCalledTimes(2);
-            // Second request should use fresh token
-            expect(mockAxiosInstance.request).toHaveBeenLastCalledWith(
-                expect.objectContaining({
-                    headers: expect.objectContaining({
-                        Authorization: 'Bearer fresh-token',
-                    }),
-                }),
-            );
-            // Should return successful response
-            expect(response).toEqual(
-                expect.objectContaining({
-                    result: { success: true },
-                }),
-            );
-        });
-
-        it('should use cached token for subsequent requests', async () => {
-            const routingDecision = {
-                strategy: RoutingStrategy.PROXY,
-                reason: 'btp',
-                btpDestination: 'test-dest',
-            };
-
-            mockAuthBroker.getConnectionConfig = (jest.fn() as any).mockResolvedValue({
-                serviceUrl: 'https://btp-mcp.example.com',
-            });
-
-            mockAxiosInstance.request.mockResolvedValue({
-                data: { result: { success: true } },
-            });
-
-            // First request
-            await btpProxy.proxyRequest(
-                mockRequest,
-                routingDecision,
-                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
-            );
-
-            // Second request
-            await btpProxy.proxyRequest(
-                mockRequest,
-                routingDecision,
-                { ...mockHeaders, 'x-sap-destination': 'test-dest' },
-            );
-
-            // getToken should be called only once
-            expect(mockAuthBroker.getToken).toHaveBeenCalledTimes(1);
-        });
     });
+
 
     describe('BtpProxy.create() default (no-destination) broker', () => {
         // This is the placeholder-credential broker used only when no

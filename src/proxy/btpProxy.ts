@@ -20,11 +20,11 @@ import {
   HEADER_SAP_DESTINATION,
   HEADER_SAP_DESTINATION_SERVICE,
 } from '@mcp-abap-adt/interfaces';
-import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
 import { getPlatformPaths, getPlatformStores } from '../lib/stores.js';
 import type { RoutingDecision } from '../router/headerAnalyzer.js';
+import { DestinationCredentials } from './credentials.js';
 
 /**
  * Default port for the local OAuth2 callback server, kept away from the
@@ -102,40 +102,13 @@ export function shouldWriteStderr(): boolean {
   return verboseMode && !isTestEnv;
 }
 
-export interface GenericProxyRequest {
-  method: string;
-  url?: string; // Request URL/Path
-  data?: unknown; // Generic body (JSON or parsed object)
-  id?: string | number | null; // Optional ID for logging
-  [key: string]: unknown; // Allow other properties
-}
-
-// Legacy support alias
-export type ProxyRequest = GenericProxyRequest;
-
-export interface ProxyResponse {
-  jsonrpc: string;
-  id?: string | number | null;
-  result?: unknown;
-  error?: {
-    code: number;
-    message: string;
-    data?: unknown;
-  };
-}
-
 /**
  * BTP Proxy Client
  */
 export class BtpProxy {
-  private axiosInstance: AxiosInstance;
   private defaultBtpAuthBroker: AuthBroker;
   private btpAuthBrokers: Map<string, AuthBroker> = new Map();
-  private tokenCache: Map<string, { token: string; expiresAt: number }> =
-    new Map();
-  private refreshTimers: Map<string, NodeJS.Timeout> = new Map();
-  private readonly TOKEN_CACHE_TTL = 30 * 60 * 1000; // fallback if JWT has no exp
-  private readonly REFRESH_LEAD_MS = 5 * 60 * 1000; // refresh 5 min before expiry
+  private readonly credentials: DestinationCredentials;
   private circuitBreaker: CircuitBreaker;
   private config: ProxyConfig;
   private unsafe: boolean;
@@ -164,64 +137,17 @@ export class BtpProxy {
       );
     }
 
+    // One credential per destination, over the brokers this class already
+    // caches. The lookup is passed rather than the broker itself so a
+    // destination that has never been seen still gets one built.
+    this.credentials = new DestinationCredentials((destination) =>
+      this.getOrCreateBtpAuthBroker(destination),
+    );
+
     // Initialize circuit breaker
     this.circuitBreaker = new CircuitBreaker(
       this.config.circuitBreakerThreshold || 5,
       this.config.circuitBreakerTimeout || 60000,
-    );
-
-    // Create axios instance without baseURL - we'll use full URLs from BTP destination
-    const https = require('node:https');
-    this.axiosInstance = axios.create({
-      timeout: this.config.requestTimeout || 60000,
-      headers: {
-        [HEADER_CONTENT_TYPE]: 'application/json',
-      },
-      httpsAgent: new https.Agent({
-        rejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0',
-        keepAlive: true,
-      }),
-    });
-
-    // Add request interceptor for logging
-    this.axiosInstance.interceptors.request.use(
-      (config) => {
-        logger?.debug('Proxying request to target service', {
-          type: 'PROXY_REQUEST',
-          method: config.method,
-          url: config.url,
-          baseURL: config.baseURL,
-        });
-        return config;
-      },
-      (error) => {
-        logger?.error('Request interceptor error', {
-          type: 'MCP_PROXY_REQUEST_ERROR',
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return Promise.reject(error);
-      },
-    );
-
-    // Add response interceptor for logging
-    this.axiosInstance.interceptors.response.use(
-      (response) => {
-        logger?.debug('Received response from target service', {
-          type: 'PROXY_RESPONSE',
-          status: response.status,
-          url: response.config.url,
-        });
-        return response;
-      },
-      (error) => {
-        logger?.error('Response interceptor error', {
-          type: 'MCP_PROXY_RESPONSE_ERROR',
-          error: error instanceof Error ? error.message : String(error),
-          status: error.response?.status,
-          url: error.config?.url,
-        });
-        return Promise.reject(error);
-      },
     );
   }
 
@@ -236,7 +162,7 @@ export class BtpProxy {
     });
     try {
       // Just getting the token will trigger authentication
-      await this.getJwtToken(destination);
+      await this.getAuthorizationHeader(destination);
       logger?.info('BTP proxy authentication initialized successfully', {
         type: 'BTP_PROXY_INIT_SUCCESS',
         destination,
@@ -448,209 +374,33 @@ export class BtpProxy {
   }
 
   /**
-   * Get JWT token for BTP destination from auth-broker with retry and token refresh
-   * @param destination Destination name
-   * @param forceRefresh Force token refresh
+   * The `Authorization` header value for a destination, or `null` when this
+   * credential is not a header at all.
+   *
+   * A complete header value, not a token: the caller puts it on the request as
+   * it stands. The credential is asked every time because it renews behind this
+   * call — a cache here would serve the stale token and hide the renewal the
+   * broker exists to do, which is precisely what the token cache, the JWT `exp`
+   * decoder and the per-destination refresh timer that used to live here did.
    */
-  async getJwtToken(
-    destination: string,
-    forceRefresh: boolean = false,
-  ): Promise<string> {
-    logger?.info('Getting JWT token', {
-      type: 'JWT_TOKEN_GET_START',
+  async getAuthorizationHeader(destination: string): Promise<string | null> {
+    logger?.debug('Asking the credential for a header', {
+      type: 'CREDENTIAL_HEADER_GET',
       destination,
     });
-
-    const authBroker = await this.getOrCreateBtpAuthBroker(destination);
-
-    // Check cache first (unless force refresh)
-    if (!forceRefresh) {
-      const cached = this.tokenCache.get(destination);
-      if (cached && cached.expiresAt > Date.now()) {
-        logger?.debug('Using cached JWT token', {
-          type: 'JWT_TOKEN_CACHE_HIT',
-          destination,
-        });
-        return cached.token;
-      }
-    }
-
-    // Retry logic for token retrieval
-    const retryOptions: RetryOptions = {
-      maxRetries: this.config.maxRetries || 3,
-      retryDelay: this.config.retryDelay || 1000,
-      retryableStatusCodes: [500, 502, 503, 504],
-    };
-
-    try {
-      const token = await retryWithBackoff(async () => {
-        // Clear cache if force refresh
-        if (forceRefresh) {
-          this.tokenCache.delete(destination);
-        }
-
-        logger?.debug('Getting JWT token from auth-broker', {
-          type: 'JWT_TOKEN_REQUEST_START',
-          destination,
-          forceRefresh,
-        });
-
-        // Get token from auth-broker
-        const token = await authBroker.getToken(destination);
-
-        this.cacheToken(destination, token);
-
-        logger?.debug('Retrieved JWT token from auth-broker', {
-          type: 'JWT_TOKEN_RETRIEVED',
-          destination,
-          forceRefresh,
-        });
-
-        return token;
-      }, retryOptions);
-
-      return token;
-    } catch (error) {
-      let errorMessage = error instanceof Error ? error.message : String(error);
-
-      // Rewrite error message to remove .env file references (proxy only uses service keys)
-      if (errorMessage.includes('.env') || errorMessage.includes('mcp.env')) {
-        const searchedInMatch = errorMessage.match(
-          /Searched in:\s*([\s\S]*?)(?:\n|$)/,
-        );
-        const searchedPaths = searchedInMatch
-          ? searchedInMatch[1]
-              .trim()
-              .split('\n')
-              .map((p) => p.trim().replace(/^-\s*/, ''))
-              .filter((p) => p)
-          : [];
-
-        errorMessage =
-          `Service key file not found for destination "${destination}".\n` +
-          `Please create service key file: ${destination}.json\n`;
-
-        if (searchedPaths.length > 0) {
-          errorMessage += `Searched in:\n`;
-          searchedPaths.forEach((path) => {
-            errorMessage += `  - ${path}\n`;
-          });
-        } else {
-          const isWindows = process.platform === 'win32';
-          const homeDir = require('node:os').homedir();
-          const defaultPath = isWindows
-            ? require('node:path').join(
-                homeDir,
-                'Documents',
-                'mcp-abap-adt',
-                'service-keys',
-              )
-            : require('node:path').join(
-                homeDir,
-                '.config',
-                'mcp-abap-adt',
-                'service-keys',
-              );
-          errorMessage += `Searched in:\n  - ${defaultPath}\n`;
-        }
-      }
-
-      logger?.error('Failed to get JWT token from auth-broker after retries', {
-        type: 'JWT_TOKEN_ERROR',
-        destination,
-        error: errorMessage,
-      });
-      if (shouldWriteStderr()) {
-        process.stderr.write(`[MCP Proxy] ✗ ${errorMessage}`);
-      }
-
-      throw new Error(errorMessage);
-    }
+    const { credential } = await this.credentials.get(destination);
+    return credential.authorizationHeader();
   }
 
   /**
-   * Decode JWT exp claim (seconds since epoch). Returns null if not parseable.
-   */
-  private decodeJwtExp(token: string): number | null {
-    const parts = token.split('.');
-    if (parts.length < 2) return null;
-    try {
-      const payload = JSON.parse(
-        Buffer.from(parts[1], 'base64url').toString('utf8'),
-      );
-      return typeof payload.exp === 'number' ? payload.exp : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Cache token with expiry derived from JWT, and schedule proactive refresh
-   * 5 minutes before expiry.
-   */
-  private cacheToken(destination: string, token: string): void {
-    const exp = this.decodeJwtExp(token);
-    const expiresAt =
-      exp !== null ? exp * 1000 : Date.now() + this.TOKEN_CACHE_TTL;
-
-    this.tokenCache.set(destination, { token, expiresAt });
-    this.scheduleProactiveRefresh(destination, expiresAt);
-  }
-
-  /**
-   * Schedule background refresh REFRESH_LEAD_MS before token expiry.
-   */
-  private scheduleProactiveRefresh(
-    destination: string,
-    expiresAt: number,
-  ): void {
-    const existing = this.refreshTimers.get(destination);
-    if (existing) clearTimeout(existing);
-
-    const delay = expiresAt - Date.now() - this.REFRESH_LEAD_MS;
-    if (delay <= 0) {
-      // Token already within lead window or expired; skip scheduling.
-      this.refreshTimers.delete(destination);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      this.refreshTimers.delete(destination);
-      this.proactiveRefresh(destination).catch((err) => {
-        logger?.warn('Proactive token refresh failed, will retry reactively', {
-          type: 'JWT_TOKEN_PROACTIVE_REFRESH_ERROR',
-          destination,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }, delay);
-    // Don't keep the event loop alive just for refresh timers.
-    timer.unref?.();
-    this.refreshTimers.set(destination, timer);
-  }
-
-  /**
-   * Background refresh via auth-broker's refreshToken grant.
-   */
-  private async proactiveRefresh(destination: string): Promise<void> {
-    logger?.info('Proactively refreshing JWT token', {
-      type: 'JWT_TOKEN_PROACTIVE_REFRESH',
-      destination,
-    });
-    const broker = await this.getOrCreateBtpAuthBroker(destination);
-    const token = await broker.refreshToken(destination);
-    this.cacheToken(destination, token);
-  }
-
-  /**
-   * Cancel all pending refresh timers. Call on shutdown.
+   * Let go of everything held. Call on shutdown.
+   *
+   * There are no timers to cancel any more: the refresh timer per destination
+   * went with the token cache it existed to top up. What is left is memory —
+   * the credentials and the brokers behind them.
    */
   public dispose(): void {
-    for (const timer of this.refreshTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.refreshTimers.clear();
-    this.tokenCache.clear();
+    this.credentials.clear();
     this.btpAuthBrokers.clear();
   }
 
@@ -684,514 +434,6 @@ export class BtpProxy {
       return headerValue[0]?.trim();
     }
     return typeof headerValue === 'string' ? headerValue.trim() : undefined;
-  }
-
-  /**
-   * Build proxy request with JWT token (BTP authentication only)
-   *
-   * Process flow:
-   *
-   * 1. BTP Authentication (XSUAA):
-   *    1.1 If x-sap-destination header exists:
-   *        - Check map for broker with key = destination, get or create, save to map
-   *        - Get token from xsuaa broker
-   *        - Add/replace Authorization: Bearer <token> header
-   *    1.2 If header doesn't exist but --btp parameter exists:
-   *        - Use destination from parameter, get or create broker, save to map
-   *        - Get token from xsuaa broker
-   *        - Add/replace Authorization: Bearer <token> header
-   *    1.3 If neither header nor parameter:
-   *        - Do nothing, pass request further
-   */
-  private async buildProxyRequest(
-    originalRequest: ProxyRequest,
-    routingDecision: RoutingDecision,
-    originalHeaders: Record<string, string | string[] | undefined>,
-    forceTokenRefresh: boolean = false,
-  ): Promise<AxiosRequestConfig> {
-    logger?.info('=== BUILD PROXY REQUEST - ORIGINAL ===', {
-      type: 'BUILD_PROXY_REQUEST_ORIGINAL',
-      originalRequestId: originalRequest.id,
-      originalRequestIdType: typeof originalRequest.id,
-      originalRequestMethod: originalRequest.method,
-      fullOriginalRequest: JSON.stringify(originalRequest),
-    });
-
-    // Build headers for target MCP server
-    const proxyHeaders: Record<string, string> = {
-      [HEADER_CONTENT_TYPE]: 'application/json',
-      [HEADER_ACCEPT]:
-        'application/json, application/x-ndjson, text/event-stream',
-    };
-
-    // ============================================
-    // BTP Authentication (XSUAA)
-    // ============================================
-    const btpDestinationHeader = this.getHeaderValue(
-      originalHeaders[HEADER_SAP_DESTINATION],
-    );
-    const btpDestinationFromParam =
-      routingDecision.btpDestination && !btpDestinationHeader
-        ? routingDecision.btpDestination
-        : undefined;
-
-    let btpDestination: string | undefined;
-    if (btpDestinationHeader) {
-      btpDestination = btpDestinationHeader;
-      logger?.debug('Using x-sap-destination from header', {
-        type: 'BTP_DESTINATION_FROM_HEADER',
-        destination: btpDestination,
-      });
-    } else if (btpDestinationFromParam) {
-      btpDestination = btpDestinationFromParam;
-      logger?.debug('Using x-sap-destination from parameter', {
-        type: 'BTP_DESTINATION_FROM_PARAM',
-        destination: btpDestination,
-      });
-    }
-
-    if (btpDestination) {
-      const _btpBroker = await this.getOrCreateBtpAuthBroker(btpDestination);
-
-      const existingAuth =
-        originalHeaders[HEADER_AUTHORIZATION.toLowerCase()] ||
-        originalHeaders[HEADER_AUTHORIZATION];
-      const hasExistingAuth = !!existingAuth;
-
-      const authToken = await this.getJwtToken(
-        btpDestination,
-        forceTokenRefresh,
-      );
-
-      proxyHeaders[HEADER_AUTHORIZATION] = `Bearer ${authToken}`;
-
-      logger?.debug(
-        hasExistingAuth
-          ? 'Replaced existing Authorization header with BTP token'
-          : 'Added BTP Cloud authorization token',
-        {
-          type: hasExistingAuth
-            ? 'BTP_AUTH_TOKEN_REPLACED'
-            : 'BTP_AUTH_TOKEN_ADDED',
-          destination: btpDestination,
-          hadExistingAuth: hasExistingAuth,
-        },
-      );
-    } else {
-      logger?.debug('No BTP destination - skipping authentication', {
-        type: 'BTP_AUTH_SKIPPED',
-      });
-    }
-
-    // Preserve other SAP headers if provided by client
-    const sapHeaders = [HEADER_SAP_CLIENT, HEADER_SAP_DESTINATION_SERVICE];
-
-    for (const headerName of sapHeaders) {
-      const value = originalHeaders[headerName];
-      if (value) {
-        proxyHeaders[headerName] = Array.isArray(value) ? value[0] : value;
-      }
-    }
-
-    // Get MCP server URL from BTP destination service key
-    let baseUrl: string | undefined;
-
-    if (btpDestination) {
-      try {
-        const btpBroker = await this.getOrCreateBtpAuthBroker(
-          btpDestination,
-          routingDecision.targetUrl,
-        );
-        const connConfig = await btpBroker.getConnectionConfig(btpDestination);
-
-        // Use service key URL as base (if available)
-        if (connConfig?.serviceUrl) {
-          baseUrl = connConfig.serviceUrl;
-          logger?.debug('Using MCP URL from BTP destination service key', {
-            type: 'MCP_URL_FROM_BTP_DESTINATION',
-            destination: btpDestination,
-            url: baseUrl,
-          });
-        } else {
-          logger?.warn(
-            'BTP destination service key does not contain service URL',
-            {
-              type: 'BTP_DESTINATION_NO_URL',
-              destination: btpDestination,
-            },
-          );
-        }
-      } catch (error) {
-        logger?.warn('Failed to get URL from BTP destination service key', {
-          type: 'BTP_DESTINATION_URL_ERROR',
-          destination: btpDestination,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    // Apply Target URL override logic
-    if (routingDecision.targetUrl) {
-      if (baseUrl) {
-        logger?.debug('Overriding service key URL with explicit target URL', {
-          type: 'TARGET_URL_OVERRIDE',
-          url: routingDecision.targetUrl,
-          serviceKeyUrl: baseUrl,
-        });
-      } else {
-        logger?.debug('Using explicit target URL from configuration', {
-          type: 'TARGET_URL_FROM_CONFIG',
-          url: routingDecision.targetUrl,
-        });
-      }
-      baseUrl = routingDecision.targetUrl;
-    }
-
-    if (!baseUrl) {
-      throw new Error(
-        'Cannot determine target URL: provide btpDestination with service key containing URL OR use --target-url',
-      );
-    }
-
-    // Construct full MCP endpoint URL
-    let fullUrl: string;
-
-    // Determine the path to append
-    // If original request has a URL/path, use it. Otherwise default to nothing/root.
-    const requestPath = originalRequest.url || '';
-
-    // Check if we should use URL as-is
-    // 1. If it already looks like an MCP URL
-    // 2. OR if it was explicitly provided via targetUrl (user knows best)
-    const isExplicitTarget = !!routingDecision.targetUrl;
-    const hasMcpPath =
-      baseUrl.includes('/mcp/') ||
-      baseUrl.endsWith('/mcp') ||
-      baseUrl.includes('/mcp/stream/');
-
-    if (isExplicitTarget) {
-      // Explicit Target URL logic (as per User request):
-      // "whatever endpoint [proxy] received, it adds to the target URL"
-      // Use join logic to avoid double slashes and ensure correctness
-
-      // Remove trailing slash from base
-      const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      // Ensure path starts with slash if not empty
-      const path = requestPath.startsWith('/')
-        ? requestPath
-        : `/${requestPath}`;
-
-      // If requestPath is empty or just '/', ensure we don't end up with empty path if base is root
-      // But typically we just append.
-      fullUrl = `${base}${path}`;
-
-      logger?.debug('Using explicit target URL with forwarded path', {
-        type: 'TARGET_URL_PATH_FORWARDING',
-        base,
-        path,
-        final: fullUrl,
-      });
-    } else if (hasMcpPath) {
-      // Use as-is (strip trailing slash if present, though typically not needed if strictly as-is, but good practice for consistency)
-      fullUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-
-      logger?.debug('Using target URL as-is', {
-        type: 'MCP_URL_AS_IS',
-        original: baseUrl,
-        final: fullUrl,
-        reason: 'path detection',
-      });
-    } else {
-      // Default: append MCP path
-      const mcpPath = '/mcp/stream/http';
-      fullUrl = baseUrl.endsWith('/')
-        ? `${baseUrl.slice(0, -1)}${mcpPath}`
-        : `${baseUrl}${mcpPath}`;
-
-      logger?.debug('Appended MCP path to base URL', {
-        type: 'MCP_URL_APPENDED',
-        original: baseUrl,
-        final: fullUrl,
-      });
-    }
-
-    const builtHeaders: Record<string, string> = {};
-    for (const [key, value] of Object.entries(proxyHeaders)) {
-      const lowerKey = key.toLowerCase();
-      if (
-        lowerKey.includes('token') ||
-        lowerKey.includes('authorization') ||
-        lowerKey.includes('password') ||
-        lowerKey.includes('secret')
-      ) {
-        builtHeaders[key] = value
-          ? `${String(value).substring(0, 20)}...`
-          : '[REDACTED]';
-      } else {
-        builtHeaders[key] = String(value || '');
-      }
-    }
-
-    const sanitizedRequestParams: Record<string, unknown> = {};
-    const requestData = originalRequest.data as Record<string, unknown>;
-
-    if (
-      requestData &&
-      requestData.params &&
-      typeof requestData.params === 'object' &&
-      requestData.params !== null
-    ) {
-      const params = requestData.params as Record<string, unknown>;
-      // ... (existing sanitization logic) ...
-      if (
-        params.arguments &&
-        typeof params.arguments === 'object' &&
-        params.arguments !== null
-      ) {
-        sanitizedRequestParams.arguments = {};
-        const sanitizedArgs = sanitizedRequestParams.arguments as Record<
-          string,
-          unknown
-        >;
-        for (const [key, value] of Object.entries(params.arguments)) {
-          const lowerKey = key.toLowerCase();
-          if (
-            lowerKey.includes('password') ||
-            lowerKey.includes('token') ||
-            lowerKey.includes('secret')
-          ) {
-            sanitizedArgs[key] = '[REDACTED]';
-          } else {
-            sanitizedArgs[key] = value;
-          }
-        }
-      }
-      for (const [key, value] of Object.entries(params)) {
-        if (key === 'arguments') continue;
-        sanitizedRequestParams[key] = value;
-      }
-    }
-
-    logger?.info('=== BUILDING PROXY REQUEST ===', {
-      type: 'PROXY_REQUEST_BUILT',
-      btpDestination: btpDestination,
-      url: fullUrl,
-      headers: builtHeaders,
-      baseUrl,
-      fullUrl,
-      hasAuthToken: !!proxyHeaders[HEADER_AUTHORIZATION],
-      btpSource: btpDestinationHeader
-        ? 'header'
-        : btpDestinationFromParam
-          ? 'parameter'
-          : 'none',
-      requestMethod: originalRequest.method,
-      requestId: originalRequest.id,
-      requestParams: sanitizedRequestParams,
-    });
-
-    // Return axios config with full URL
-    // Use original request method
-    const axiosConfig = {
-      method: originalRequest.method,
-      url: fullUrl,
-      headers: proxyHeaders,
-      data: originalRequest.data, // Send the original data (body)
-    };
-
-    logger?.debug('Axios request config', {
-      type: 'AXIOS_REQUEST_CONFIG',
-      method: axiosConfig.method,
-      url: axiosConfig.url,
-      headers: Object.keys(axiosConfig.headers),
-      dataKeys: originalRequest ? Object.keys(originalRequest) : [],
-    });
-
-    return axiosConfig;
-  }
-
-  /**
-   * Proxy MCP request to target server with retry, circuit breaker, and error handling
-   */
-  async proxyRequest(
-    originalRequest: ProxyRequest,
-    routingDecision: RoutingDecision,
-    originalHeaders: Record<string, string | string[] | undefined>,
-  ): Promise<ProxyResponse> {
-    // Check circuit breaker
-    if (!this.circuitBreaker.canProceed()) {
-      logger?.warn('Circuit breaker is open, rejecting request', {
-        type: 'CIRCUIT_BREAKER_REJECTED',
-        btpDestination: routingDecision.btpDestination,
-      });
-      return createErrorResponse(
-        originalRequest.id || null,
-        -32001,
-        'Service temporarily unavailable (circuit breaker open)',
-        { circuitBreakerState: this.circuitBreaker.getState() },
-      );
-    }
-
-    const retryOptions: RetryOptions = {
-      maxRetries: this.config.maxRetries || 3,
-      retryDelay: this.config.retryDelay || 1000,
-      retryableStatusCodes: [500, 502, 503, 504],
-    };
-
-    try {
-      let forceTokenRefresh = false;
-
-      const executeRequest = async () => {
-        const proxyConfig = await this.buildProxyRequest(
-          originalRequest,
-          routingDecision,
-          originalHeaders,
-          forceTokenRefresh,
-        );
-
-        // Log outgoing request details
-        const outgoingHeaders: Record<string, string> = {};
-        for (const [key, value] of Object.entries(proxyConfig.headers || {})) {
-          const lowerKey = key.toLowerCase();
-          if (
-            lowerKey.includes('token') ||
-            lowerKey.includes('authorization') ||
-            lowerKey.includes('password') ||
-            lowerKey.includes('secret')
-          ) {
-            outgoingHeaders[key] = value
-              ? `${String(value).substring(0, 20)}...`
-              : '[REDACTED]';
-          } else {
-            outgoingHeaders[key] = String(value || '');
-          }
-        }
-
-        const sanitizedOutgoingBody: Record<string, unknown> = {};
-        if (proxyConfig.data && typeof proxyConfig.data === 'object') {
-          if (
-            proxyConfig.data.params &&
-            typeof proxyConfig.data.params === 'object' &&
-            proxyConfig.data.params !== null
-          ) {
-            const params = proxyConfig.data.params as Record<string, unknown>;
-            sanitizedOutgoingBody.params = {};
-            const sanitizedParams = sanitizedOutgoingBody.params as Record<
-              string,
-              unknown
-            >;
-            if (
-              params.arguments &&
-              typeof params.arguments === 'object' &&
-              params.arguments !== null
-            ) {
-              sanitizedParams.arguments = {};
-              const sanitizedArgs = sanitizedParams.arguments as Record<
-                string,
-                unknown
-              >;
-              for (const [key, value] of Object.entries(params.arguments)) {
-                const lowerKey = key.toLowerCase();
-                if (
-                  lowerKey.includes('password') ||
-                  lowerKey.includes('token') ||
-                  lowerKey.includes('secret')
-                ) {
-                  sanitizedArgs[key] = '[REDACTED]';
-                } else {
-                  sanitizedArgs[key] = value;
-                }
-              }
-            }
-            for (const [key, value] of Object.entries(params)) {
-              if (key === 'arguments') continue;
-              sanitizedParams[key] = value;
-            }
-          }
-          sanitizedOutgoingBody.method = proxyConfig.data.method;
-          sanitizedOutgoingBody.id = proxyConfig.data.id;
-          sanitizedOutgoingBody.jsonrpc = proxyConfig.data.jsonrpc;
-        }
-
-        logger?.info('=== SENDING PROXY REQUEST ===', {
-          type: 'PROXY_REQUEST_SENDING',
-          url: proxyConfig.url,
-          headers: outgoingHeaders,
-          body: sanitizedOutgoingBody,
-        });
-
-        const response = await this.axiosInstance.request(proxyConfig);
-
-        this.circuitBreaker.recordSuccess();
-        return response;
-      };
-
-      const response = await retryWithBackoff(async () => {
-        try {
-          return await executeRequest();
-        } catch (error) {
-          if (!forceTokenRefresh && isTokenExpirationError(error)) {
-            const destination =
-              routingDecision.btpDestination ||
-              this.getHeaderValue(originalHeaders[HEADER_SAP_DESTINATION]);
-
-            logger?.warn('Token expired, retrying with refreshed token', {
-              type: 'TOKEN_EXPIRED_RETRY',
-              destination,
-            });
-
-            if (destination) {
-              this.tokenCache.delete(destination);
-            }
-            forceTokenRefresh = true;
-
-            return await executeRequest();
-          }
-          throw error;
-        }
-      }, retryOptions);
-
-      // Return response in JSON-RPC format
-      return {
-        jsonrpc: '2.0',
-        id: originalRequest.id || null,
-        result: response.data.result,
-        error: response.data.error,
-      };
-    } catch (error) {
-      this.circuitBreaker.recordFailure();
-
-      let statusCode = 500;
-      let errorMessage = 'Internal Server Error';
-      let errorData: unknown;
-
-      if (axios.isAxiosError(error)) {
-        statusCode = error.response?.status || 500;
-        errorMessage = error.message;
-        errorData = error.response?.data;
-
-        logger?.error('Axios error in proxy request', {
-          type: 'AXIOS_PROXY_ERROR',
-          status: statusCode,
-          message: errorMessage,
-          data: errorData,
-          url: error.config?.url,
-        });
-      } else {
-        errorMessage = error instanceof Error ? error.message : String(error);
-        logger?.error('Generic error in proxy request', {
-          type: 'GENERIC_PROXY_ERROR',
-          message: errorMessage,
-        });
-      }
-
-      return createErrorResponse(
-        originalRequest.id || null,
-        -32000,
-        `Proxy error: ${errorMessage}`,
-        errorData,
-      );
-    }
   }
 
   /**
