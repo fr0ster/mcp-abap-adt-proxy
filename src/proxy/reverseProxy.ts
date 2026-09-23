@@ -20,14 +20,18 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 /**
- * Forward an HTTP request to a target URL with JWT injection.
+ * Forward an HTTP request to a target URL, with the credential's header.
  * Streams both request and response using pipe().
+ *
+ * `authorization` is a complete header VALUE, not a token: it is what
+ * `IAuthProvider.authorizationHeader()` answers, `Bearer <token>` and all.
+ * Composing `Bearer` here as well would send `Bearer Bearer <token>`.
  */
 export async function forwardRequest(
   clientReq: http.IncomingMessage,
   clientRes: http.ServerResponse,
   targetBaseUrl: string,
-  jwtToken: string,
+  authorization: string | null,
   defaultHeaders?: Record<string, string>,
 ): Promise<void> {
   const targetUrl = new URL(clientReq.url || '/', targetBaseUrl);
@@ -51,9 +55,18 @@ export async function forwardRequest(
     }
   }
 
-  // Inject JWT
-  if (jwtToken) {
-    forwardedHeaders.authorization = `Bearer ${jwtToken}`;
+  // The credential's header, verbatim.
+  //
+  // `null` means this credential is not a header at all — a certificate
+  // authenticates through TLS and has none — and must reach the target as an
+  // ABSENT header rather than an empty one, which is a different claim.
+  //
+  // `''` is treated the same way. The contract calls the empty string a legal
+  // header value, but the provider that answers it here returns it for "no
+  // token", not for "an empty Authorization" — and that is also what this
+  // function did before it carried header values.
+  if (authorization) {
+    forwardedHeaders.authorization = authorization;
   }
 
   // Set correct host for target

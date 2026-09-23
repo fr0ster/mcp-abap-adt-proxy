@@ -52,6 +52,12 @@ beforeAll(async () => {
       return;
     }
 
+    if (url === '/echo-headers') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ authorization: req.headers['authorization'] ?? null }));
+      return;
+    }
+
     res.writeHead(404);
     res.end('Not found');
   });
@@ -72,7 +78,7 @@ afterAll(() => {
 describe('forwardRequest', () => {
   it('should forward GET request and return response', async () => {
     const { statusCode, headers, body } = await makeProxiedRequest(
-      'GET', '/v1/models', undefined, 'test-jwt-token',
+      'GET', '/v1/models', undefined, 'Bearer test-jwt-token',
     );
     expect(statusCode).toBe(200);
     expect(headers['content-type']).toContain('application/json');
@@ -83,7 +89,7 @@ describe('forwardRequest', () => {
   it('should forward POST request with body and JWT', async () => {
     const reqBody = JSON.stringify({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }] });
     const { statusCode, body } = await makeProxiedRequest(
-      'POST', '/v1/chat/completions', reqBody, 'test-jwt-token',
+      'POST', '/v1/chat/completions', reqBody, 'Bearer test-jwt-token',
     );
     expect(statusCode).toBe(200);
     const data = JSON.parse(body);
@@ -93,7 +99,7 @@ describe('forwardRequest', () => {
   it('should forward streaming response', async () => {
     const reqBody = JSON.stringify({ model: 'gpt-4', messages: [], stream: true });
     const { statusCode, headers, body } = await makeProxiedRequest(
-      'POST', '/v1/chat/completions', reqBody, 'test-jwt-token',
+      'POST', '/v1/chat/completions', reqBody, 'Bearer test-jwt-token',
     );
     expect(statusCode).toBe(200);
     expect(headers['content-type']).toContain('text/event-stream');
@@ -111,14 +117,14 @@ describe('forwardRequest', () => {
 
   it('should return 502 when backend is unreachable', async () => {
     const { statusCode } = await makeProxiedRequest(
-      'GET', '/v1/models', undefined, 'jwt', 'http://localhost:1', // bad port
+      'GET', '/v1/models', undefined, 'Bearer jwt', 'http://localhost:1', // bad port
     );
     expect(statusCode).toBe(502);
   });
 
   it('should inject default headers into forwarded request', async () => {
     const { statusCode } = await makeProxiedRequest(
-      'GET', '/v1/models', undefined, 'test-jwt-token',
+      'GET', '/v1/models', undefined, 'Bearer test-jwt-token',
       undefined,
       { 'x-sap-destination': 'S4HANA', 'x-sap-client': '100' },
     );
@@ -127,11 +133,32 @@ describe('forwardRequest', () => {
 
   it('should not override client headers with default headers', async () => {
     const { statusCode } = await makeProxiedRequest(
-      'GET', '/v1/models', undefined, 'test-jwt-token',
+      'GET', '/v1/models', undefined, 'Bearer test-jwt-token',
       undefined,
       { 'content-type': 'text/plain' },
     );
     expect(statusCode).toBe(200);
+  });
+
+  // The credential answers with a complete header value, not a bare token:
+  // `authorizationHeader()` returns `Bearer <token>`. Composing `Bearer` here
+  // as well would send `Bearer Bearer <token>`.
+  it('forwards the authorization value it is given, verbatim', async () => {
+    const { body } = await makeProxiedRequest(
+      'GET', '/echo-headers', undefined, 'Bearer abc123',
+    );
+    expect(JSON.parse(body).authorization).toBe('Bearer abc123');
+  });
+
+  // A credential that is not a header answers `null` — a certificate
+  // authenticates through TLS and has none. `null` must reach the backend as an
+  // ABSENT header; an empty `Authorization` is a different thing and some
+  // servers reject it.
+  it('sends no authorization header when the credential has none', async () => {
+    const { body } = await makeProxiedRequest(
+      'GET', '/echo-headers', undefined, null,
+    );
+    expect(JSON.parse(body).authorization).toBeNull();
   });
 });
 
@@ -140,7 +167,7 @@ async function makeProxiedRequest(
   method: string,
   path: string,
   body: string | undefined,
-  jwt: string,
+  authorization: string | null,
   targetUrlOverride?: string,
   defaultHeaders?: Record<string, string>,
 ): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
@@ -149,7 +176,7 @@ async function makeProxiedRequest(
   return new Promise((resolve) => {
     // Create a local HTTP server that acts as "client side"
     const testServer = createServer(async (req, res) => {
-      await forwardRequest(req, res, targetUrl, jwt, defaultHeaders);
+      await forwardRequest(req, res, targetUrl, authorization, defaultHeaders);
     });
 
     testServer.listen(0, () => {
