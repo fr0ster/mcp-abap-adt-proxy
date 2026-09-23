@@ -40,6 +40,44 @@ mcp-abap-adt-proxy --btp=ai
 mcp-abap-adt-proxy --btp=ai --unsafe
 ```
 
+## Two commands
+
+The package installs two binaries, for two different jobs.
+
+| Command | What it is for |
+|---|---|
+| `mcp-abap-adt-proxy` | **Be** a proxy. A client points at it and its requests are authenticated and forwarded. |
+| `mcp-abap-adt-proxy-mcp` | **Manage** proxies. Speaks MCP over stdio; its tools start and stop proxies on demand. |
+
+### The management mode
+
+Register it like any other MCP server:
+
+```json
+{
+  "mcpServers": {
+    "abap-proxy": { "command": "mcp-abap-adt-proxy-mcp" }
+  }
+}
+```
+
+It offers three tools:
+
+| Tool | What it does |
+|---|---|
+| `proxy_start` | Starts a proxy for a BTP destination and returns the URL it bound. Takes a **free port**, so several sessions can each run their own without colliding. |
+| `proxy_stop` | Stops a proxy this session started, freeing its port and releasing its credential. Proxies started by other sessions are never touched. |
+| `proxy_status` | Lists this session's proxies and any others on this machine. Records whose process has died are pruned when read, so it cannot report a ghost. |
+
+**Every proxy runs inside the management process.** Closing the session — or
+`SIGINT`, or `SIGTERM` — stops all of them and frees their ports. This is
+deliberate: a spawned child would be orphaned by any signal the parent did not
+forward and would go on holding its HTTP and OAuth callback ports.
+
+A proxy nobody has used for 30 minutes stops itself. That is a backstop for a
+client that finished and forgot, not a substitute for `proxy_stop` — which is
+why the tool descriptions say so, and say it again beside the URL.
+
 ### Configuration
 
 The proxy supports multiple configuration methods:

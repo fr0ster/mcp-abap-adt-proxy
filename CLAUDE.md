@@ -44,6 +44,9 @@ npm run start:http
 # Start server (SSE transport)
 npm run start:sse
 
+# Start the management mode (stdio MCP server that starts/stops proxies)
+npm run start:mcp
+
 # Run with MCP Inspector for debugging
 npm run dev
 
@@ -66,6 +69,8 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 - **src/index.ts** - Main server class (`McpAbapAdtProxyServer`) supporting stdio, HTTP, and SSE transports
 - **src/router/headerAnalyzer.ts** - Extracts routing info from `x-sap-destination` and `x-target-url` headers; returns a `RoutingDecision` with strategy (PROXY, UNKNOWN)
 - **src/router/requestInterceptor.ts** - Intercepts incoming HTTP requests, calls `analyzeHeaders()`, extracts session ID
+- **bin/mcp-abap-adt-proxy-mcp.js** + **src/mcp/** - the management mode: a stdio MCP server whose tools (`proxy_start` / `proxy_stop` / `proxy_status`) start and stop proxies. `supervisor.ts` owns the listeners, which run IN THIS PROCESS for the same reason the launcher does not spawn; `registry.ts` is the cross-session view, pruning records whose process has died; `ports.ts` binds port 0 so two sessions never collide; `tools.ts` holds the tool definitions and the shutdown reminder the client is told three times
+- **src/proxy/requestHandler.ts** - the one request path, shared by both commands. What an AUTHENTICATION failure means is a parameter: fatal in the standalone proxy, answered-and-survived in the MCP mode, where exiting would take the client's session down
 - **src/proxy/credentials.ts** - `DestinationCredentials`: destination → the credential it authenticates with (`TokenAuthProvider` over the broker's `ITokenRefresher`) and the base URL from its service key. One of each per destination; no token cache, no refresh timer — the credential is asked per request and renews behind that call
 - **src/proxy/btpProxy.ts** - `BtpProxy`: a facade over the above. `getAuthorizationHeader(destination)` and `getTargetUrl(destination)`, plus broker construction and the circuit breaker
 - **src/proxy/reverseProxy.ts** - `forwardRequest()`: the single transparent pipe. Takes a complete `Authorization` header VALUE (or `null`), streams the response, and can send a body a caller already read off the request

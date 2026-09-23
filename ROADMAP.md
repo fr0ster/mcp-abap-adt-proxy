@@ -99,6 +99,17 @@ The proxy intercepts MCP requests, injects a BTP/XSUAA authorization token, and 
 - [x] Architecture documentation
 - [x] Troubleshooting guide
 
+### Phase 12: Management Mode ✅
+
+- [x] Second binary `mcp-abap-adt-proxy-mcp`: an MCP server over stdio
+- [x] Tools `proxy_start` / `proxy_stop` / `proxy_status`
+- [x] Free-port allocation, so sessions never collide
+- [x] Cross-session registry that prunes records whose process has died
+- [x] Listeners owned in-process, released on stdin close / SIGINT / SIGTERM
+- [x] Idle timeout as a backstop for a client that forgot to stop
+- [x] Shutdown reminder in the tool description, the answer, and the server instructions
+- [ ] `proxy_start` verified end to end against a live BTP destination
+
 ### Phase 10: Performance & Optimization
 
 - [ ] Implement request caching where appropriate
