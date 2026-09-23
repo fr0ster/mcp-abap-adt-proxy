@@ -18,6 +18,7 @@ import { HEADER_BTP_DESTINATION } from '@mcp-abap-adt/interfaces-adt';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { createProxyRequestHandler } from './proxy/requestHandler.js';
 import { forwardRequest } from './proxy/reverseProxy.js';
 import {
   loadConfig,
@@ -105,6 +106,33 @@ export class McpAbapAdtProxyServer {
   private config: ReturnType<typeof loadConfig>;
   private httpServer?: HttpServer;
   private btpProxy?: BtpProxy;
+
+  private builtProxyHandler?: ReturnType<typeof createProxyRequestHandler>;
+
+  /**
+   * The request path, shared with the MCP mode. Here an authentication failure
+   * is fatal: the process exits so whatever started it can start it again with
+   * a credential that works.
+   *
+   * Built on first use rather than as a field initializer, because `config` is
+   * assigned in the constructor and a field initializer runs before that.
+   */
+  private get proxyHandler(): ReturnType<typeof createProxyRequestHandler> {
+    if (!this.builtProxyHandler) {
+      this.builtProxyHandler = createProxyRequestHandler({
+        config: this.config,
+        proxy: async () => {
+          if (!this.btpProxy) {
+            this.btpProxy = await createBtpProxy(this.config);
+          }
+          return this.btpProxy;
+        },
+        onAuthFailure: (error, destination) =>
+          this.fatalAuthFailure(error, destination, 'request'),
+      });
+    }
+    return this.builtProxyHandler;
+  }
   private authExiting = false;
 
   constructor(transportConfig?: TransportConfig, configPath?: string) {
@@ -264,44 +292,12 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
         remoteAddress: req.socket.remoteAddress,
       });
 
-      // Intercept and analyze request (headers only, body is piped through)
-      const configOverrides = {
-        btpDestination: this.config.btpDestination,
-        targetUrl: this.config.targetUrl,
-      };
-
-      const intercepted = interceptRequest(req, undefined, configOverrides, {
-        skipHeaderValidation: true,
-      });
-
-      // Check routing decision
-      if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
-        logger?.error('Routing decision failed', {
-          type: 'ROUTING_DECISION_FAILED',
-          reason: intercepted.routingDecision.reason,
-        });
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: intercepted.routingDecision.reason,
-          }),
-        );
-        return;
-      }
-
-      // Forward request via reverse proxy
-      logger?.info('=== PROXYING REQUEST ===', {
-        type: 'PROXY_REQUEST_START',
-        btpDestination: intercepted.routingDecision.btpDestination,
-      });
-
       try {
-        await this.handleProxyRequest(intercepted, req, res);
+        await this.proxyHandler(req, res);
       } catch (error) {
         logger?.error('Failed to process request', {
           type: 'REQUEST_PROCESS_ERROR',
           error: error instanceof Error ? error.message : String(error),
-          strategy: intercepted.routingDecision.strategy,
         });
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -345,78 +341,6 @@ Authorization source: ${authSourceObj}`;
 
 
 
-  /**
-   * Handle proxy request - get JWT token and forward transparently via reverse proxy
-   */
-  private async handleProxyRequest(
-    intercepted: ReturnType<typeof interceptRequest>,
-    req: IncomingMessage,
-    res: ServerResponse,
-  ): Promise<void> {
-    const destination = intercepted.routingDecision.btpDestination;
-
-    if (!destination) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'No BTP destination specified' }));
-      return;
-    }
-
-    // Ensure proxy is initialized
-    if (!this.btpProxy) {
-      this.btpProxy = await createBtpProxy(this.config);
-    }
-
-    // Authentication is separated from forwarding: an auth failure is fatal
-    // (the proxy exits so it can be restarted), while a downstream/forward error
-    // is returned to the client without killing the proxy.
-    let authorization: string | null;
-    try {
-      // The credential's header value, renewed behind this call when it needs to be
-      authorization = await this.btpProxy.getAuthorizationHeader(destination);
-    } catch (authError) {
-      logger?.error('Proxy request failed: authentication error', {
-        type: 'PROXY_REQUEST_AUTH_ERROR',
-        destination,
-        error: authError instanceof Error ? authError.message : String(authError),
-      });
-      if (!res.headersSent) {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Authentication failed' }));
-      }
-      await this.fatalAuthFailure(authError, destination, 'request');
-      return;
-    }
-
-    try {
-      // Get target URL
-      const targetUrl =
-        intercepted.routingDecision.targetUrl ||
-        (await this.btpProxy.getTargetUrl(destination));
-
-      // Forward request transparently (inject default headers from config)
-      await forwardRequest(
-        req,
-        res,
-        targetUrl,
-        authorization,
-        this.config.defaultHeaders,
-      );
-    } catch (error) {
-      logger?.error('Proxy request failed', {
-        type: 'PROXY_REQUEST_ERROR',
-        destination,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (!res.headersSent) {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: error instanceof Error ? error.message : 'Proxy error',
-          }),
-        );
-      }
-    }
-  }
 
   /**
    * Start SSE server
