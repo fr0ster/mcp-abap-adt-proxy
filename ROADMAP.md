@@ -85,7 +85,7 @@ The proxy intercepts MCP requests, injects a BTP/XSUAA authorization token, and 
 - [x] Unit tests for routing logic (`headerAnalyzer.test.ts`)
 - [x] Unit tests for header analysis (extraction, validation, command-line overrides)
 - [x] Unit tests for request interceptor (`requestInterceptor.test.ts`)
-- [x] Unit tests for proxy client (`cloudLlmHubProxy.test.ts`)
+- [x] Unit tests for the credential seam (`credentials.test.ts`) and the facade (`btpProxy.test.ts`)
 - [x] Test error scenarios (missing destination, token errors, network errors)
 - [x] Test command-line parameter overrides
 - [ ] Integration tests with auth-broker

@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The proxy stops re-implementing the broker, and there is one forwarding path
+instead of two.** No configuration changes and no new flags; what changes is
+what the proxy holds while it runs and how an SSE response reaches the client.
+
+### Changed
+
+- **BREAKING** — `@mcp-abap-adt/interfaces` is no longer a dependency.
+  `@mcp-abap-adt/interfaces-adt@^6` and `@mcp-abap-adt/interfaces-network@^1`
+  take its place, and `@mcp-abap-adt/connection@^9` arrives for the credential.
+  The old name is an umbrella of 376 deprecated re-exports; a consumer importing
+  contract types through this package's tree now installs the package it names.
+
+- **BREAKING** — `BtpProxy.getJwtToken()` is replaced by
+  `getAuthorizationHeader()`, which answers a complete header VALUE
+  (`Bearer <token>`) or `null` where a credential is not a header at all.
+  `proxyRequest()`, `buildProxyRequest()` and the `ProxyRequest` / `ProxyResponse`
+  types are gone with the axios path they served.
+
+- `forwardRequest()` takes an `Authorization` header value rather than a bare
+  token, and optionally a body a caller has already read off the request.
+
+- The SSE transport forwards through the same transparent pipe as every other
+  transport. It used to rebuild the request by hand, carry it over axios, buffer
+  the answer and rewrap it as a JSON-RPC envelope — so an SSE response now
+  streams rather than arriving whole. Error envelopes still echo the JSON-RPC
+  `id`, which is why the body is still read before forwarding; the bytes handed
+  on are the ones that arrived, so `content-length` stays true.
+
+### Removed
+
+- The token cache, its TTL, the JWT `exp` decoder, and the proactive-refresh
+  timer per destination. The broker caches and knows expiry, and
+  `authorizationHeader()` renews behind the call — the timer was a `setTimeout`
+  per destination, alive for the life of the process, topping up a cache that
+  duplicated the broker.
+- `src/proxy/cloudLlmHubProxy.ts`, whose entire contents were `// DELETED`.
+- `src/proxy/btpProxy.ts` goes from 1248 lines to 490.
+
+### Documentation
+
+- `docs/API.md` described `CloudLlmHubProxy.proxyRequest()` and an import path
+  for a file containing one comment. It now documents the facade and the pipe.
+- `docs/ARCHITECTURE.md` and `CLAUDE.md` described a proxy client that caches
+  tokens for 30 minutes, and pointed at `cloudLlmHubProxy.ts` for it.
+- `CLAUDE.md` pointed test instructions at `cloudLlmHubProxy.test.ts`, which has
+  not existed for some time.
+
 ## [3.0.0] - 2026-09-03
 
 ### Licence

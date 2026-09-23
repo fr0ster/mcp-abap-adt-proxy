@@ -66,15 +66,21 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 - **src/index.ts** - Main server class (`McpAbapAdtProxyServer`) supporting stdio, HTTP, and SSE transports
 - **src/router/headerAnalyzer.ts** - Extracts routing info from `x-sap-destination` and `x-target-url` headers; returns a `RoutingDecision` with strategy (PROXY, UNKNOWN)
 - **src/router/requestInterceptor.ts** - Intercepts incoming HTTP requests, calls `analyzeHeaders()`, extracts session ID
-- **src/proxy/cloudLlmHubProxy.ts** - Handles proxying with BTP/XSUAA auth injection, retry logic with exponential backoff, circuit breaker, and token caching (30-min TTL)
+- **src/proxy/credentials.ts** - `DestinationCredentials`: destination → the credential it authenticates with (`TokenAuthProvider` over the broker's `ITokenRefresher`) and the base URL from its service key. One of each per destination; no token cache, no refresh timer — the credential is asked per request and renews behind that call
+- **src/proxy/btpProxy.ts** - `BtpProxy`: a facade over the above. `getAuthorizationHeader(destination)` and `getTargetUrl(destination)`, plus broker construction and the circuit breaker
+- **src/proxy/reverseProxy.ts** - `forwardRequest()`: the single transparent pipe. Takes a complete `Authorization` header VALUE (or `null`), streams the response, and can send a body a caller already read off the request
 - **src/lib/config.ts** - Configuration loading from YAML/JSON config files or env vars + CLI params. With `--config`, CLI flags override matching values from the file (file is the baseline; `defaultHeaders` merge per key)
 - **src/lib/errorHandler.ts** - Retry logic (`retryWithBackoff()`) and circuit breaker (opens after threshold failures, resets after timeout)
 - **src/lib/transportConfig.ts** - Transport type detection: explicit `--transport` flag → `MCP_TRANSPORT` env var → auto-detect (stdio if not TTY, else streamable-http)
 - **src/lib/stores.ts** - Platform-specific auth store paths (Windows vs Unix) for service key files
 
-### BTP Authentication in `buildProxyRequest()`
+### BTP Authentication
 
-If `x-sap-destination` or `--btp` is present, the proxy gets a JWT from `btpAuthBroker` (ClientCredentials grant) and injects `Authorization: Bearer <token>`. Auth brokers are cached per destination for reuse across requests.
+If `x-sap-destination` or `--btp` is present, the proxy asks the destination's credential for an `Authorization` header and puts it on the forwarded request as it stands. Brokers and credentials are cached per destination; tokens are not — `TokenAuthProvider.authorizationHeader()` is asked on every request and renews behind that call, so a cache here would serve the stale token and hide the renewal the broker exists to do.
+
+`authorizationHeader()` answers a complete header value (`Bearer <token>`), or `null` where a credential is not a header at all. `null` must reach the target as an ABSENT header, never an empty one.
+
+**There is one forwarding path.** Every transport — stdio, streamable-http, SSE — goes through `forwardRequest()`. The SSE path reads the request body first, because the JSON-RPC `id` is what its error envelopes echo, and hands those exact bytes over rather than piping a spent stream.
 
 ### Routing Strategies
 
@@ -89,9 +95,13 @@ This package uses sibling packages from the `@mcp-abap-adt` monorepo:
 - `@mcp-abap-adt/auth-broker` - Authentication broker for JWT tokens
 - `@mcp-abap-adt/auth-providers` - Token providers (ClientCredentials)
 - `@mcp-abap-adt/auth-stores` - Service key storage
-- `@mcp-abap-adt/interfaces` - Shared TypeScript interfaces
+- `@mcp-abap-adt/connection` - `TokenAuthProvider`, the shared credential
+- `@mcp-abap-adt/interfaces-adt` - the `x-sap-*` header constants, `IAuthorizationConfig`, `ITokenRefresher`
+- `@mcp-abap-adt/interfaces-network` - the generic HTTP header constants
 - `@mcp-abap-adt/header-validator` - Header validation utilities
 - `@mcp-abap-adt/logger` - Logging utility
+
+NOT `@mcp-abap-adt/interfaces`: that name is now an umbrella of deprecated re-exports, and this package does not depend on it. Several siblings above still do, so the tree carries copies of it — they are theirs, not ours.
 
 ## Code Style
 
@@ -112,7 +122,7 @@ Jest uses `moduleNameMapper` (`'^(\\.{1,2}/.*)\\.js$': '$1'`) to handle ESM `.js
 npm test
 
 # Run specific test file
-npx jest src/__tests__/proxy/cloudLlmHubProxy.test.ts
+npx jest src/__tests__/proxy/credentials.test.ts
 
 # Run with coverage
 npx jest --coverage

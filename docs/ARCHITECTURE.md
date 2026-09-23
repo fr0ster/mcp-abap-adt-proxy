@@ -117,27 +117,32 @@ so they need `npm run build` first, and they are POSIX-only.
 
 ### 3. Proxy Client
 
-**Location:** `src/proxy/cloudLlmHubProxy.ts`
+**Location:** `src/proxy/credentials.ts`, `src/proxy/btpProxy.ts`, `src/proxy/reverseProxy.ts`
 
 **Responsibilities:**
-- Proxy requests to target MCP server
-- Manage JWT tokens via AuthBroker (BTP/XSUAA ClientCredentials)
+- Turn a destination into the credential it authenticates with and the base URL its requests go to
+- Forward the request transparently, with that credential's header on it
 - Handle retries and error recovery
 - Implement circuit breaker pattern
 
 **Key Features:**
-- JWT token caching and refresh
+- The ecosystem's shared credential — `TokenAuthProvider` over `AuthBroker.createTokenRefresher()`
+- One credential and one broker per destination; **no token cache and no refresh timer here**. The credential is asked for a header per request and renews behind that call
 - Automatic retry with exponential backoff
 - Circuit breaker for resilience
-- Token expiration handling
 
 **Flow:**
-1. Receive MCP request with `x-sap-destination` header
-2. Get JWT token from AuthBroker for destination (with caching)
-3. Get MCP server URL from service key for destination
-4. Build proxy request with JWT token in Authorization header
-5. Forward to MCP server URL
-6. Handle response or errors
+1. Receive request with `x-sap-destination` header (or `--btp`)
+2. Ask the destination's credential for an `Authorization` header value
+3. Take the base URL from the service key, unless `x-target-url` / `--target-url` overrides it
+4. `forwardRequest()` streams the request to that URL with the header as given
+5. Stream the response back untouched
+
+**One path, not two.** An earlier version carried the SSE transport over axios,
+buffering the response and rewrapping it as a JSON-RPC envelope. Every transport
+now uses the same pipe. The SSE path reads the body first — its error envelopes
+have to echo the JSON-RPC `id` — and hands those exact bytes to the pipe, since
+a stream read once cannot be piped.
 7. Return MCP-formatted response
 
 ### 6. Error Handler

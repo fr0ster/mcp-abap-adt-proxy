@@ -101,30 +101,57 @@ console.log(intercepted.routingDecision.strategy);
 
 ## Proxy Modules
 
-### Cloud LLM Hub Proxy
+### BTP Proxy
 
-#### `CloudLlmHubProxy`
+#### `BtpProxy`
 
-Proxy client for forwarding requests to cloud-llm-hub.
+A facade over the destination's credential. It does not carry requests — that is
+`forwardRequest()` below.
 
-##### `proxyRequest(originalRequest, routingDecision, originalHeaders): Promise<ProxyResponse>`
+##### `getAuthorizationHeader(destination): Promise<string | null>`
 
-Proxies MCP request to cloud-llm-hub with JWT authentication.
+The `Authorization` header VALUE for a destination — `Bearer <token>`, complete —
+or `null` where the credential is not a header at all.
 
-**Parameters:**
-- `originalRequest`: MCP request object
-- `routingDecision`: Routing decision from header analysis
-- `originalHeaders`: Original HTTP headers
+Asked on every request, deliberately. The credential renews behind this call, so
+a cache on the caller's side would serve the stale token and hide the renewal.
 
-**Returns:** Promise resolving to MCP response.
+##### `getTargetUrl(destination): Promise<string>`
+
+Where that destination's requests go: `targetUrl` from the config if set,
+otherwise `serviceUrl` from the service key. Throws when neither exists.
+
+##### `dispose(): void`
+
+Lets go of the credentials and brokers held. There are no timers to cancel.
 
 **Example:**
 ```typescript
-import { createCloudLlmHubProxy } from "@mcp-abap-adt/proxy/proxy/cloudLlmHubProxy";
+import { createBtpProxy } from "@mcp-abap-adt/proxy/proxy/btpProxy";
 
-const proxy = await createCloudLlmHubProxy("https://cloud-llm-hub.example.com");
-const response = await proxy.proxyRequest(request, decision, headers);
+const proxy = await createBtpProxy(config);
+const authorization = await proxy.getAuthorizationHeader("my-destination");
+const targetUrl = await proxy.getTargetUrl("my-destination");
 ```
+
+### Reverse Proxy
+
+#### `forwardRequest(clientReq, clientRes, targetBaseUrl, authorization, defaultHeaders?, requestBody?)`
+
+The single transparent pipe. Every transport goes through it.
+
+**Parameters:**
+- `clientReq` / `clientRes`: the incoming request and its response
+- `targetBaseUrl`: where to forward
+- `authorization`: a complete header VALUE, or `null` for no header at all. It is
+  NOT a token — composing `Bearer` around it would send `Bearer Bearer <token>`
+- `defaultHeaders`: injected first; client headers win
+- `requestBody`: for a caller that has already read the request. The SSE path
+  parses the JSON-RPC body because its error envelopes echo the `id`, and a
+  stream read once cannot be piped. Pass the bytes as they arrived, not a
+  re-serialised parse — the client's `content-length` is forwarded unchanged
+
+The response streams; nothing is buffered on the way back.
 
 
 ## Error Handling
