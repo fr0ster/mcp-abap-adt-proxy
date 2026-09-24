@@ -18,6 +18,7 @@ import { createProxyTools } from '../../mcp/tools.js';
 
 let dir: string;
 let configDir: string;
+let envDir: string;
 let supervisor: ProxySupervisor;
 let tools: ReturnType<typeof createProxyTools>;
 
@@ -35,6 +36,9 @@ const textOf = async (name: string, args: Record<string, unknown> = {}) => {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'proxy-tools-'));
   configDir = mkdtempSync(join(tmpdir(), 'proxy-tools-cfg-'));
+  envDir = mkdtempSync(join(tmpdir(), 'proxy-tools-env-'));
+  writeFileSync(join(envDir, 'e19.env'), 'PROBE_LOGIN=e19-user\n');
+  writeFileSync(join(envDir, 'nvcr.env'), 'PROBE_LOGIN=nvcr-user\n');
   // Two configs naming the SAME destination, which is the case a destination
   // argument could not have told apart.
   writeFileSync(
@@ -53,23 +57,62 @@ beforeEach(() => {
         getTargetUrl: async () => 'http://127.0.0.1:1',
       }) as never,
   });
-  tools = createProxyTools(supervisor, configDir);
+  tools = createProxyTools(supervisor, configDir, envDir);
 });
 
 afterEach(async () => {
   await supervisor.stop();
   rmSync(dir, { recursive: true, force: true });
   rmSync(configDir, { recursive: true, force: true });
+  rmSync(envDir, { recursive: true, force: true });
 });
 
 describe('the proxy tools', () => {
-  it('offers configs, start, stop and status', () => {
+  it('offers configs, environments, start, stop and status', () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       'proxy_configs',
+      'proxy_environments',
       'proxy_start',
       'proxy_status',
       'proxy_stop',
     ]);
+  });
+
+  it('lists the environments by the name proxy_start takes', async () => {
+    const listed = await textOf('proxy_environments');
+
+    expect(listed).toMatch(/e19/);
+    expect(listed).toMatch(/nvcr/);
+    expect(listed).toMatch(/PROBE_LOGIN/);
+  });
+
+  it('never puts a credential VALUE in the environment listing', async () => {
+    const listed = await textOf('proxy_environments');
+
+    expect(listed).not.toMatch(/e19-user|nvcr-user/);
+  });
+
+  it('starts a config with the environment it is given', async () => {
+    writeFileSync(
+      join(configDir, 'needs-env.yaml'),
+      'btpDestination: "nvcr"\ndefaultHeaders:\n  x-sap-login: "${PROBE_LOGIN}"\n',
+    );
+
+    const text = await textOf('proxy_start', {
+      config: 'needs-env',
+      environment: 'e19',
+    });
+
+    expect(text).toMatch(/Proxy running at/);
+    expect(text).toMatch(/e19/);
+  });
+
+  it('names the environments that exist when given one that does not', async () => {
+    writeFileSync(join(configDir, 'plain.yaml'), 'btpDestination: "nvcr"\n');
+
+    await expect(
+      textOf('proxy_start', { config: 'plain', environment: 'e20' }),
+    ).rejects.toThrow(/e19/);
   });
 
   it('lists the configs by the name proxy_start takes', async () => {

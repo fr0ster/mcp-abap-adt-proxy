@@ -46,7 +46,20 @@ export interface ProxyConfig {
  * - If --config is provided, load ONLY from that file
  * - If --config is NOT provided, load ONLY from command line parameters and environment variables
  */
-export function loadConfig(configPath?: string): ProxyConfig {
+export function loadConfig(
+  configPath?: string,
+  /**
+   * The env file for THIS load, ahead of `--env-file` and the config's own
+   * `envFile:`.
+   *
+   * The MCP mode starts a proxy from a config plus an ENVIRONMENT chosen by
+   * name, and has no command line of its own to put `--env-file` on. One flag on
+   * the management process would not serve either: it overrides every config's
+   * own `envFile:`, so one system's secrets would reach every other system
+   * started in that session.
+   */
+  envFileOverride?: string,
+): ProxyConfig {
   // Get config path from parameter or command line (--config/-c)
   // Do NOT use environment variable MCP_PROXY_CONFIG - only explicit --config parameter
   const finalConfigPath = configPath || getConfigPath();
@@ -62,7 +75,11 @@ export function loadConfig(configPath?: string): ProxyConfig {
         string,
         unknown
       >;
-      const envFilePath = resolveEnvFilePath(fileConfig, finalConfigPath);
+      const envFilePath = resolveEnvFilePath(
+        fileConfig,
+        finalConfigPath,
+        envFileOverride,
+      );
       const envFileMap = envFilePath ? loadEnvFile(envFilePath) : {};
       const lookup = buildLookup(envFileMap);
       const keys = Object.keys(envFileMap);
@@ -212,7 +229,11 @@ function loadConfigFile(filePath: string): Partial<ProxyConfig> {
 function resolveEnvFilePath(
   rawConfig: Record<string, unknown>,
   configPath: string,
+  override?: string,
 ): string | undefined {
+  // Most specific first: this call, then the command line, then what the config
+  // says about itself.
+  if (override !== undefined) return path.resolve(override);
   const cliEnvFile = getArgValue('--env-file');
   if (cliEnvFile !== undefined) return path.resolve(cliEnvFile);
   const yamlEnvFile = rawConfig.envFile;

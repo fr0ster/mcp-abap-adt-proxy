@@ -155,7 +155,8 @@ It works from the configs in `~/.config/mcp-abap-adt/proxy/` — the same files
 | Tool | |
 |---|---|
 | `proxy_configs` | the names available; call it first, they cannot be guessed |
-| `proxy_start` | starts one on a **free port** and returns the URL bound |
+| `proxy_environments` | the environments available — one SAP system's credentials each. Variable names only, never values |
+| `proxy_start` | starts one on a **free port** and returns the URL bound. Takes `environment` when the config uses `${VAR}` and names no `envFile` |
 | `proxy_stop` | frees the port and releases the credential; never touches another session's proxy |
 | `proxy_status` | this session's proxies and everyone else's, dead records pruned on read |
 

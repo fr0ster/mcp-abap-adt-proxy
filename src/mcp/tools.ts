@@ -7,6 +7,11 @@ import {
   proxyConfigDir,
   resolveProxyConfig,
 } from './configs.js';
+import {
+  environmentDir,
+  listEnvironments,
+  resolveEnvironment,
+} from './environments.js';
 import { DEFAULT_IDLE_TIMEOUT_MS, type ProxySupervisor } from './supervisor.js';
 
 /**
@@ -43,8 +48,38 @@ const text = (body: string): ToolResult => ({
 export function createProxyTools(
   supervisor: ProxySupervisor,
   configDir: string = proxyConfigDir(),
+  envDir: string = environmentDir(),
 ): ProxyTool[] {
   return [
+    {
+      name: 'proxy_environments',
+      title: 'List the environments available',
+      description:
+        'List the environments on this machine, by the name proxy_start takes. ' +
+        'An environment is one SAP system\u2019s credentials; a config says which ' +
+        'service to reach, an environment says what to authenticate with. ' +
+        'Several configs commonly want the same environment. Variable NAMES are ' +
+        'shown, never their values.',
+      inputSchema: {},
+      handler: async () => {
+        const environments = listEnvironments(envDir);
+        if (environments.length === 0) {
+          return text(`No environments found in ${envDir}.`);
+        }
+        return text(
+          [
+            `Environments in ${envDir}:`,
+            ...environments.map(
+              (e) =>
+                `  ${e.name}${e.variables.length ? ` — ${e.variables.join(', ')}` : ' — (none readable)'}`,
+            ),
+            '',
+            'Pass one to proxy_start as "environment" when the config uses ${VAR}.',
+          ].join('\n'),
+        );
+      },
+    },
+
     {
       name: 'proxy_configs',
       title: 'List the proxy configs available',
@@ -81,7 +116,7 @@ export function createProxyTools(
       name: 'proxy_start',
       title: 'Start an authenticating proxy',
       description:
-        'Start a local proxy from one of the configs proxy_configs lists. The ' +
+        'Start a local proxy from a config and, when the config needs one, an environment. The ' +
         'config supplies the destination, target URL, default headers and ' +
         'timeouts — including any credentials, which stay in the config and ' +
         'are never passed through here. The port is NOT taken from the config: ' +
@@ -93,6 +128,12 @@ export function createProxyTools(
           .describe(
             'Name of a proxy config, as proxy_configs lists it (for example "nvcr_d24").',
           ),
+        environment: z
+          .string()
+          .optional()
+          .describe(
+            'Name of an environment, as proxy_environments lists it (for example "e19"). Supplies the ${VAR} values the config references. Needed when the config names no envFile of its own — proxy_configs marks those.',
+          ),
         idleTimeoutMs: z
           .number()
           .optional()
@@ -103,15 +144,20 @@ export function createProxyTools(
       handler: async (args) => {
         const name = String(args.config);
         const file = resolveProxyConfig(name, configDir);
+        const environment = args.environment as string | undefined;
+        const envFile = environment
+          ? resolveEnvironment(environment, envDir)
+          : undefined;
         const started = await supervisor.start({
           name,
-          config: loadConfig(file),
+          config: loadConfig(file, envFile),
           idleTimeoutMs: args.idleTimeoutMs as number | undefined,
         });
         return text(
           [
             `Proxy running at ${started.url}`,
             `  config:      ${started.name}`,
+            `  environment: ${environment ?? "(the config's own, or the environment)"}`,
             `  instanceId:  ${started.instanceId}`,
             `  destination: ${started.destination}`,
             '',

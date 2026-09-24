@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-09-24
+
+**The management mode can now say which credentials are available, and start a
+proxy with one.** A config says which service to reach; an environment says what
+to authenticate with. Both are chosen by name, so a client picks them without
+being told any paths.
+
+### Added
+
+- **`proxy_environments`** — lists the environments in `sessions/`, one SAP
+  system's credentials each, by the name `proxy_start` takes. Variable **names**
+  only, never values: this is read to help a client choose, and a value here
+  would be a credential in a tool result. `*.env.template` and anything that is
+  not a `.env` are left out.
+
+- **`environment` on `proxy_start`** — optional, and the reason it exists: a
+  config that references `${SAP_LOGIN}` without naming an `envFile:` of its own
+  had nowhere to get it from, so `proxy_start` failed on exactly the configs a
+  user runs with `--env-file` on the command line. A name, not a path, for the
+  same reason `config` is a name: `sessions/` sits beside `proxy/` and
+  `service-keys/`.
+
+  One `--env-file` on the management process would not have served: it overrides
+  every config's own `envFile:`, so one system's secrets would reach every other
+  system started in that session. Per call, it cannot.
+
+- `loadConfig(configPath, envFileOverride)` carries it. Precedence, most
+  specific first: this argument, then `--env-file`, then the config's own
+  `envFile:`.
+
+### Unchanged, and deliberately
+
+The management mode speaks **stdio only** — no `--transport`, and it listens on
+no port of its own. That is the whole point: the client runs it as a child
+process, and when the client goes the stdio closes and every proxy it started
+goes with it. Over HTTP it would outlive its client and leave ports and tokens
+held, which would be worse than starting proxies by hand.
+
 ## [4.0.1] - 2026-09-24
 
 **A variable from an env file could be silently lost, and the failure blamed the

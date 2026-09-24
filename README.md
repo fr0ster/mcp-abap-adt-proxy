@@ -76,7 +76,8 @@ than travelling through a tool call.
 | Tool | What it does |
 |---|---|
 | `proxy_configs` | Lists the configs available, by the name `proxy_start` takes. Call it first — the names cannot be guessed. |
-| `proxy_start` | Starts a proxy from one of those configs and returns the URL it bound. The **port is not taken from the config**: a free one is bound instead. |
+| `proxy_environments` | Lists the environments available — one SAP system's credentials each, by the name `proxy_start` takes. Variable NAMES only, never values. |
+| `proxy_start` | Starts a proxy from a config and, when the config needs one, an environment. Returns the URL it bound. The **port is not taken from the config**: a free one is bound instead. |
 | `proxy_stop` | Stops a proxy this session started, freeing its port and releasing its credential. Proxies started by other sessions are never touched. |
 | `proxy_status` | Lists this session's proxies and any others on this machine. Records whose process has died are pruned when read, so it cannot report a ghost. |
 

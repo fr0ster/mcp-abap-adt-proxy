@@ -37,7 +37,11 @@ Tools offered to the client:
   proxy_configs  List the proxy configs on this machine, by the name
                  proxy_start takes. Call this first — the names cannot be
                  guessed.
-  proxy_start    Start a proxy from one of those configs. The config supplies
+  proxy_environments
+                 List the environments — one SAP system's credentials each,
+                 from sessions/. Variable NAMES only, never values.
+  proxy_start    Start a proxy from a config plus, when the config needs one,
+                 an environment. The config supplies
                  the destination, target URL, default headers and timeouts;
                  the PORT does not come from it — a free one is bound, so
                  several proxies can run at once, and the URL returned is the
