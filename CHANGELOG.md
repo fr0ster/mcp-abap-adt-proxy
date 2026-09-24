@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.1] - 2026-09-24
+
+### Changed
+
+- `@mcp-abap-adt/connection` `^9.2.0` → `^9.2.1`, declared rather than left to
+  the caret.
+
+  It drops `kerberos` from its optional dependencies, and with it the whole
+  native chain: **43 packages leave the tree**, including
+  `prebuild-install@7.1.3`, whose deprecation warning was the noisiest thing
+  about installing this package on Windows. `kerberos` itself is not deprecated
+  and its latest version still depends on the same deprecated
+  `prebuild-install`, so this was not fixable from here — it needed the optional
+  dependency to go, which it now has.
+
+  Nothing in this package ever used Kerberos or SPNEGO: it authenticates through
+  XSUAA. `--omit=optional` is no longer needed to avoid the warning.
+
+  Verified after the bump: zero copies of the deprecated `@mcp-abap-adt/interfaces`
+  umbrella, one copy of each contract package, both binaries answering, 206 tests.
+
 ## [4.1.0] - 2026-09-24
 
 **The management mode can now say which credentials are available, and start a
