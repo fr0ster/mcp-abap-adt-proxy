@@ -88,8 +88,10 @@ The proxy intercepts MCP requests, injects a BTP/XSUAA authorization token, and 
 - [x] Unit tests for the credential seam (`credentials.test.ts`) and the facade (`btpProxy.test.ts`)
 - [x] Test error scenarios (missing destination, token errors, network errors)
 - [x] Test command-line parameter overrides
-- [ ] Integration tests with auth-broker
-- [ ] End-to-end tests with MCP client
+- [ ] End-to-end tests with a real MCP client, run automatically. The live
+      checks so far have been by hand: a stdio handshake against the built
+      binary, and a request carried through a running proxy to BTP. Neither
+      runs in CI.
 
 ### Phase 9: Documentation ✅
 
@@ -108,22 +110,22 @@ The proxy intercepts MCP requests, injects a BTP/XSUAA authorization token, and 
 - [x] Listeners owned in-process, released on stdin close / SIGINT / SIGTERM
 - [x] Idle timeout as a backstop for a client that forgot to stop
 - [x] Shutdown reminder in the tool description, the answer, and the server instructions
-- [ ] `proxy_start` verified end to end against a live BTP destination
+- [x] `proxy_start` verified end to end against a live BTP destination
 
-### Phase 10: Performance & Optimization
+### Phase 10: Performance & Optimization — dropped
 
-- [ ] Implement request caching where appropriate
-- [ ] Optimize token caching
-- [ ] Add connection pooling
-- [ ] Performance testing
-- [ ] Load testing
+Written against an architecture this package no longer has. Request caching and
+connection pooling belong to a proxy that buffers and owns its transport; this
+one streams and holds no token of its own — the broker caches, and "optimize
+token caching" now means changing a different package. Reopen with a measured
+problem rather than a list.
 
 ### Phase 11: Deployment & Publishing ✅
 
 - [x] Prepare for npm publishing
 - [x] Create release process
 - [x] Publish to npm as `@mcp-abap-adt/proxy`
-- [ ] Set up CI/CD pipeline
+- [x] CI on every push: ubuntu, macOS and Windows × Node 18 and 20
 
 ## Technical Architecture
 
