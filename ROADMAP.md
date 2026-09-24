@@ -88,10 +88,15 @@ The proxy intercepts MCP requests, injects a BTP/XSUAA authorization token, and 
 - [x] Unit tests for the credential seam (`credentials.test.ts`) and the facade (`btpProxy.test.ts`)
 - [x] Test error scenarios (missing destination, token errors, network errors)
 - [x] Test command-line parameter overrides
-- [ ] End-to-end tests with a real MCP client, run automatically. The live
-      checks so far have been by hand: a stdio handshake against the built
-      binary, and a request carried through a running proxy to BTP. Neither
-      runs in CI.
+- [x] End-to-end with a real MCP client: the environments listed, a system
+      chosen, a proxy started through `proxy_start`, the services behind it
+      opened, and two further MCP servers reached through it with their tool
+      lists returned.
+
+      By hand, and it stays that way. This needs real BTP credentials and an
+      interactive login, so it does not belong in CI — automating it would mean
+      putting a live service key somewhere a runner can read it, which is a
+      worse thing than an unautomated check.
 
 ### Phase 9: Documentation ✅
 
