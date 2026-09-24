@@ -87,6 +87,24 @@ If `x-sap-destination` or `--btp` is present, the proxy asks the destination's c
 
 **There is one forwarding path.** Every transport — stdio, streamable-http, SSE — goes through `forwardRequest()`. The SSE path reads the request body first, because the JSON-RPC `id` is what its error envelopes echo, and hands those exact bytes over rather than piping a spent stream.
 
+### What the proxy is responsible for, header-wise
+
+**The proxy is transparent and answers for the authorization header only.** That
+is the rule, and it decides questions that otherwise get decided by accident:
+
+- The client's headers go through verbatim. Hop-by-hop headers are stripped and
+  `host` is set, because HTTP requires it, not because the proxy has an opinion.
+- The client's `Authorization` is replaced with the destination's. That is the
+  one header the proxy owns.
+- `defaultHeaders` is the USER's injection, configured per proxy — not the proxy
+  deciding something on the user's behalf. Client headers win over it.
+- Nothing else is invented. The deleted axios path used to impose
+  `Accept: application/json, application/x-ndjson, text/event-stream` and
+  `Content-Type: application/json` on every forwarded request and drop the
+  client's headers entirely. It no longer does, and should not be made to again:
+  a target that needs a particular `Accept` gets it from that proxy's
+  `defaultHeaders`, where it is the user's choice and visible in their config.
+
 ### Routing Strategies
 
 The proxy determines routing based on headers/CLI params:

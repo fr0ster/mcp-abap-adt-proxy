@@ -107,6 +107,59 @@ describe('ProxySupervisor', () => {
     expect(started.port).not.toBe(3001);
   });
 
+  // Without this, the interactive browser login fires on the FIRST FORWARDED
+  // REQUEST — which means a browser window opening in the middle of some
+  // unrelated tool call, a five-minute timeout, and a 502 whose reason only
+  // reaches stderr. The agent asked for a proxy here; this is where it should
+  // learn it cannot have one.
+  it('proves the credential works before reporting the proxy as running', async () => {
+    let asked = 0;
+    const priming = new ProxySupervisor({
+      registry: new InstanceRegistry(dir, () => true),
+      proxyFor: async () =>
+        ({
+          getAuthorizationHeader: async () => {
+            asked += 1;
+            return 'Bearer t';
+          },
+          getTargetUrl: async () => 'http://127.0.0.1:1',
+        }) as never,
+    });
+    try {
+      await priming.start({ name: 'cfg-D1', config: cfg('D1') });
+      expect(asked).toBe(1);
+    } finally {
+      await priming.stop();
+    }
+  });
+
+  it('does not report a proxy as running when its credential cannot be had', async () => {
+    const failing = new ProxySupervisor({
+      registry: new InstanceRegistry(dir, () => true),
+      proxyFor: async () =>
+        ({
+          getAuthorizationHeader: async () => {
+            throw new Error('Service key file not found for destination "D1"');
+          },
+          getTargetUrl: async () => 'http://127.0.0.1:1',
+        }) as never,
+    });
+
+    try {
+      await expect(
+        failing.start({ name: 'cfg-D1', config: cfg('D1') }),
+      ).rejects.toThrow(/Service key file not found/);
+
+      // And nothing is left behind by the attempt.
+      expect(failing.mine()).toEqual([]);
+      expect(new InstanceRegistry(dir, () => true).live()).toEqual([]);
+    } finally {
+      // Without this, a start that unexpectedly SUCCEEDS leaves a listener open
+      // and Jest waits on that handle forever — which is what it did.
+      await failing.stop();
+    }
+  });
+
   it('never puts two instances on one port', async () => {
     const first = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
     const second = await supervisor.start({ name: 'cfg-D2', config: cfg('D2') });

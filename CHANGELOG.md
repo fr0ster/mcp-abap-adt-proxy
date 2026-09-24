@@ -76,6 +76,20 @@ what the proxy holds while it runs and how an SSE response reaches the client.
   wherever a client happened to be launched from is a record the next session
   will not find.
 
+- **The SSE transport imposes no headers of its own.** The deleted axios path set
+  `Accept: application/json, application/x-ndjson, text/event-stream` and
+  `Content-Type: application/json` on every request and forwarded none of the
+  client's. The proxy is transparent and answers for the authorization header
+  only, so the client's headers now go through as sent. A target that needs a
+  particular `Accept` gets it from that proxy's `defaultHeaders`, where it is
+  visible in the config rather than hidden in the proxy.
+- **The upstream path is the client's path.** The old SSE path had three
+  branches: an explicit `targetUrl` meant base + the client's path; a service-key
+  URL already containing `/mcp` was used as-is with the client's path DISCARDED;
+  anything else got `/mcp/stream/http` appended. Now it is always base + the
+  client's path. Configs that set `targetUrl` — which is the documented way and
+  what every config in practice does — are unaffected; a config relying on the
+  service key's own URL should set `targetUrl` explicitly.
 - The SSE transport forwards through the same transparent pipe as every other
   transport. It used to rebuild the request by hand, carry it over axios, buffer
   the answer and rewrap it as a JSON-RPC envelope — so an SSE response now

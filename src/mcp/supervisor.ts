@@ -104,6 +104,20 @@ export class ProxySupervisor {
 
   async start(options: StartOptions): Promise<StartedInstance> {
     const facade = await this.options.proxyFor(options);
+
+    // Ask for the header once, BEFORE binding a port or writing a record.
+    //
+    // Otherwise the interactive browser login fires on the first forwarded
+    // request: a window opening in the middle of some unrelated tool call, a
+    // five-minute timeout, and a 502 whose reason only reaches stderr. The
+    // caller asked for a proxy here, so here is where it learns it cannot have
+    // one — and a failed start leaves nothing behind, because nothing was taken
+    // yet.
+    const destination = options.config.btpDestination;
+    if (destination) {
+      await facade.getAuthorizationHeader(destination);
+    }
+
     const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     const instanceId = randomUUID();
 
