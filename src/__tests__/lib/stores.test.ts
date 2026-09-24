@@ -72,10 +72,21 @@ describe('storeDir', () => {
     );
   });
 
-  it('takes the first entry when AUTH_BROKER_PATH lists several', () => {
+  it('takes the first entry when AUTH_BROKER_PATH lists several, on unix', () => {
+    setPlatform('linux');
     process.env.AUTH_BROKER_PATH = '/tmp/first:/tmp/second';
 
     expect(storeBaseDir()).toBe(path.resolve('/tmp/first'));
+  });
+
+  it('takes the first entry when AUTH_BROKER_PATH lists several, on windows', () => {
+    setPlatform('win32');
+    process.env.AUTH_BROKER_PATH = 'C:\\first;C:\\second';
+
+    // The separator is the platform's, so a test that does not say which
+    // platform it means passes on one and fails on the other — which is what the
+    // first version of this test did, on Windows CI.
+    expect(storeBaseDir()).toBe(path.resolve('C:\\first'));
   });
 
   it('uses the platform delimiter, so a Windows drive letter survives', () => {

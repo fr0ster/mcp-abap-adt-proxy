@@ -77,14 +77,32 @@ describe('listProxyConfigs', () => {
     expect(listProxyConfigs(dir)[0].destination).toBeUndefined();
   });
 
-  it('steps over a broken symlink instead of failing the whole listing', () => {
-    write('real.yaml');
-    symlinkSync(join(dir, 'gone.yaml'), join(dir, 'dangling.yaml'));
+  // Creating a symlink on Windows needs privileges the runner may not have, so
+  // this one states its requirement instead of failing for the wrong reason. The
+  // behaviour it checks is not platform-specific; the way of provoking it is.
+  const canSymlink = (() => {
+    const probe = mkdtempSync(join(tmpdir(), 'symlink-probe-'));
+    try {
+      symlinkSync(join(probe, 'nowhere'), join(probe, 'link'));
+      return true;
+    } catch {
+      return false;
+    } finally {
+      rmSync(probe, { recursive: true, force: true });
+    }
+  })();
 
-    // `statSync` follows the link and throws. One bad entry must not cost the
-    // caller every config in the directory.
-    expect(listProxyConfigs(dir).map((c) => c.name)).toEqual(['real']);
-  });
+  (canSymlink ? it : it.skip)(
+    'steps over a broken symlink instead of failing the whole listing',
+    () => {
+      write('real.yaml');
+      symlinkSync(join(dir, 'gone.yaml'), join(dir, 'dangling.yaml'));
+
+      // `statSync` follows the link and throws. One bad entry must not cost the
+      // caller every config in the directory.
+      expect(listProxyConfigs(dir).map((c) => c.name)).toEqual(['real']);
+    },
+  );
 
   it('reports nothing when the directory does not exist', () => {
     expect(listProxyConfigs(join(dir, 'nope'))).toEqual([]);
