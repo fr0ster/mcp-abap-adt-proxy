@@ -65,9 +65,19 @@ export function loadConfig(configPath?: string): ProxyConfig {
       const envFilePath = resolveEnvFilePath(fileConfig, finalConfigPath);
       const envFileMap = envFilePath ? loadEnvFile(envFilePath) : {};
       const lookup = buildLookup(envFileMap);
+      const keys = Object.keys(envFileMap);
+      const sources = !envFilePath
+        ? 'process.env only — no env file was given (--env-file or envFile:)'
+        : keys.length === 0
+          ? `process.env, then ${envFilePath}, which yielded NO variables ` +
+            `(${fs.statSync(envFilePath).size} bytes) — check its encoding, ` +
+            `since a UTF-16 file reads as nothing here, and that lines look like KEY=value`
+          : `process.env, then ${envFilePath} (${keys.length}: ${keys.join(', ')})`;
       const interpolated = interpolateConfig(
         fileConfig,
         lookup,
+        '',
+        sources,
       ) as Partial<ProxyConfig> & { envFile?: unknown };
       delete interpolated.envFile;
       const base = applyDefaults(interpolated);

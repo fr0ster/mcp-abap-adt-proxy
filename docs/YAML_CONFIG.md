@@ -206,6 +206,23 @@ requestTimeout: 120000
 | `maxRetries` | `number` | `3` | Maximum number of retry attempts |
 | `retryDelay` | `number` | `1000` | Delay between retries (milliseconds) |
 | `requestTimeout` | `number` | `60000` | Request timeout (milliseconds) |
+### Windows paths must not go in double quotes
+
+In YAML, a double-quoted string is an **escape context**, and a Windows path is
+full of backslashes. Measured with the parser this package uses:
+
+| written as | result |
+|---|---|
+| `envFile: "C:\Users\me\e19.env"` | **fails** — `expected hexadecimal character`, because `\U` starts a Unicode escape |
+| `envFile: "C:\temp\e19.env"` | **silently wrong** — `\e` becomes the escape character `0x1B`, so the path points nowhere |
+| `envFile: 'C:\Users\me\e19.env'` | correct |
+| `envFile: C:\Users\me\e19.env` | correct |
+| `envFile: "C:/Users/me/e19.env"` | correct |
+
+The second row is the dangerous one: it does not fail, it resolves to a path that
+does not exist. Forward slashes are the safest form — Node accepts them on
+Windows, and they carry no meaning inside quotes.
+
 | ~~`circuitBreakerThreshold`~~ | `number` | — | **No effect since 4.0.0.** Still accepted so existing files load; the circuit breaker guarded the buffered forward that release removed |
 | ~~`circuitBreakerTimeout`~~ | `number` | — | **No effect since 4.0.0.** As above |
 

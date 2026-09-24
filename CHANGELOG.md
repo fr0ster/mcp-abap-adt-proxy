@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-09-24
+
+**A variable from an env file could be silently lost, and the failure blamed the
+variable instead of naming the file.** Both hit Windows hardest, with the same
+config and the same `.env` that work on Linux.
+
+### Fixed
+
+- **An empty environment variable no longer shadows the env file.** The lookup
+  was `process.env[key] ?? envFileMap[key]`, and `??` skips only `undefined` — so
+  a `SAP_LOGIN=` sitting in the environment beat the file the user had pointed at
+  with `--env-file`, and the header went out empty with nothing reported. Windows
+  carries variables nobody set deliberately, which is why the same files behaved
+  differently there. A real value in the environment still wins.
+
+- **The interpolation failure now names where it looked.** It said only
+  `Config references undefined env variable: SAP_LOGIN`, so three different
+  causes produced one sentence and the cause had to be guessed:
+
+  ```
+  ... looked in process.env only — no env file was given (--env-file or envFile:)
+  ... looked in process.env, then /path/e19.env, which yielded NO variables
+      (0 bytes) — check its encoding, since a UTF-16 file reads as nothing here
+  ... looked in process.env, then /path/e19.env (1: SAP_PASSWORD)
+  ```
+
+  An env file that yields nothing is still not an error — an empty `.env` is
+  legitimate, and a config may take every value from the environment. It is
+  reported by whoever then needs a variable, where it can be said usefully.
+
+### Documentation
+
+- `docs/YAML_CONFIG.md`: a Windows path in **double** quotes is a YAML escape
+  context. `envFile: "C:\Users\..."` fails to parse (`\U` is a Unicode escape)
+  and `"C:\temp\e19.env"` parses *silently wrong* (`\e` becomes 0x1B). Use
+  single quotes, no quotes, or forward slashes.
+
 ## [4.0.0] - 2026-09-24
 
 **The proxy stops re-implementing the broker, there is one forwarding path

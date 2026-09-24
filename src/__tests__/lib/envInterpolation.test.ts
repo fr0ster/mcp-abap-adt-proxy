@@ -140,3 +140,77 @@ describe('buildLookup', () => {
     expect(lookup('TOTALLY_MISSING_XYZ')).toBeUndefined();
   });
 });
+
+describe('buildLookup precedence', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  it('does not let an EMPTY environment variable shadow the env file', () => {
+    // Windows carries variables a user never set deliberately, and an empty one
+    // used to win: `process.env[key] ?? map[key]` only skips undefined, so `''`
+    // counted as a value. The file the user pointed at with --env-file lost to
+    // an accident of the environment, and the header went out empty.
+    process.env.SAP_LOGIN = '';
+    const lookup = buildLookup({ SAP_LOGIN: 'from-the-file' });
+
+    expect(lookup('SAP_LOGIN')).toBe('from-the-file');
+  });
+
+  it('still lets a REAL environment variable win', () => {
+    process.env.SAP_LOGIN = 'from-the-environment';
+    const lookup = buildLookup({ SAP_LOGIN: 'from-the-file' });
+
+    expect(lookup('SAP_LOGIN')).toBe('from-the-environment');
+  });
+
+  it('falls back to the file when the variable is absent', () => {
+    delete process.env.SAP_LOGIN;
+    const lookup = buildLookup({ SAP_LOGIN: 'from-the-file' });
+
+    expect(lookup('SAP_LOGIN')).toBe('from-the-file');
+  });
+
+  it('reports nothing when neither has it', () => {
+    delete process.env.SAP_LOGIN;
+
+    expect(buildLookup({})('SAP_LOGIN')).toBeUndefined();
+  });
+});
+
+describe('what the failure says', () => {
+  it('names the env file and what it yielded, not just the variable', () => {
+    // The old message was `Config references undefined env variable: SAP_LOGIN`
+    // and nothing else — so a file that was never read, read empty, or shadowed
+    // all produced the same sentence, and the cause had to be guessed.
+    expect(() =>
+      interpolateString(
+        '${SAP_LOGIN}',
+        () => undefined,
+        'defaultHeaders.x-sap-login',
+        'env file /tmp/e19.env (2 keys: SAP_LOGIN, SAP_PASSWORD)',
+      ),
+    ).toThrow(/\/tmp\/e19\.env/);
+  });
+
+  it('says plainly when no env file was in play at all', () => {
+    expect(() =>
+      interpolateString('${SAP_LOGIN}', () => undefined, 'h', 'no env file'),
+    ).toThrow(/no env file/);
+  });
+
+  it('reads an env file that yields nothing without complaining', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'envprobe-'));
+    const file = path.join(dir, 'empty.env');
+    fs.writeFileSync(file, '# only a comment\n\n');
+    try {
+      // An empty `.env` is legitimate — a config may take every value from the
+      // environment. The emptiness is reported by whoever then needs a variable,
+      // where it can be said usefully, rather than refused here.
+      expect(loadEnvFile(file)).toEqual({});
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
