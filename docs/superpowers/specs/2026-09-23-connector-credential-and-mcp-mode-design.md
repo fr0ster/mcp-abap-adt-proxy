@@ -1,7 +1,13 @@
 # Design: the shared credential, and an MCP mode that runs the proxy
 
 Date: 2026-09-23
-Status: awaiting review — Part 0 implemented, see §2
+Status: **implemented.** Part 0 published as `@mcp-abap-adt/connection@9.0.0`;
+Parts 1 and 2 are on `chore/dep-refresh` (PR #37), reviewed once, with the
+findings and their resolutions in §9. Two verifications remain open and are
+tracked in `ROADMAP.md`, not here.
+
+Corrected in place wherever this document turned out to be wrong, rather than
+left as the version that was believed at the time — §9 lists those too.
 
 Two independent pieces of work, written up together because they were
 brainstormed together and because one of them is gated on a release in another
@@ -91,9 +97,9 @@ new TokenAuthProvider(refresher)          // connection/src/auth/providers.ts:59
 
 ## 2. Part 0 — prerequisite: `connection` off the deprecated umbrella
 
-**Repository: `mcp-abap-connection`. Not this one. Done — PR
-[#52](https://github.com/fr0ster/mcp-abap-connection/pull/52), awaiting merge
-and publish.**
+**Repository: `mcp-abap-connection`. Not this one. Done, merged and published as
+`@mcp-abap-adt/connection@9.0.0` — PR
+[#52](https://github.com/fr0ster/mcp-abap-connection/pull/52).**
 
 This section originally described Part 0 as fixing what eleven majors of
 `@mcp-abap-adt/interfaces` had broken. That was the wrong diagnosis, and
@@ -205,15 +211,29 @@ the pipe stays a pipe.
 
 ### 3.4 Dependencies
 
+The contracts moved twice while this was being implemented, and the second move
+dropped a package this section had just added. What shipped:
+
 ```
-@mcp-abap-adt/interfaces        ^7.0.0  →  removed
-@mcp-abap-adt/interfaces-adt      (new) →  ^6.0.0
-@mcp-abap-adt/interfaces-network  (new) →  ^1.0.0
-@mcp-abap-adt/connection          (new) →  ^<the major published in Part 0>
+@mcp-abap-adt/interfaces           ^7.0.0 → removed
+@mcp-abap-adt/interfaces-network     (new) → ^2.0.0   every HTTP header constant
+@mcp-abap-adt/interfaces-auth        (new) → ^1.2.0   ITokenRefresher
+@mcp-abap-adt/interfaces-auth-sap    (new) → ^1.0.0   IAuthorizationConfig
+@mcp-abap-adt/connection             (new) → ^9.2.0   TokenAuthProvider
+@mcp-abap-adt/auth-broker          ^1.0.8 → ^2.1.0   (a major)
+@mcp-abap-adt/auth-providers       ^2.0.0 → ^2.2.1
+@mcp-abap-adt/auth-stores          ^1.0.4 → ^1.2.0
+@mcp-abap-adt/logger               ^0.1.4 → ^0.4.0
 ```
 
-`auth-broker`, `auth-providers`, `auth-stores` and `header-validator` are not
-touched.
+`interfaces-adt` was taken at `^6` and then dropped: after the second move
+nothing here imports anything from it, because every `HEADER_*` constant went to
+`interfaces-network`.
+
+This section originally said the auth siblings were out of scope. They were, and
+then they raised themselves onto the split packages, so taking them collected
+that work — and copies of the deprecated umbrella in the tree went 6 → 2. The two
+that remain are declared by `auth-broker` and `header-validator` themselves.
 
 The proxy follows `connection` off the umbrella for the identity reason in §2.
 Every symbol it imports today has a confirmed home in the split — verified
@@ -301,8 +321,15 @@ This is the requirement that shapes Part 2, not a line item in it.
 
 - **HTTP port:** `listen(0)`. Never a fixed 3001, so two sessions never collide.
   The bound port is reported back, never assumed.
-- **OAuth callback port:** also taken free, and **closed as soon as the login
-  returns** — it does not stay bound for the life of the proxy.
+- **OAuth callback port:** nothing to do here, and this section was wrong to
+  claim otherwise. It said the port would be "taken free" and released by the
+  stop. In fact `auth-providers` has owned that socket since 1.2.0 and releases
+  it unconditionally on whatever ends the login — the code arriving, a failure,
+  the timeout, cancellation — so a settled login always means the port is free.
+  The proxy neither picks it nor holds it; a config names it, and two logins
+  cannot overlap on one port, which `docs/CONFIGURATION.md` already documented.
+  What WAS wrong is that the login fired lazily on the first forwarded request;
+  `proxy_start` now proves the credential before reporting success.
 - **On `stop`:** close the server, dispose the broker, drop cached credentials,
   remove the registry record. In that order.
 - **On stdio close, `SIGTERM`, `SIGINT`:** stop everything this process owns.
@@ -395,3 +422,79 @@ work changes the contract, so it updates:
   `src/__tests__/proxy/cloudLlmHubProxy.test.ts`, which does not exist
 - `ROADMAP.md` — a phase for the MCP mode
 - A migration note for the breaking release
+
+---
+
+## 9. What the review found, and what this document got wrong
+
+Reviewed once against `ad2e717..c5fc589`. Two Critical, eight Important, and a
+handful of Minor. Everything below was reproduced before it was fixed, and two
+findings were pushed back on with evidence rather than implemented.
+
+### Critical
+
+- **`stop()` never returned while a response was streaming.** `server.close()`
+  waits for ACTIVE connections and a stream never becomes inactive — measured,
+  the close callback had not fired after 1500ms. `proxy_stop` hung, the idle
+  backstop hung, and SIGINT/SIGTERM/stdin-close hung with the port still held:
+  the orphaned-port failure §4.1 says running in-process prevents, reached from
+  the other end. Idle sockets now go at once, anything in flight gets
+  `stopGraceMs`, then goes.
+- **An idle timer could end the process.** `void this.stop(id)` floated a promise
+  that can reject, and an unhandled rejection from a timer is fatal — thirty
+  minutes later, taking the client's session with a proxy that had merely sat
+  unused.
+
+### Important
+
+- The baseline config was **erased, not fallen back on**: `applyDefaults` sets
+  every key, so spreading a loaded config over a baseline wrote
+  `defaultHeaders: undefined` over the documented home of `x-sap-login` /
+  `x-sap-password`. The merge is gone; `loadConfig` already overlays CLI flags.
+- **Retry around token acquisition had been deleted without mention.** In the
+  standalone proxy an auth failure is fatal, so a transient UAA 503 went from
+  "retried" to "kills the proxy". Restored and scoped.
+- The **circuit breaker** was constructed and never consulted. Removed
+  deliberately and announced; its config keys are still accepted and inert.
+- The **service key error message** had been lost, so the commonest failure told
+  the user to create a `.env` file this proxy never reads.
+- `npm run test:check` was **red, and two of its three errors were mine** — type
+  imports of `ProxyRequest`/`ProxyResponse` that M2 deleted, which `npm test`
+  hid because ts-jest elides type-only imports. I had reported all three as
+  pre-existing. Now zero.
+- `src/mcp/server.ts` had **no tests**; the shutdown path is now its own tested
+  unit (`src/mcp/shutdown.ts`) with a deadline, so nothing hanging below can
+  stop the process leaving.
+- The **documentation §8 owed was half delivered**, and the dependency commits
+  then made more of it wrong. Seven files still described a circuit breaker.
+  `docs/MIGRATION-4.0.md` now exists.
+
+### Pushed back on, with evidence
+
+- **"Nothing can release the OAuth callback port."** Not so — see §4.5 as
+  corrected. The real defect nearby was the lazy login, which is fixed.
+- **"The SSE change is riskier than stated."** Partly. Measured against the
+  configs in use: all eight declare `transport: streamable-http` and all eight
+  set `targetUrl`, so the SSE branch is unused and the old code's `targetUrl`
+  branch did what the new one does. What remained real was the `Accept` header,
+  and that was settled by a rule rather than a patch: **the proxy is transparent
+  and answers for the authorization header only.** It is recorded in `CLAUDE.md`
+  because the code and this document had drifted apart on it.
+
+### Minor, all fixed
+
+An open stream counted as idle — which stopped working sessions, so it was the
+most consequential thing on the Minor list. A pid outlives its boot, so records
+now carry `bootedAt`. Records are written and renamed rather than truncated in
+place. `others()` no longer calls our own orphan another session's. A dangling
+symlink no longer costs the whole config listing. `AUTH_BROKER_PATH` survives a
+Windows drive letter, and a value pointing at one of the four folders takes the
+parent.
+
+### Still open, and tracked in `ROADMAP.md`
+
+- `proxy_start` end to end against a live BTP destination.
+- The SSE streaming change against a live MCP client.
+
+Neither is verifiable here: the first needs a real service key, the second a real
+client. They are the reason this document is not simply deleted yet.
