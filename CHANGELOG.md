@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**The proxy stops re-implementing the broker, and there is one forwarding path
-instead of two.** No configuration changes and no new flags; what changes is
-what the proxy holds while it runs and how an SSE response reaches the client.
+## [4.0.0] - 2026-09-24
+
+**The proxy stops re-implementing the broker, there is one forwarding path
+instead of two, and a second command manages proxies for a client that cannot
+start them itself.** No existing configuration key changes meaning and no flag is
+added to `mcp-abap-adt-proxy`; what changes is what the proxy holds while it runs,
+how an SSE response reaches the client, and which packages the contracts come
+from.
 
 ### Changed
 
@@ -156,6 +161,10 @@ what the proxy holds while it runs and how an SSE response reaches the client.
 - `docs/MIGRATION-4.0.md` (new): what a consumer does about each breaking change,
   and which of them do not apply to them. Per the repository's release rule, a
   breaking release owes one.
+- **`docs/` now ships.** It did not, so `README.md` linked to nine pages that
+  were absent from the installed package — including the migration note this
+  release owes. The internal design document under `docs/superpowers/` is
+  deliberately still excluded.
 
 - `docs/API.md` described `CloudLlmHubProxy.proxyRequest()` and an import path
   for a file containing one comment. It now documents the facade and the pipe.
