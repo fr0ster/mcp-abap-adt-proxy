@@ -41,7 +41,8 @@ Tools offered to the client:
                  List the environments — one SAP system's credentials each,
                  from sessions/. Variable NAMES only, never values.
   proxy_start    Start a proxy from a config plus, when the config needs one,
-                 an environment. The config supplies
+                 an environment. Binds 127.0.0.1 unless the config's httpHost or
+                 a host argument says otherwise. The config supplies
                  the destination, target URL, default headers and timeouts;
                  the PORT does not come from it — a free one is bound, so
                  several proxies can run at once, and the URL returned is the

@@ -183,6 +183,33 @@ describe('ProxySupervisor', () => {
     expect(disposed).toBe(1);
   });
 
+  it('binds loopback when nothing says otherwise', async () => {
+    const started = await supervisor.start({ name: 'c', config: cfg('D1') });
+
+    expect(started.url).toMatch(/^http:\/\/127\.0\.0\.1:/);
+  });
+
+  it('honours httpHost from the config', async () => {
+    const started = await supervisor.start({
+      name: 'c',
+      config: { btpDestination: 'D1', httpPort: 3001, httpHost: '0.0.0.0' } as never,
+    });
+
+    // Loopback was never a boundary — anything with a shell can forward the
+    // port. Refusing to bind elsewhere only stopped the honest case.
+    expect(started.url).toMatch(/^http:\/\/0\.0\.0\.0:/);
+  });
+
+  it('lets the caller override the host for one start', async () => {
+    const started = await supervisor.start({
+      name: 'c',
+      config: cfg('D1'),
+      host: '0.0.0.0',
+    });
+
+    expect(started.url).toMatch(/^http:\/\/0\.0\.0\.0:/);
+  });
+
   it('never puts two instances on one port', async () => {
     const first = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
     const second = await supervisor.start({ name: 'cfg-D2', config: cfg('D2') });

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-09-24
+
+### Added
+
+- **`host` on `proxy_start`**, and the config's `httpHost` is honoured. The
+  default when neither says anything is still `127.0.0.1`.
+
+  It was ignored, on the reasoning that a proxy a model started should not be
+  network-reachable. That reasoning does not hold: loopback is a default, not a
+  boundary — anything with a shell can forward a port, so refusing to bind
+  elsewhere stopped only the honest case. What the default still does is keep a
+  proxy nobody asked to publish from becoming reachable without someone saying
+  so, which is worth a default and not worth a restriction.
+
+  Precedence, most specific first: the `host` argument, the config's `httpHost`,
+  then `127.0.0.1`.
+
 ## [4.1.1] - 2026-09-24
 
 ### Changed

@@ -134,6 +134,12 @@ export function createProxyTools(
           .describe(
             'Name of an environment, as proxy_environments lists it (for example "e19"). Supplies the ${VAR} values the config references. Needed when the config names no envFile of its own — proxy_configs marks those.',
           ),
+        host: z
+          .string()
+          .optional()
+          .describe(
+            'What to bind. Defaults to 127.0.0.1, or the config\u2019s httpHost when it names one. Use "0.0.0.0" to make the proxy reachable from other machines — say so deliberately, since a started proxy is otherwise local only.',
+          ),
         idleTimeoutMs: z
           .number()
           .optional()
@@ -151,6 +157,7 @@ export function createProxyTools(
         const started = await supervisor.start({
           name,
           config: loadConfig(file, envFile),
+          host: args.host as string | undefined,
           idleTimeoutMs: args.idleTimeoutMs as number | undefined,
         });
         return text(

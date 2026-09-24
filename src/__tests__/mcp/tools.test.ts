@@ -142,6 +142,17 @@ describe('the proxy tools', () => {
     ).rejects.toThrow(/nvcr_d24/);
   });
 
+  it('takes a host, so a proxy can be reachable when that is wanted', async () => {
+    writeFileSync(join(configDir, 'plain.yaml'), 'btpDestination: "nvcr"\n');
+
+    const text = await textOf('proxy_start', {
+      config: 'plain',
+      host: '0.0.0.0',
+    });
+
+    expect(text).toMatch(/http:\/\/0\.0\.0\.0:/);
+  });
+
   it('tells the client, in the start description, to stop what it started', () => {
     const description = tool('proxy_start').description.toLowerCase();
 

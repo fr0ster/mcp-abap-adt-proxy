@@ -46,6 +46,15 @@ export interface StartOptions {
   idleTimeoutMs?: number;
   /** How long a stop waits for requests in flight. See DEFAULT_STOP_GRACE_MS. */
   stopGraceMs?: number;
+  /**
+   * What to bind, ahead of the config's `httpHost` and the loopback default.
+   *
+   * Loopback is a default, not a boundary: anything with a shell can forward a
+   * port, so refusing to bind elsewhere stopped only the honest case. What the
+   * default still does is keep a proxy nobody asked to publish from becoming
+   * reachable without someone saying so.
+   */
+  host?: string;
 }
 
 export interface StartedInstance {
@@ -162,9 +171,12 @@ export class ProxySupervisor {
     // filesystem used to reject `start()` while leaving the listener bound, the
     // credential held, the instance in `owned` and no idle timer to ever reach
     // it — a proxy running that nobody had been told about.
+    // Most specific first: this call, then the config, then the default.
+    const host = options.host ?? options.config.httpHost ?? this.host;
+
     let port: number;
     try {
-      port = await listenOnFreePort(server, this.host);
+      port = await listenOnFreePort(server, host);
     } catch (error) {
       this.release(facade, server, 'listen failed');
       throw error;
@@ -174,7 +186,7 @@ export class ProxySupervisor {
       instanceId,
       name: options.name,
       port,
-      url: `http://${this.host}:${port}`,
+      url: `http://${host}:${port}`,
       destination: options.config.btpDestination ?? '(none)',
       startedAt: new Date().toISOString(),
       server,

@@ -226,7 +226,13 @@ from `mcp-abap-adt-proxy` in exactly two ways, both deliberate:
 - **The port in the config is ignored.** A free one is bound instead and
   `proxy_start` reports the URL it got. Four of eight configs in practice declare
   `httpPort: 3001`, so honouring it is what made running two of them impossible.
-- **`httpHost` is ignored too**; the listener always binds `127.0.0.1`.
+- **`httpHost` is honoured**, and `proxy_start` takes a `host` of its own that
+  wins over it. The default when neither says anything is `127.0.0.1`.
+
+  That default is a default, not a boundary: anything with a shell can forward a
+  port, so refusing to bind elsewhere only stopped the honest case. What it still
+  does is keep a proxy nobody asked to publish from becoming reachable without
+  someone saying so.
 
 Everything else — destination, `targetUrl`, `defaultHeaders`, `browser`,
 `browserAuthPort`, timeouts, `envFile` interpolation — comes from the config as
