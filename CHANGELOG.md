@@ -23,9 +23,10 @@ what the proxy holds while it runs and how an SSE response reaches the client.
   @mcp-abap-adt/interfaces-auth        (new) → ^1.2.0   ITokenRefresher
   @mcp-abap-adt/interfaces-auth-sap    (new) → ^1.0.0   IAuthorizationConfig
   @mcp-abap-adt/connection             (new) → ^9.2.0   TokenAuthProvider
-  @mcp-abap-adt/auth-broker          ^1.0.8 → ^2.1.0   (a major)
-  @mcp-abap-adt/auth-providers       ^2.0.0 → ^2.2.1
+  @mcp-abap-adt/auth-broker          ^1.0.8 → ^2.2.0   (a major)
+  @mcp-abap-adt/auth-providers       ^2.0.0 → ^2.2.2
   @mcp-abap-adt/auth-stores          ^1.0.4 → ^1.2.0
+  @mcp-abap-adt/header-validator     ^0.1.8 → ^0.3.0
   @mcp-abap-adt/logger               ^0.1.4 → ^0.4.0
   ```
 
@@ -33,8 +34,14 @@ what the proxy holds while it runs and how an SSE response reaches the client.
   this release was being written, and after the second move nothing here imports
   anything from it. The old umbrella name is 376 deprecated re-exports; a
   consumer importing contract types through this package's tree now installs the
-  package it names. Copies of the umbrella left in the tree: 6 → 2, and both are
-  declared by `auth-broker` and `header-validator` themselves.
+  package it names.
+
+  **Copies of the deprecated umbrella left in the tree: 6 → 0.** The last two
+  were declared by `auth-broker` and `header-validator`; both have since moved
+  onto the split packages themselves, so taking their latest removed the final
+  two. Every contract package now resolves to exactly one copy, except
+  `interfaces-utils`, which appears six times at the same version — a consequence
+  of this repository's `install-strategy=nested`, not of version skew.
 
 - **BREAKING** — `BtpProxy.getJwtToken()` is replaced by
   `getAuthorizationHeader()`, which answers a complete header VALUE

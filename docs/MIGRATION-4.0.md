@@ -19,6 +19,11 @@ contracts now come from the packages they live in:
 @mcp-abap-adt/connection             (new) → ^9.2.0   TokenAuthProvider
 ```
 
+The sibling packages moved with them — `auth-broker` to `^2.2.0` (a major),
+`auth-providers` `^2.2.2`, `auth-stores` `^1.2.0`, `header-validator` `^0.3.0`,
+`logger` `^0.4.0` — because each has left the umbrella too. Nothing in this
+package's tree asks for `@mcp-abap-adt/interfaces` any more.
+
 **What you do:** if you install this package and nothing else, nothing. If your
 own code imported a contract type and happened to resolve it through this
 package's tree, install the package that now declares it. The old name still
