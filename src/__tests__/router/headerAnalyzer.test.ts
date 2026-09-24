@@ -3,7 +3,7 @@
  */
 
 import type { IncomingHttpHeaders } from 'node:http';
-import { HEADER_SAP_DESTINATION } from '@mcp-abap-adt/interfaces-adt';
+import { HEADER_SAP_DESTINATION } from '@mcp-abap-adt/interfaces-network';
 import {
   analyzeHeaders,
   RoutingStrategy,

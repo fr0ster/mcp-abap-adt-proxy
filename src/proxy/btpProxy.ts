@@ -11,16 +11,14 @@ import {
   type AuthorizationCodeProviderConfig,
   browserCallbackStrategy,
 } from '@mcp-abap-adt/auth-providers';
-import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces-adt';
-import {
-  HEADER_SAP_CLIENT,
-  HEADER_SAP_DESTINATION,
-  HEADER_SAP_DESTINATION_SERVICE,
-} from '@mcp-abap-adt/interfaces-adt';
+import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces-auth-sap';
 import {
   HEADER_ACCEPT,
   HEADER_AUTHORIZATION,
   HEADER_CONTENT_TYPE,
+  HEADER_SAP_CLIENT,
+  HEADER_SAP_DESTINATION,
+  HEADER_SAP_DESTINATION_SERVICE,
 } from '@mcp-abap-adt/interfaces-network';
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';

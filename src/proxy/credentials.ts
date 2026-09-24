@@ -1,6 +1,6 @@
 // src/proxy/credentials.ts
 import { TokenAuthProvider } from '@mcp-abap-adt/connection';
-import type { ITokenRefresher } from '@mcp-abap-adt/interfaces-adt';
+import type { ITokenRefresher } from '@mcp-abap-adt/interfaces-auth';
 
 /**
  * What a destination authenticates with, and where its requests go.

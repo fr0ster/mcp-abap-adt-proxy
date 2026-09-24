@@ -4,7 +4,7 @@
 
 import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
-import { HEADER_SAP_DESTINATION, HEADER_MCP_URL, HEADER_SAP_DESTINATION_SERVICE, HEADER_SAP_JWT_TOKEN, HEADER_SAP_PASSWORD, HEADER_SAP_REFRESH_TOKEN, HEADER_SAP_UAA_CLIENT_SECRET } from '@mcp-abap-adt/interfaces-adt';
+import { HEADER_SAP_DESTINATION, HEADER_MCP_URL, HEADER_SAP_DESTINATION_SERVICE, HEADER_SAP_JWT_TOKEN, HEADER_SAP_PASSWORD, HEADER_SAP_REFRESH_TOKEN, HEADER_SAP_UAA_CLIENT_SECRET } from '@mcp-abap-adt/interfaces-network';
 import { HEADER_AUTHORIZATION } from '@mcp-abap-adt/interfaces-network';
 import {
   interceptRequest,
