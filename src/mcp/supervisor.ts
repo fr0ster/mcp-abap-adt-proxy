@@ -156,7 +156,20 @@ export class ProxySupervisor {
       });
     });
 
-    const port = await listenOnFreePort(server, this.host);
+    // Everything from here on can fail with a port already bound and a
+    // credential already alive, so it is all inside one attempt that undoes
+    // itself. A synchronous `registry.record()` throwing on a read-only
+    // filesystem used to reject `start()` while leaving the listener bound, the
+    // credential held, the instance in `owned` and no idle timer to ever reach
+    // it — a proxy running that nobody had been told about.
+    let port: number;
+    try {
+      port = await listenOnFreePort(server, this.host);
+    } catch (error) {
+      this.release(facade, server, 'listen failed');
+      throw error;
+    }
+
     const started: Owned = {
       instanceId,
       name: options.name,
@@ -171,15 +184,21 @@ export class ProxySupervisor {
       inFlight: 0,
     };
     this.owned.set(instanceId, started);
-    this.registry.record({
-      pid: process.pid,
-      port,
-      url: started.url,
-      destination: started.destination,
-      config: started.name,
-      startedAt: started.startedAt,
-      bootedAt: bootedAt(),
-    });
+    try {
+      this.registry.record({
+        pid: process.pid,
+        port,
+        url: started.url,
+        destination: started.destination,
+        config: started.name,
+        startedAt: started.startedAt,
+        bootedAt: bootedAt(),
+      });
+    } catch (error) {
+      this.owned.delete(instanceId);
+      this.release(facade, server, 'could not write the instance record');
+      throw error;
+    }
 
     if (idleTimeoutMs > 0) {
       started.idle = this.armIdle(instanceId, idleTimeoutMs);
@@ -261,6 +280,29 @@ export class ProxySupervisor {
    */
   others(): InstanceRecord[] {
     return this.registry.live().filter((record) => record.pid !== process.pid);
+  }
+
+  /**
+   * Undo a start that did not finish: give the port back and let the credential
+   * go. Nothing here may throw — it runs on the way out of a failure, and a
+   * second failure would hide the first.
+   */
+  private release(facade: CredentialFacade, server: Server, why: string): void {
+    logger?.error('Abandoning a proxy that failed to start', {
+      type: 'MCP_MODE_START_FAILED',
+      why,
+    });
+    try {
+      server.closeAllConnections?.();
+      server.close();
+    } catch {
+      /* never listened, or already closed */
+    }
+    try {
+      (facade as { dispose?: () => void }).dispose?.();
+    } catch {
+      /* the credential's problem, not this one's */
+    }
   }
 
   /**

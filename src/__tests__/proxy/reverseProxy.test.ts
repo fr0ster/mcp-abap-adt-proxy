@@ -174,6 +174,52 @@ describe('forwardRequest', () => {
     expect(echoed.contentLength).toBe(String(Buffer.byteLength(payload)));
   });
 
+  // `closeAllConnections()` on the front server destroys the CLIENT socket. If
+  // nothing destroys the upstream one, an abandoned event stream leaves a live
+  // connection to the backend — and `proxy_stop` reports a released port while
+  // holding a socket. Repeated start/stop then accumulates them.
+  it('destroys the upstream connection when the client goes away', async () => {
+    let upstreamClosed = false;
+    const streaming = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: first\n\n');
+      res.on('close', () => {
+        upstreamClosed = true;
+      });
+    });
+    await new Promise<void>((r) => streaming.listen(0, '127.0.0.1', r));
+    const addr = streaming.address();
+    const upstream = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+
+    const front = createServer((req, res) => {
+      void forwardRequest(req, res, upstream, 'Bearer t');
+    });
+    await new Promise<void>((r) => front.listen(0, '127.0.0.1', r));
+    const frontAddr = front.address();
+    const frontPort =
+      typeof frontAddr === 'object' && frontAddr ? frontAddr.port : 0;
+
+    try {
+      // Open it, wait for the first byte, then cut the client the way a stop does.
+      await new Promise<void>((resolve, reject) => {
+        const req = require('node:http').request(
+          { host: '127.0.0.1', port: frontPort, path: '/sse' },
+          (res: IncomingMessage) => res.once('data', () => resolve()),
+        );
+        req.on('error', reject);
+        req.end();
+      });
+      front.closeAllConnections();
+
+      await new Promise((r) => setTimeout(r, 250));
+      expect(upstreamClosed).toBe(true);
+    } finally {
+      await new Promise<void>((r) => front.close(() => r()));
+      streaming.closeAllConnections?.();
+      await new Promise<void>((r) => streaming.close(() => r()));
+    }
+  });
+
   // A credential that is not a header answers `null` — a certificate
   // authenticates through TLS and has none. `null` must reach the backend as an
   // ABSENT header; an empty `Authorization` is a different thing and some

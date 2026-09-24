@@ -136,6 +136,23 @@ describe('resolveProxyConfig', () => {
     expect(() => resolveProxyConfig('nvcrr', dir)).toThrow(/nvcr/);
   });
 
+  it('refuses a basename two files answer to, naming both', () => {
+    write('prod.yaml', 'btpDestination: "A"\n');
+    write('prod.json', '{"btpDestination":"B"}');
+
+    // Silently taking the first in sorted order would point requests at a
+    // different destination than the caller meant, and say nothing.
+    expect(() => resolveProxyConfig('prod', dir)).toThrow(/prod\.json/);
+    expect(() => resolveProxyConfig('prod', dir)).toThrow(/prod\.yaml/);
+  });
+
+  it('still resolves an ambiguous name given in full', () => {
+    write('prod.yaml', 'btpDestination: "A"\n');
+    write('prod.json', '{"btpDestination":"B"}');
+
+    expect(resolveProxyConfig('prod.json', dir)).toBe(join(dir, 'prod.json'));
+  });
+
   it('refuses a name that would climb out of the directory', () => {
     write('nvcr.yaml');
 

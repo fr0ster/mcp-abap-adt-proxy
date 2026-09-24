@@ -51,6 +51,10 @@ what the proxy holds while it runs and how an SSE response reaches the client.
 
 - `forwardRequest()` takes an `Authorization` header value rather than a bare
   token, and optionally a body a caller has already read off the request.
+- `forwardRequest()` destroys the upstream connection when the client goes away.
+  It did not, so an abandoned event stream left a live connection to the target
+  after the client socket was gone — a released port reported while a socket was
+  still held, accumulating across repeated start/stop.
 
 ### Added
 

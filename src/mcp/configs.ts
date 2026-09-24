@@ -86,10 +86,23 @@ export function resolveProxyConfig(
   }
 
   const available = listProxyConfigs(dir);
-  const found = available.find(
-    (entry) => entry.name === name || path.basename(entry.file) === name,
-  );
-  if (found) return found.file;
+
+  // An exact file name is never ambiguous, so it is tried first and wins.
+  const exact = available.find((entry) => path.basename(entry.file) === name);
+  if (exact) return exact.file;
+
+  // A bare name can be answered by more than one file — `prod.yaml` and
+  // `prod.json` are both "prod". Taking the first in sorted order would point
+  // requests at a different destination than the caller meant and say nothing,
+  // so it is refused with both names instead.
+  const byName = available.filter((entry) => entry.name === name);
+  if (byName.length > 1) {
+    const files = byName.map((entry) => path.basename(entry.file)).join(', ');
+    throw new Error(
+      `Ambiguous proxy config name "${name}" in ${dir}: ${files}. Name the file exactly.`,
+    );
+  }
+  if (byName.length === 1) return byName[0].file;
 
   const known = available.map((entry) => entry.name).join(', ');
   throw new Error(

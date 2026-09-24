@@ -105,6 +105,13 @@ export async function forwardRequest(
   });
 
   return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
     const proxyReq = transport.request(options, (proxyRes) => {
       // Forward status code
       const statusCode = proxyRes.statusCode || 502;
@@ -126,7 +133,19 @@ export async function forwardRequest(
 
       clientRes.writeHead(statusCode, responseHeaders);
       proxyRes.pipe(clientRes);
-      proxyRes.on('end', resolve);
+      proxyRes.on('end', finish);
+    });
+
+    // The client going away has to take the upstream with it.
+    //
+    // A stop destroys the CLIENT socket — `closeAllConnections()` — and nothing
+    // here destroyed the other one, so an abandoned event stream left a live
+    // connection to the target: a released port reported while a socket was
+    // still held, accumulating across repeated start/stop. It also left this
+    // promise pending forever, since `proxyRes` never ends.
+    clientRes.on('close', () => {
+      if (!settled) proxyReq.destroy();
+      finish();
     });
 
     proxyReq.on('error', (err) => {
@@ -139,7 +158,7 @@ export async function forwardRequest(
         clientRes.writeHead(502, { 'Content-Type': 'application/json' });
         clientRes.end(JSON.stringify({ error: `Proxy error: ${err.message}` }));
       }
-      resolve();
+      finish();
     });
 
     // Pipe client request body to backend — or write what the caller already

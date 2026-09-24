@@ -160,6 +160,29 @@ describe('ProxySupervisor', () => {
     }
   });
 
+  it('leaves nothing running when the record cannot be written', async () => {
+    let disposed = 0;
+    const registry = new InstanceRegistry(dir, () => true);
+    registry.record = () => {
+      throw new Error('EACCES: read-only file system');
+    };
+    const failing = new ProxySupervisor({
+      registry,
+      proxyFor: async () =>
+        ({ ...facade, dispose: () => { disposed += 1; } }) as never,
+    });
+
+    // The listener is bound before the record is written. A throw there used to
+    // reject `start()` while leaving the port held, the credential alive, the
+    // instance in `owned`, and no idle timer to ever clean it up.
+    await expect(
+      failing.start({ name: 'cfg-D1', config: cfg('D1') }),
+    ).rejects.toThrow(/read-only/);
+
+    expect(failing.mine()).toEqual([]);
+    expect(disposed).toBe(1);
+  });
+
   it('never puts two instances on one port', async () => {
     const first = await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });
     const second = await supervisor.start({ name: 'cfg-D2', config: cfg('D2') });
