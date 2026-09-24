@@ -12,18 +12,13 @@ import {
   browserCallbackStrategy,
 } from '@mcp-abap-adt/auth-providers';
 import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces-auth-sap';
-import {
-  HEADER_ACCEPT,
-  HEADER_AUTHORIZATION,
-  HEADER_CONTENT_TYPE,
-  HEADER_SAP_CLIENT,
-  HEADER_SAP_DESTINATION,
-  HEADER_SAP_DESTINATION_SERVICE,
-} from '@mcp-abap-adt/interfaces-network';
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
-import { getPlatformPaths, getPlatformStores } from '../lib/stores.js';
-import type { RoutingDecision } from '../router/headerAnalyzer.js';
+import {
+  getPlatformPaths,
+  getPlatformStores,
+  storeDir,
+} from '../lib/stores.js';
 import { DestinationCredentials } from './credentials.js';
 
 /**
@@ -78,13 +73,7 @@ const loggerAdapter: ILogger = {
     ),
 };
 
-import {
-  CircuitBreaker,
-  createErrorResponse,
-  isTokenExpirationError,
-  type RetryOptions,
-  retryWithBackoff,
-} from '../lib/errorHandler.js';
+import { type RetryOptions, retryWithBackoff } from '../lib/errorHandler.js';
 
 /**
  * Check if error messages should be written to stderr
@@ -109,7 +98,6 @@ export class BtpProxy {
   private defaultBtpAuthBroker: AuthBroker;
   private btpAuthBrokers: Map<string, AuthBroker> = new Map();
   private readonly credentials: DestinationCredentials;
-  private circuitBreaker: CircuitBreaker;
   private config: ProxyConfig;
   private unsafe: boolean;
 
@@ -144,11 +132,11 @@ export class BtpProxy {
       this.getOrCreateBtpAuthBroker(destination),
     );
 
-    // Initialize circuit breaker
-    this.circuitBreaker = new CircuitBreaker(
-      this.config.circuitBreakerThreshold || 5,
-      this.config.circuitBreakerTimeout || 60000,
-    );
+    // No circuit breaker. It only ever guarded the buffered axios forward that
+    // M2 deleted, and the streaming path has nowhere to put one without
+    // buffering the response again. `circuitBreakerThreshold` and
+    // `circuitBreakerTimeout` are still accepted so existing configs load, and
+    // are documented as inert.
   }
 
   /**
@@ -382,23 +370,76 @@ export class BtpProxy {
    * call — a cache here would serve the stale token and hide the renewal the
    * broker exists to do, which is precisely what the token cache, the JWT `exp`
    * decoder and the per-destination refresh timer that used to live here did.
+   *
+   * Retried, because a refusal here is not always an answer. In the standalone
+   * proxy an authentication failure is FATAL — it exits so something can start
+   * it again — so without this a single transient UAA 503 kills a proxy that
+   * used to ride it out. Only failures that can get better are retried;
+   * `isRetryableError` says which, and a missing service key is not one of
+   * them, so it fails on the first attempt instead of three times slower.
    */
   async getAuthorizationHeader(destination: string): Promise<string | null> {
     logger?.debug('Asking the credential for a header', {
       type: 'CREDENTIAL_HEADER_GET',
       destination,
     });
-    const { credential } = await this.credentials.get(destination);
-    return credential.authorizationHeader();
+
+    const retryOptions: RetryOptions = {
+      maxRetries: this.config.maxRetries || 3,
+      retryDelay: this.config.retryDelay || 1000,
+      retryableStatusCodes: [500, 502, 503, 504],
+    };
+
+    try {
+      return await retryWithBackoff(async () => {
+        const { credential } = await this.credentials.get(destination);
+        return credential.authorizationHeader();
+      }, retryOptions);
+    } catch (error) {
+      const message = this.explainAuthFailure(error, destination);
+      logger?.error('Failed to get an authorization header', {
+        type: 'CREDENTIAL_HEADER_ERROR',
+        destination,
+        error: message,
+      });
+      if (shouldWriteStderr()) {
+        process.stderr.write(`[MCP Proxy] ✗ ${message}\n`);
+      }
+      throw new Error(message);
+    }
   }
 
   /**
-   * Let go of everything held. Call on shutdown.
+   * Turn the broker's failure into one that names what this proxy needs.
    *
-   * There are no timers to cancel any more: the refresh timer per destination
-   * went with the token cache it existed to top up. What is left is memory —
-   * the credentials and the brokers behind them.
+   * The broker speaks of `.env` and `mcp.env` because it can be fed either way.
+   * This proxy only ever reads service keys, so passing that message through
+   * told the most common failure — a missing key — to go and create a file that
+   * would be ignored.
    */
+  private explainAuthFailure(error: unknown, destination: string): string {
+    const original = error instanceof Error ? error.message : String(error);
+    if (!original.includes('.env') && !original.includes('mcp.env')) {
+      return original;
+    }
+
+    const searched = original.match(/Searched in:\s*([\s\S]*?)(?:\n\n|$)/);
+    const paths = searched
+      ? searched[1]
+          .trim()
+          .split('\n')
+          .map((p) => p.trim().replace(/^-\s*/, ''))
+          .filter(Boolean)
+      : [storeDir('service-keys')];
+
+    return [
+      `Service key file not found for destination "${destination}".`,
+      `Please create service key file: ${destination}.json`,
+      'Searched in:',
+      ...paths.map((p) => `  - ${p}`),
+    ].join('\n');
+  }
+
   public dispose(): void {
     this.credentials.clear();
     this.btpAuthBrokers.clear();
@@ -421,19 +462,6 @@ export class BtpProxy {
       `No target URL found for destination "${destination}". ` +
         `Set targetUrl in config or ensure service key contains abap.url.`,
     );
-  }
-
-  /**
-   * Helper function to extract string value from header (handles arrays)
-   */
-  private getHeaderValue(
-    headerValue: string | string[] | undefined,
-  ): string | undefined {
-    if (!headerValue) return undefined;
-    if (Array.isArray(headerValue)) {
-      return headerValue[0]?.trim();
-    }
-    return typeof headerValue === 'string' ? headerValue.trim() : undefined;
   }
 
   /**

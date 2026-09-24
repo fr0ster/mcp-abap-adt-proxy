@@ -6,7 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { createBtpProxy } from '../proxy/btpProxy.js';
 import { createShutdown } from './shutdown.js';
-import { ProxySupervisor } from './supervisor.js';
+import { ProxySupervisor, type SupervisorOptions } from './supervisor.js';
 import { createProxyTools, SHUTDOWN_REMINDER } from './tools.js';
 
 /**
@@ -18,16 +18,32 @@ import { createProxyTools, SHUTDOWN_REMINDER } from './tools.js';
  * jobs and conflating them would make every plain proxy carry a management
  * surface it never uses.
  */
-export function createMcpModeServer(config: ProxyConfig): {
+export interface McpModeDeps {
+  /** How a credential is built for a started proxy. */
+  proxyFor?: SupervisorOptions['proxyFor'];
+}
+
+export function createMcpModeServer(
+  _config: ProxyConfig,
+  deps: McpModeDeps = {},
+): {
   server: McpServer;
   supervisor: ProxySupervisor;
 } {
   const supervisor = new ProxySupervisor({
-    // The config a tool loaded is the whole story — destination, target,
-    // headers, browser, timeouts. `config` here is only the fallback for
-    // anything a proxy config leaves out.
-    proxyFor: async (options) =>
-      createBtpProxy({ ...config, ...options.config }),
+    // The loaded proxy config, unchanged and un-merged.
+    //
+    // This used to spread a baseline under it, described as "the fallback for
+    // anything a proxy config leaves out". It was not a fallback.
+    // `applyDefaults` sets EVERY key, so a config saying nothing about headers
+    // still arrives carrying `defaultHeaders: undefined` — and spreading that
+    // over the baseline erased it. Since the baseline is the documented home of
+    // `x-sap-login` / `x-sap-password`, the failure was a request going out
+    // with no ABAP credentials and nothing saying so.
+    //
+    // No fallback is needed: `loadConfig(file)` already overlays the CLI flags
+    // this command was given, which is how `--unsafe` reaches every proxy.
+    proxyFor: deps.proxyFor ?? ((options) => createBtpProxy(options.config)),
   });
 
   // Read rather than written down: a version literal here drifts from the one

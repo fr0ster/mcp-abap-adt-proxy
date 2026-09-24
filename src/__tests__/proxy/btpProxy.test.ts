@@ -213,6 +213,76 @@ describe('BtpProxy', () => {
             ).toHaveBeenCalledTimes(2);
         });
 
+        // The regression this caught: token acquisition used to be wrapped in
+        // retryWithBackoff and was not any more. In the standalone proxy an
+        // auth failure is FATAL — onAuthFailure exits the process — so a single
+        // transient UAA 503 went from "retried" to "kills the proxy".
+        it('retries a transient failure while getting the header', async () => {
+            let attempts = 0;
+            (mockAuthBroker as any).createTokenRefresher = jest.fn(() => ({
+                getToken: async () => {
+                    attempts += 1;
+                    if (attempts < 3) {
+                        const transient: any = new Error('Service Unavailable');
+                        transient.isAxiosError = true;
+                        transient.response = { status: 503 };
+                        throw transient;
+                    }
+                    return 'token-after-retry';
+                },
+                refreshToken: async () => 'fresh',
+            }));
+            const retrying = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',
+                logLevel: 'info', maxRetries: 3, retryDelay: 1,
+            } as any);
+
+            expect(await retrying.getAuthorizationHeader('D1')).toBe(
+                'Bearer token-after-retry',
+            );
+            expect(attempts).toBe(3);
+        });
+
+        it('does not retry a failure that will not get better', async () => {
+            let attempts = 0;
+            (mockAuthBroker as any).createTokenRefresher = jest.fn(() => ({
+                getToken: async () => {
+                    attempts += 1;
+                    throw new Error('Service key not found');
+                },
+                refreshToken: async () => 'fresh',
+            }));
+            const failing = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',
+                logLevel: 'info', maxRetries: 3, retryDelay: 1,
+            } as any);
+
+            // Retrying a missing service key just delays the same answer three
+            // times over, and in the standalone proxy the delay is before an exit.
+            await expect(failing.getAuthorizationHeader('D1')).rejects.toThrow();
+            expect(attempts).toBe(1);
+        });
+
+        it('says what to create when the service key is missing', async () => {
+            (mockAuthBroker as any).createTokenRefresher = jest.fn(() => ({
+                getToken: async () => {
+                    throw new Error(
+                        'No credentials found in .env or mcp.env\nSearched in:\n  - /somewhere/sessions',
+                    );
+                },
+                refreshToken: async () => 'fresh',
+            }));
+
+            // The broker talks about .env files. This proxy does not use them,
+            // so the message it passed through named a file nobody should create.
+            await expect(btpProxy.getAuthorizationHeader('D1')).rejects.toThrow(
+                /Service key file not found for destination "D1"/,
+            );
+            await expect(btpProxy.getAuthorizationHeader('D1')).rejects.toThrow(
+                /D1\.json/,
+            );
+        });
+
         it('takes the target url from the service key', async () => {
             expect(await btpProxy.getTargetUrl('D1')).toBe(
                 'https://btp-mcp.example.com',

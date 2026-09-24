@@ -85,6 +85,14 @@ what the proxy holds while it runs and how an SSE response reaches the client.
 
 ### Removed
 
+- **The circuit breaker.** It only ever guarded the buffered axios forward that
+  this release deletes, and the streaming path has nowhere to put one without
+  buffering the response again — which is the thing being fixed.
+  `circuitBreakerThreshold` and `circuitBreakerTimeout` are still accepted so
+  existing configs load unchanged, and are now documented as inert.
+  `MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD` likewise.
+
+
 - The token cache, its TTL, the JWT `exp` decoder, and the proactive-refresh
   timer per destination. The broker caches and knows expiry, and
   `authorizationHeader()` renews behind the call — the timer was a `setTimeout`
