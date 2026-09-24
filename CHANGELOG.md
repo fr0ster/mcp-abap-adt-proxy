@@ -14,10 +14,27 @@ what the proxy holds while it runs and how an SSE response reaches the client.
 ### Changed
 
 - **BREAKING** — `@mcp-abap-adt/interfaces` is no longer a dependency.
-  `@mcp-abap-adt/interfaces-adt@^6` and `@mcp-abap-adt/interfaces-network@^1`
-  take its place, and `@mcp-abap-adt/connection@^9` arrives for the credential.
-  The old name is an umbrella of 376 deprecated re-exports; a consumer importing
-  contract types through this package's tree now installs the package it names.
+  The contracts now come from the packages they live in, and
+  `@mcp-abap-adt/connection` arrives for the credential:
+
+  ```
+  @mcp-abap-adt/interfaces           ^7.0.0 → removed
+  @mcp-abap-adt/interfaces-network     (new) → ^2.0.0   every HTTP header constant
+  @mcp-abap-adt/interfaces-auth        (new) → ^1.2.0   ITokenRefresher
+  @mcp-abap-adt/interfaces-auth-sap    (new) → ^1.0.0   IAuthorizationConfig
+  @mcp-abap-adt/connection             (new) → ^9.2.0   TokenAuthProvider
+  @mcp-abap-adt/auth-broker          ^1.0.8 → ^2.1.0   (a major)
+  @mcp-abap-adt/auth-providers       ^2.0.0 → ^2.2.1
+  @mcp-abap-adt/auth-stores          ^1.0.4 → ^1.2.0
+  @mcp-abap-adt/logger               ^0.1.4 → ^0.4.0
+  ```
+
+  `interfaces-adt` was taken and then dropped: the contracts moved twice while
+  this release was being written, and after the second move nothing here imports
+  anything from it. The old umbrella name is 376 deprecated re-exports; a
+  consumer importing contract types through this package's tree now installs the
+  package it names. Copies of the umbrella left in the tree: 6 → 2, and both are
+  declared by `auth-broker` and `header-validator` themselves.
 
 - **BREAKING** — `BtpProxy.getJwtToken()` is replaced by
   `getAuthorizationHeader()`, which answers a complete header VALUE
@@ -116,6 +133,10 @@ what the proxy holds while it runs and how an SSE response reaches the client.
 - `src/proxy/btpProxy.ts` goes from 1248 lines to 490.
 
 ### Documentation
+
+- `docs/MIGRATION-4.0.md` (new): what a consumer does about each breaking change,
+  and which of them do not apply to them. Per the repository's release rule, a
+  breaking release owes one.
 
 - `docs/API.md` described `CloudLlmHubProxy.proxyRequest()` and an import path
   for a file containing one comment. It now documents the facade and the pipe.

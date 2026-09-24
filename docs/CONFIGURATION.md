@@ -147,8 +147,7 @@ some other tool's main port colliding is the most common cause of this error.
 - `MCP_PROXY_MAX_RETRIES` - Maximum number of retry attempts (default: `3`)
 - `MCP_PROXY_RETRY_DELAY` - Delay between retries in milliseconds (default: `1000`)
 - `MCP_PROXY_REQUEST_TIMEOUT` - Request timeout in milliseconds (default: `60000`)
-- `MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD` - Number of failures before opening circuit breaker (default: `5`)
-- `MCP_PROXY_CIRCUIT_BREAKER_TIMEOUT` - Timeout before attempting half-open state in milliseconds (default: `60000`)
+- ~~`MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD`~~, ~~`MCP_PROXY_CIRCUIT_BREAKER_TIMEOUT`~~ — **no effect since 4.0.0.** Still read, so existing setups load unchanged. The circuit breaker guarded the buffered forward that 4.0.0 removed; the forwarding path now streams and a breaker there would mean buffering the response again
 
 #### Logging
 - `LOG_LEVEL` - Logging level: `debug`, `info`, `warn`, `error` (default: `info`)
@@ -217,7 +216,27 @@ The configuration is validated on server startup. Errors will prevent the server
 2. **Use CLI params for quick overrides** - CLI flags override matching values from `--config` (handy for one-off tweaks like a different `--browser-auth-port`)
 3. **Validate configuration** - Check logs for validation warnings on startup
 4. **Set appropriate timeouts** - Adjust `requestTimeout` based on your network conditions
-5. **Configure circuit breaker** - Adjust thresholds based on your reliability requirements
+5. **Give each proxy its own `browserAuthPort`** - the callback socket is bound only for the duration of a login, but two logins cannot overlap on one port
+
+## The management mode
+
+`mcp-abap-adt-proxy-mcp` starts proxies from the configs in `proxy/` and differs
+from `mcp-abap-adt-proxy` in exactly two ways, both deliberate:
+
+- **The port in the config is ignored.** A free one is bound instead and
+  `proxy_start` reports the URL it got. Four of eight configs in practice declare
+  `httpPort: 3001`, so honouring it is what made running two of them impossible.
+- **`httpHost` is ignored too**; the listener always binds `127.0.0.1`.
+
+Everything else — destination, `targetUrl`, `defaultHeaders`, `browser`,
+`browserAuthPort`, timeouts, `envFile` interpolation — comes from the config as
+written.
+
+One setting exists only here:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `idleTimeoutMs` (a `proxy_start` argument) | `1800000` (30 min) | Stops a proxy after this long with no forwarded request. `0` disables it. A backstop for a client that finished and forgot, not a substitute for `proxy_stop` |
 
 ## Troubleshooting
 
@@ -230,12 +249,10 @@ The configuration is validated on server startup. Errors will prevent the server
 
 - Verify the BTP destination (`--btp` or `btpDestination`) matches an existing service key
 - Check network connectivity to the target service
-- Review circuit breaker state in logs
 - Check token expiration errors
 
 ### High latency
 
 - Increase `requestTimeout` if requests are timing out
 - Adjust `retryDelay` for faster retries
-- Review circuit breaker settings
 

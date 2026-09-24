@@ -85,8 +85,6 @@ unsafe: false  # If true, persists tokens to disk. If false, uses in-memory stor
 maxRetries: 3
 retryDelay: 1000  # milliseconds
 requestTimeout: 60000  # milliseconds
-circuitBreakerThreshold: 5
-circuitBreakerTimeout: 60000  # milliseconds
 
 # Logging
 logLevel: "info"  # debug | info | warn | error
@@ -165,8 +163,6 @@ btpDestination: "btp"
 maxRetries: 5
 retryDelay: 2000
 requestTimeout: 120000
-circuitBreakerThreshold: 10
-circuitBreakerTimeout: 120000
 ```
 
 ## Configuration Fields Reference
@@ -210,8 +206,8 @@ circuitBreakerTimeout: 120000
 | `maxRetries` | `number` | `3` | Maximum number of retry attempts |
 | `retryDelay` | `number` | `1000` | Delay between retries (milliseconds) |
 | `requestTimeout` | `number` | `60000` | Request timeout (milliseconds) |
-| `circuitBreakerThreshold` | `number` | `5` | Number of failures before opening circuit breaker |
-| `circuitBreakerTimeout` | `number` | `60000` | Circuit breaker timeout (milliseconds) |
+| ~~`circuitBreakerThreshold`~~ | `number` | — | **No effect since 4.0.0.** Still accepted so existing files load; the circuit breaker guarded the buffered forward that release removed |
+| ~~`circuitBreakerTimeout`~~ | `number` | — | **No effect since 4.0.0.** As above |
 
 ### Logging
 

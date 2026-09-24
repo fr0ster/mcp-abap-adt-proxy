@@ -13,9 +13,10 @@ Enable local MCP clients to connect to remote MCP servers with automatic JWT tok
 
 ## Features
 
-- ✅ **JWT Token Management** - Automatic token retrieval, caching, and refresh via auth-broker
+- ✅ **One shared credential** - the token is the auth-broker's business: it caches, knows expiry and renews behind the call. The proxy holds no token of its own
 - ✅ **Service Key Based** - MCP server URL is obtained from service key for BTP destination
-- ✅ **Error Handling** - Retry logic, circuit breaker, and comprehensive error handling
+- ✅ **Transparent forwarding** - the client's headers go through as sent; the proxy answers for the `Authorization` header and nothing else
+- ✅ **Error Handling** - token acquisition is retried with exponential backoff when the failure can get better; clear messages when it cannot
 - ✅ **Multiple Transport Modes** - HTTP, SSE, and stdio support
 - ✅ **Configuration Flexibility** - Environment variables, config files, or defaults
 
@@ -208,6 +209,8 @@ The proxy uses BTP/XSUAA authentication:
 
 ## Documentation
 
+- 🚚 **[Migration to 4.0](./docs/MIGRATION-4.0.md)** — the contracts leave the umbrella, an SSE response streams and carries your headers, `getJwtToken()` is replaced, the circuit breaker is gone
+
 - **[Client Setup Guide](./docs/CLIENT_SETUP.md)** - Step-by-step setup for Cline and GitHub Copilot
 - **[Configuration Guide](./docs/CONFIGURATION.md)** - Complete configuration reference
 - **[YAML Configuration Guide](./docs/YAML_CONFIG.md)** - Using YAML/JSON configuration files
@@ -273,7 +276,6 @@ Create `mcp-proxy-config.json`:
   "httpPort": 3001,
   "logLevel": "info",
   "maxRetries": 3,
-  "circuitBreakerThreshold": 5,
   "unsafe": false
 }
 ```
@@ -286,10 +288,9 @@ See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 
 ## Error Handling & Resilience
 
-- **Retry Logic** - Exponential backoff for failed requests
-- **Circuit Breaker** - Prevents cascading failures
-- **Token Refresh** - Automatic token refresh on expiration
-- **Connection Pooling** - Efficient resource management
+- **Retry Logic** - exponential backoff while getting a token, for failures that can get better (5xx, network). A missing service key is not one of them and fails at once, with a message naming the file to create
+- **Token Refresh** - handled by the credential, which is asked per request and renews behind the call
+- **No circuit breaker** - it guarded the buffered forward that 4.0.0 removed. The forwarding path now streams, and there is nowhere to put one without buffering the response again. `circuitBreakerThreshold` and `circuitBreakerTimeout` are still accepted so existing configs load, and do nothing
 - **Request Timeouts** - Configurable timeout handling
 
 ## Requirements

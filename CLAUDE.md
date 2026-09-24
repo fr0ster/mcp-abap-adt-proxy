@@ -72,7 +72,7 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 - **bin/mcp-abap-adt-proxy-mcp.js** + **src/mcp/** - the management mode: a stdio MCP server whose tools (`proxy_start` / `proxy_stop` / `proxy_status`) start and stop proxies. `supervisor.ts` owns the listeners, which run IN THIS PROCESS for the same reason the launcher does not spawn; `registry.ts` is the cross-session view, pruning records whose process has died; `ports.ts` binds port 0 so two sessions never collide; `tools.ts` holds the tool definitions and the shutdown reminder the client is told three times
 - **src/proxy/requestHandler.ts** - the one request path, shared by both commands. What an AUTHENTICATION failure means is a parameter: fatal in the standalone proxy, answered-and-survived in the MCP mode, where exiting would take the client's session down
 - **src/proxy/credentials.ts** - `DestinationCredentials`: destination → the credential it authenticates with (`TokenAuthProvider` over the broker's `ITokenRefresher`) and the base URL from its service key. One of each per destination; no token cache, no refresh timer — the credential is asked per request and renews behind that call
-- **src/proxy/btpProxy.ts** - `BtpProxy`: a facade over the above. `getAuthorizationHeader(destination)` and `getTargetUrl(destination)`, plus broker construction and the circuit breaker
+- **src/proxy/btpProxy.ts** - `BtpProxy`: a facade over the above. `getAuthorizationHeader(destination)` (retried, since a refusal is not always an answer) and `getTargetUrl(destination)`, plus broker construction. **No circuit breaker** — it only ever guarded the buffered axios forward, and the streaming path has nowhere to put one without buffering the response again
 - **src/proxy/reverseProxy.ts** - `forwardRequest()`: the single transparent pipe. Takes a complete `Authorization` header VALUE (or `null`), streams the response, and can send a body a caller already read off the request
 - **src/lib/config.ts** - Configuration loading from YAML/JSON config files or env vars + CLI params. With `--config`, CLI flags override matching values from the file (file is the baseline; `defaultHeaders` merge per key)
 - **src/lib/errorHandler.ts** - Retry logic (`retryWithBackoff()`) and circuit breaker (opens after threshold failures, resets after timeout)
@@ -119,8 +119,9 @@ This package uses sibling packages from the `@mcp-abap-adt` monorepo:
 - `@mcp-abap-adt/auth-providers` - Token providers (ClientCredentials)
 - `@mcp-abap-adt/auth-stores` - Service key storage
 - `@mcp-abap-adt/connection` - `TokenAuthProvider`, the shared credential
-- `@mcp-abap-adt/interfaces-adt` - the `x-sap-*` header constants, `IAuthorizationConfig`, `ITokenRefresher`
-- `@mcp-abap-adt/interfaces-network` - the generic HTTP header constants
+- `@mcp-abap-adt/interfaces-network` - every HTTP header constant, `x-sap-*` included
+- `@mcp-abap-adt/interfaces-auth` - `ITokenRefresher`
+- `@mcp-abap-adt/interfaces-auth-sap` - `IAuthorizationConfig`
 - `@mcp-abap-adt/header-validator` - Header validation utilities
 - `@mcp-abap-adt/logger` - Logging utility
 

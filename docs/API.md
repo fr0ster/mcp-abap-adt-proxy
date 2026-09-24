@@ -156,150 +156,17 @@ The response streams; nothing is buffered on the way back.
 
 ## Error Handling
 
-### `CircuitBreaker`
+### ~~`CircuitBreaker`~~ — removed in 4.0.0
 
-Circuit breaker implementation for resilience.
+It guarded the buffered axios forward this release deletes. The forwarding path
+now streams, and a breaker there would mean buffering the response again — the
+thing being fixed. `circuitBreakerThreshold` and `circuitBreakerTimeout` are
+still accepted in configuration so existing files load unchanged, and have no
+effect.
 
-#### Methods
+### ~~`ProxyRequest`~~ / ~~`ProxyResponse`~~ — removed in 4.0.0
 
-- `canProceed(): boolean` - Check if circuit breaker allows request
-- `recordSuccess(): void` - Record successful request
-- `recordFailure(): void` - Record failed request
-- `getState(): "closed" | "open" | "half-open"` - Get current state
-- `reset(): void` - Reset circuit breaker
-
-**Example:**
-```typescript
-import { CircuitBreaker } from "@mcp-abap-adt/proxy/lib/errorHandler";
-
-const breaker = new CircuitBreaker(5, 60000); // threshold: 5, timeout: 60s
-
-if (breaker.canProceed()) {
-  try {
-    await makeRequest();
-    breaker.recordSuccess();
-  } catch (error) {
-    breaker.recordFailure();
-  }
-}
-```
-
-### `retryWithBackoff<T>(fn, options): Promise<T>`
-
-Retry function with exponential backoff.
-
-**Parameters:**
-- `fn`: Function to retry
-- `options`: Retry options (maxRetries, retryDelay, etc.)
-
-**Returns:** Promise resolving to function result.
-
-**Example:**
-```typescript
-import { retryWithBackoff } from "@mcp-abap-adt/proxy/lib/errorHandler";
-
-const result = await retryWithBackoff(
-  () => makeRequest(),
-  { maxRetries: 3, retryDelay: 1000 }
-);
-```
-
-## Configuration
-
-### `loadConfig(configPath?): ProxyConfig`
-
-Loads configuration from file and environment variables.
-
-**Parameters:**
-- `configPath`: Optional path to configuration file
-
-**Returns:** Proxy configuration object.
-
-**Example:**
-```typescript
-import { loadConfig } from "@mcp-abap-adt/proxy/lib/config";
-
-const config = loadConfig("/path/to/config.json");
-```
-
-### `validateConfig(config): { valid, errors, warnings }`
-
-Validates configuration.
-
-**Parameters:**
-- `config`: Configuration object to validate
-
-**Returns:** Validation result with errors and warnings.
-
-**Example:**
-```typescript
-import { validateConfig } from "@mcp-abap-adt/proxy/lib/config";
-
-const validation = validateConfig(config);
-if (!validation.valid) {
-  console.error("Configuration errors:", validation.errors);
-}
-```
-
-## Types
-
-### `ProxyConfig`
-
-```typescript
-interface ProxyConfig {
-  httpPort: number;
-  ssePort: number;
-  httpHost: string;
-  sseHost: string;
-  logLevel: string;
-  btpDestination?: string;
-  targetUrl?: string;
-  defaultHeaders?: Record<string, string>;
-  unsafe?: boolean;
-  maxRetries?: number;
-  retryDelay?: number;
-  requestTimeout?: number;
-  circuitBreakerThreshold?: number;
-  circuitBreakerTimeout?: number;
-  browser?: 'system' | 'headless' | 'chrome' | 'edge' | 'firefox' | 'none';
-  browserAuthPort?: number;
-}
-```
-
-### `RoutingDecision`
-
-```typescript
-interface RoutingDecision {
-  strategy: RoutingStrategy;     // RoutingStrategy.PROXY | RoutingStrategy.UNKNOWN
-  btpDestination?: string;       // Destination for BTP Cloud authorization (x-sap-destination or --btp)
-  targetUrl?: string;            // Explicit target URL (x-target-url or --target-url)
-  reason: string;
-}
-```
-
-### `ProxyRequest`
-
-```typescript
-interface ProxyRequest {
-  method: string;
-  params?: any;
-  id?: string | number | null;
-  jsonrpc?: string;
-}
-```
-
-### `ProxyResponse`
-
-```typescript
-interface ProxyResponse {
-  jsonrpc: string;
-  id?: string | number | null;
-  result?: any;
-  error?: {
-    code: number;
-    message: string;
-    data?: any;
-  };
-}
-```
-
+These described the JSON-RPC envelope the deleted axios path rebuilt by hand and
+answered with. Every transport now forwards through `forwardRequest()`, which
+carries the request and the response as they are, so there is no envelope for
+this package to name.

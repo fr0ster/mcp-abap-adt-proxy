@@ -223,6 +223,43 @@ mcp-abap-adt-proxy --transport=stdio --btp=btp-cloud
 
 **Note**: For stdio transport, the destination must be provided via command-line arguments (`--btp`, `--target-url`), not headers.
 
+## The management mode
+
+A second command, `mcp-abap-adt-proxy-mcp`, speaks MCP over stdio and its tools
+start and stop proxies. Use it when the client should decide which proxy runs and
+when; use `mcp-abap-adt-proxy` when you want to be proxied.
+
+```json
+{
+  "mcpServers": {
+    "abap-proxy": { "command": "mcp-abap-adt-proxy-mcp" }
+  }
+}
+```
+
+It works from the configs in `~/.config/mcp-abap-adt/proxy/` — the same files
+`--config` takes — so starting a proxy is choosing a name:
+
+| Tool | |
+|---|---|
+| `proxy_configs` | the names available; call it first, they cannot be guessed |
+| `proxy_start` | starts one on a **free port** and returns the URL bound |
+| `proxy_stop` | frees the port and releases the credential; never touches another session's proxy |
+| `proxy_status` | this session's proxies and everyone else's, dead records pruned on read |
+
+Two things worth knowing before you rely on it:
+
+- **The proxies live in the management process.** Closing the session — or
+  `SIGINT`, or `SIGTERM` — stops all of them. A stop cuts requests still in
+  flight after a short grace, because a streamed response never ends on its own
+  and the port has to come back.
+- **`proxy_start` proves the credential before reporting success**, so an
+  interactive login happens where you asked for it rather than inside whatever
+  tool call happens to make the first request.
+
+See [Configuration](./CONFIGURATION.md#the-management-mode) for `idleTimeoutMs`
+and what the mode deliberately ignores from a config.
+
 ## Configuration Scenarios Summary
 
 | Scenario | BTP Auth | Proxy Command | Headers Required |
@@ -251,8 +288,7 @@ Create `mcp-proxy-config.json`:
   "httpPort": 3001,
   "logLevel": "info",
   "maxRetries": 3,
-  "requestTimeout": 60000,
-  "circuitBreakerThreshold": 5
+  "requestTimeout": 60000
 }
 ```
 
