@@ -77,7 +77,7 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 - **src/lib/config.ts** - Configuration loading from YAML/JSON config files or env vars + CLI params. With `--config`, CLI flags override matching values from the file (file is the baseline; `defaultHeaders` merge per key)
 - **src/lib/errorHandler.ts** - Retry logic (`retryWithBackoff()`) and circuit breaker (opens after threshold failures, resets after timeout)
 - **src/lib/transportConfig.ts** - Transport type detection: explicit `--transport` flag → `MCP_TRANSPORT` env var → auto-detect (stdio if not TTY, else streamable-http)
-- **src/lib/stores.ts** - Platform-specific auth store paths (Windows vs Unix) for service key files
+- **src/lib/stores.ts** - THE path convention, in one place. Four folders under one base (`~/.config/mcp-abap-adt/`, Windows `Documents\mcp-abap-adt\`), relocatable with `AUTH_BROKER_PATH`: `service-keys/`, `sessions/`, `proxy/` (ready proxy configs, the files `--config` takes), `runtime/` (a record per live proxy). Two shapes, and the difference matters: `getPlatformPaths()` is a SEARCH path ending in `process.cwd()`, for finding a key wherever it is; `storeDir()` is THE directory, with no cwd fallback, because a runtime record written beside wherever a client was launched from is one the next session will not find
 
 ### BTP Authentication
 

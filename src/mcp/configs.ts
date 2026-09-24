@@ -1,8 +1,8 @@
 // src/mcp/configs.ts
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { loadRawConfigFile } from '../lib/config.js';
+import { storeDir } from '../lib/stores.js';
 
 const EXTENSIONS = ['.yaml', '.yml', '.json'];
 
@@ -20,10 +20,7 @@ export interface ProxyConfigEntry {
  * rest of the toolchain already uses.
  */
 export function proxyConfigDir(): string {
-  const home = os.homedir();
-  return process.platform === 'win32'
-    ? path.join(home, 'Documents', 'mcp-abap-adt', 'proxy')
-    : path.join(home, '.config', 'mcp-abap-adt', 'proxy');
+  return storeDir('proxy');
 }
 
 /**

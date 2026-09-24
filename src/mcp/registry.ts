@@ -7,8 +7,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { storeDir } from '../lib/stores.js';
 
 /**
  * One live proxy, as claimed by the process that started it.
@@ -44,10 +44,7 @@ const processExists: IsAlive = (pid) => {
  * uses for service keys and sessions.
  */
 export function defaultRuntimeDir(): string {
-  const home = os.homedir();
-  return process.platform === 'win32'
-    ? path.join(home, 'Documents', 'mcp-abap-adt', 'runtime')
-    : path.join(home, '.config', 'mcp-abap-adt', 'runtime');
+  return storeDir('runtime');
 }
 
 /**

@@ -2,6 +2,26 @@
 
 This guide explains how to configure the MCP ABAP ADT Proxy server.
 
+## The four folders
+
+Everything the toolchain keeps on disk lives under one base:
+
+```
+~/.config/mcp-abap-adt/                    (Windows: %USERPROFILE%\Documents\mcp-abap-adt\)
+├── service-keys/   BTP service keys, one JSON per destination
+├── sessions/       .env files holding credentials, referenced by a config's envFile
+├── proxy/          one ready proxy config per proxy — the files --config takes
+└── runtime/        one record per live proxy, so one session can see another's
+```
+
+`AUTH_BROKER_PATH` relocates the base, and all four move with it.
+
+`runtime/` is written by the management mode and is not configuration: a file
+per running proxy, holding its pid, port, URL, destination and config name. A
+record is a claim, not a fact — every read checks the process behind it and
+deletes the ones whose writer has died, so a crashed session cannot leave a
+ghost behind.
+
 ## Configuration Methods
 
 The proxy can be configured from a YAML/JSON file, from CLI parameters, or from a combination of both.

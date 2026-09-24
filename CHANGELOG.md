@@ -65,6 +65,17 @@ what the proxy holds while it runs and how an SSE response reaches the client.
   a backstop for a client that finished and forgot, not a substitute for
   `proxy_stop` — which the tool descriptions say, and say again beside the URL.
 
+- `src/lib/stores.ts` now holds the whole path convention: four folders under
+  one relocatable base — `service-keys/`, `sessions/`, `proxy/` and the new
+  `runtime/` — through `storeBaseDir()` and `storeDir()`. `proxy/` and
+  `runtime/` had each grown a private copy of the platform logic in the module
+  that used them, which is three places for one convention to drift.
+
+  `storeDir()` deliberately has no working-directory fallback, unlike the
+  search path `getPlatformPaths()` returns: a runtime record written beside
+  wherever a client happened to be launched from is a record the next session
+  will not find.
+
 - The SSE transport forwards through the same transparent pipe as every other
   transport. It used to rebuild the request by hand, carry it over axios, buffer
   the answer and rewrap it as a JSON-RPC envelope — so an SSE response now

@@ -26,12 +26,49 @@ import {
  *    - Windows: %USERPROFILE%\Documents\mcp-abap-adt\{subfolder}
  * 3. Current working directory (process.cwd())
  *
- * @param subfolder Subfolder name ('service-keys' or 'sessions')
+ * @param subfolder One of the four folders; see {@link StoreFolder}
  * @returns Array of resolved absolute paths
  */
-export function getPlatformPaths(
-  subfolder?: 'service-keys' | 'sessions',
-): string[] {
+/**
+ * The four folders the toolchain keeps under one base.
+ *
+ * `service-keys/` and `sessions/` are the auth broker's. `proxy/` holds one
+ * ready config per proxy — the files `--config` takes. `runtime/` holds a
+ * record per live proxy, so one session can see another's.
+ */
+export type StoreFolder = 'service-keys' | 'sessions' | 'proxy' | 'runtime';
+
+/**
+ * THE base directory — one answer, not a search path.
+ *
+ * `AUTH_BROKER_PATH` relocates it, so all four folders move together; when it
+ * lists several, the first is the one written to. Unlike
+ * {@link getPlatformPaths}, this never falls back to the working directory: a
+ * file written beside wherever a client happened to be launched from is a file
+ * the next session will not find.
+ */
+export function storeBaseDir(): string {
+  const envPath = process.env.AUTH_BROKER_PATH;
+  if (envPath) {
+    const first = envPath
+      .split(/[:;]/)
+      .map((p) => p.trim())
+      .find((p) => p.length > 0);
+    if (first) return path.resolve(first);
+  }
+
+  const homeDir = os.homedir();
+  return process.platform === 'win32'
+    ? path.join(homeDir, 'Documents', 'mcp-abap-adt')
+    : path.join(homeDir, '.config', 'mcp-abap-adt');
+}
+
+/** THE directory for one of the four folders. */
+export function storeDir(folder: StoreFolder): string {
+  return path.join(storeBaseDir(), folder);
+}
+
+export function getPlatformPaths(subfolder?: StoreFolder): string[] {
   const paths: string[] = [];
   const isWindows = process.platform === 'win32';
 
