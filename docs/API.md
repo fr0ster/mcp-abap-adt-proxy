@@ -101,178 +101,72 @@ console.log(intercepted.routingDecision.strategy);
 
 ## Proxy Modules
 
-### Cloud LLM Hub Proxy
+### BTP Proxy
 
-#### `CloudLlmHubProxy`
+#### `BtpProxy`
 
-Proxy client for forwarding requests to cloud-llm-hub.
+A facade over the destination's credential. It does not carry requests — that is
+`forwardRequest()` below.
 
-##### `proxyRequest(originalRequest, routingDecision, originalHeaders): Promise<ProxyResponse>`
+##### `getAuthorizationHeader(destination): Promise<string | null>`
 
-Proxies MCP request to cloud-llm-hub with JWT authentication.
+The `Authorization` header VALUE for a destination — `Bearer <token>`, complete —
+or `null` where the credential is not a header at all.
 
-**Parameters:**
-- `originalRequest`: MCP request object
-- `routingDecision`: Routing decision from header analysis
-- `originalHeaders`: Original HTTP headers
+Asked on every request, deliberately. The credential renews behind this call, so
+a cache on the caller's side would serve the stale token and hide the renewal.
 
-**Returns:** Promise resolving to MCP response.
+##### `getTargetUrl(destination): Promise<string>`
+
+Where that destination's requests go: `targetUrl` from the config if set,
+otherwise `serviceUrl` from the service key. Throws when neither exists.
+
+##### `dispose(): void`
+
+Lets go of the credentials and brokers held. There are no timers to cancel.
 
 **Example:**
 ```typescript
-import { createCloudLlmHubProxy } from "@mcp-abap-adt/proxy/proxy/cloudLlmHubProxy";
+import { createBtpProxy } from "@mcp-abap-adt/proxy/proxy/btpProxy";
 
-const proxy = await createCloudLlmHubProxy("https://cloud-llm-hub.example.com");
-const response = await proxy.proxyRequest(request, decision, headers);
+const proxy = await createBtpProxy(config);
+const authorization = await proxy.getAuthorizationHeader("my-destination");
+const targetUrl = await proxy.getTargetUrl("my-destination");
 ```
+
+### Reverse Proxy
+
+#### `forwardRequest(clientReq, clientRes, targetBaseUrl, authorization, defaultHeaders?, requestBody?)`
+
+The single transparent pipe. Every transport goes through it.
+
+**Parameters:**
+- `clientReq` / `clientRes`: the incoming request and its response
+- `targetBaseUrl`: where to forward
+- `authorization`: a complete header VALUE, or `null` for no header at all. It is
+  NOT a token — composing `Bearer` around it would send `Bearer Bearer <token>`
+- `defaultHeaders`: injected first; client headers win
+- `requestBody`: for a caller that has already read the request. The SSE path
+  parses the JSON-RPC body because its error envelopes echo the `id`, and a
+  stream read once cannot be piped. Pass the bytes as they arrived, not a
+  re-serialised parse — the client's `content-length` is forwarded unchanged
+
+The response streams; nothing is buffered on the way back.
 
 
 ## Error Handling
 
-### `CircuitBreaker`
+### ~~`CircuitBreaker`~~ — removed in 4.0.0
 
-Circuit breaker implementation for resilience.
+It guarded the buffered axios forward this release deletes. The forwarding path
+now streams, and a breaker there would mean buffering the response again — the
+thing being fixed. `circuitBreakerThreshold` and `circuitBreakerTimeout` are
+still accepted in configuration so existing files load unchanged, and have no
+effect.
 
-#### Methods
+### ~~`ProxyRequest`~~ / ~~`ProxyResponse`~~ — removed in 4.0.0
 
-- `canProceed(): boolean` - Check if circuit breaker allows request
-- `recordSuccess(): void` - Record successful request
-- `recordFailure(): void` - Record failed request
-- `getState(): "closed" | "open" | "half-open"` - Get current state
-- `reset(): void` - Reset circuit breaker
-
-**Example:**
-```typescript
-import { CircuitBreaker } from "@mcp-abap-adt/proxy/lib/errorHandler";
-
-const breaker = new CircuitBreaker(5, 60000); // threshold: 5, timeout: 60s
-
-if (breaker.canProceed()) {
-  try {
-    await makeRequest();
-    breaker.recordSuccess();
-  } catch (error) {
-    breaker.recordFailure();
-  }
-}
-```
-
-### `retryWithBackoff<T>(fn, options): Promise<T>`
-
-Retry function with exponential backoff.
-
-**Parameters:**
-- `fn`: Function to retry
-- `options`: Retry options (maxRetries, retryDelay, etc.)
-
-**Returns:** Promise resolving to function result.
-
-**Example:**
-```typescript
-import { retryWithBackoff } from "@mcp-abap-adt/proxy/lib/errorHandler";
-
-const result = await retryWithBackoff(
-  () => makeRequest(),
-  { maxRetries: 3, retryDelay: 1000 }
-);
-```
-
-## Configuration
-
-### `loadConfig(configPath?): ProxyConfig`
-
-Loads configuration from file and environment variables.
-
-**Parameters:**
-- `configPath`: Optional path to configuration file
-
-**Returns:** Proxy configuration object.
-
-**Example:**
-```typescript
-import { loadConfig } from "@mcp-abap-adt/proxy/lib/config";
-
-const config = loadConfig("/path/to/config.json");
-```
-
-### `validateConfig(config): { valid, errors, warnings }`
-
-Validates configuration.
-
-**Parameters:**
-- `config`: Configuration object to validate
-
-**Returns:** Validation result with errors and warnings.
-
-**Example:**
-```typescript
-import { validateConfig } from "@mcp-abap-adt/proxy/lib/config";
-
-const validation = validateConfig(config);
-if (!validation.valid) {
-  console.error("Configuration errors:", validation.errors);
-}
-```
-
-## Types
-
-### `ProxyConfig`
-
-```typescript
-interface ProxyConfig {
-  httpPort: number;
-  ssePort: number;
-  httpHost: string;
-  sseHost: string;
-  logLevel: string;
-  btpDestination?: string;
-  targetUrl?: string;
-  defaultHeaders?: Record<string, string>;
-  unsafe?: boolean;
-  maxRetries?: number;
-  retryDelay?: number;
-  requestTimeout?: number;
-  circuitBreakerThreshold?: number;
-  circuitBreakerTimeout?: number;
-  browser?: 'system' | 'headless' | 'chrome' | 'edge' | 'firefox' | 'none';
-  browserAuthPort?: number;
-}
-```
-
-### `RoutingDecision`
-
-```typescript
-interface RoutingDecision {
-  strategy: RoutingStrategy;     // RoutingStrategy.PROXY | RoutingStrategy.UNKNOWN
-  btpDestination?: string;       // Destination for BTP Cloud authorization (x-sap-destination or --btp)
-  targetUrl?: string;            // Explicit target URL (x-target-url or --target-url)
-  reason: string;
-}
-```
-
-### `ProxyRequest`
-
-```typescript
-interface ProxyRequest {
-  method: string;
-  params?: any;
-  id?: string | number | null;
-  jsonrpc?: string;
-}
-```
-
-### `ProxyResponse`
-
-```typescript
-interface ProxyResponse {
-  jsonrpc: string;
-  id?: string | number | null;
-  result?: any;
-  error?: {
-    code: number;
-    message: string;
-    data?: any;
-  };
-}
-```
-
+These described the JSON-RPC envelope the deleted axios path rebuilt by hand and
+answered with. Every transport now forwards through `forwardRequest()`, which
+carries the request and the response as they are, so there is no envelope for
+this package to name.

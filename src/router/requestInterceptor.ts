@@ -13,7 +13,7 @@ import {
   HEADER_SAP_UAA_CLIENT_SECRET,
   HEADER_SESSION_ID,
   HEADER_X_MCP_SESSION_ID,
-} from '@mcp-abap-adt/interfaces';
+} from '@mcp-abap-adt/interfaces-network';
 import { logger } from '../lib/logger.js';
 import { analyzeHeaders, type RoutingDecision } from './headerAnalyzer.js';
 

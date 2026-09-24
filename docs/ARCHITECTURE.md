@@ -117,44 +117,44 @@ so they need `npm run build` first, and they are POSIX-only.
 
 ### 3. Proxy Client
 
-**Location:** `src/proxy/cloudLlmHubProxy.ts`
+**Location:** `src/proxy/credentials.ts`, `src/proxy/btpProxy.ts`, `src/proxy/reverseProxy.ts`
 
 **Responsibilities:**
-- Proxy requests to target MCP server
-- Manage JWT tokens via AuthBroker (BTP/XSUAA ClientCredentials)
-- Handle retries and error recovery
-- Implement circuit breaker pattern
+- Turn a destination into the credential it authenticates with and the base URL its requests go to
+- Forward the request transparently, with that credential's header on it
+- Retry getting a token when the failure can get better, and explain it when it cannot
 
 **Key Features:**
-- JWT token caching and refresh
-- Automatic retry with exponential backoff
-- Circuit breaker for resilience
-- Token expiration handling
+- The ecosystem's shared credential — `TokenAuthProvider` over `AuthBroker.createTokenRefresher()`
+- One credential and one broker per destination; **no token cache and no refresh timer here**. The credential is asked for a header per request and renews behind that call
+- Retry with exponential backoff while acquiring a token — scoped: 5xx and network failures are retried, a missing service key is not, so the common failure answers at once instead of three times more slowly
+- **No circuit breaker.** It guarded the buffered forward that is gone; the streaming path has nowhere to put one without buffering the response again
 
 **Flow:**
-1. Receive MCP request with `x-sap-destination` header
-2. Get JWT token from AuthBroker for destination (with caching)
-3. Get MCP server URL from service key for destination
-4. Build proxy request with JWT token in Authorization header
-5. Forward to MCP server URL
-6. Handle response or errors
-7. Return MCP-formatted response
+1. Receive request with `x-sap-destination` header (or `--btp`)
+2. Ask the destination's credential for an `Authorization` header value
+3. Take the base URL from the service key, unless `x-target-url` / `--target-url` overrides it
+4. `forwardRequest()` streams the request to that URL with the header as given
+5. Stream the response back untouched
+
+**One path, not two.** An earlier version carried the SSE transport over axios,
+buffering the response and rewrapping it as a JSON-RPC envelope. Every transport
+now uses the same pipe. The SSE path reads the body first — its error envelopes
+have to echo the JSON-RPC `id` — and hands those exact bytes to the pipe, since
+a stream read once cannot be piped.
 
 ### 6. Error Handler
 
 **Location:** `src/lib/errorHandler.ts`
 
 **Responsibilities:**
-- Comprehensive error handling
 - Retry logic with exponential backoff
-- Circuit breaker implementation
-- Token expiration detection
+- Deciding which failures are worth retrying
 
 **Key Components:**
-- `CircuitBreaker` - Circuit breaker class
-- `retryWithBackoff()` - Retry function
-- `isTokenExpirationError()` - Token error detection
-- `createErrorResponse()` - MCP error formatting
+- `retryWithBackoff()` - Retry function; used around token acquisition
+- `isRetryableError()` - Which failures can get better: 5xx, network errors, and an expired-or-invalid token
+- `CircuitBreaker` - **still exported, no longer used by this package.** It guarded the buffered forward removed in 4.0.0
 
 ### 7. Configuration Manager
 
@@ -186,9 +186,8 @@ so they need `npm run build` first, and they are POSIX-only.
    ↓
 4. Proxy Client
    ↓
-5. Check Circuit Breaker
-   ↓
-6. Get JWT Token (from cache or AuthBroker)
+5. Ask the destination's credential for an Authorization header
+   (retried on a failure that can get better)
    ↓
 7. Build Proxy Request
    - Add JWT to Authorization header
@@ -233,24 +232,11 @@ btpDestination // e.g., "btp-cloud", "ai"
 - **Network Errors**: Automatically retried
 - **Token Errors**: Handled separately with token refresh
 
-### Circuit Breaker
+### ~~Circuit Breaker~~ — removed in 4.0.0
 
-**States:**
-- **Closed**: Normal operation, requests allowed
-- **Open**: Too many failures, requests rejected
-- **Half-Open**: Testing if service recovered
-
-**Transitions:**
-- Closed → Open: After threshold failures
-- Open → Half-Open: After timeout period
-- Half-Open → Closed: After successful request
-- Half-Open → Open: After failure
-
-### Token Management
-
-- **Caching**: Tokens cached for 30 minutes
-- **Refresh**: Automatic refresh on expiration
-- **Retry**: Retry with fresh token on 401/403 errors
+It only ever guarded the buffered axios forward. The forwarding path streams, and
+a breaker there would mean buffering the response again. A target that keeps
+failing now fails visibly each time instead of being short-circuited.
 
 ## Security Considerations
 
@@ -300,9 +286,8 @@ Sensitive headers are sanitized in logs:
 
 ### Vertical Scaling
 
-- Token caching reduces memory usage
-- Efficient error handling reduces CPU usage
-- Circuit breaker prevents resource exhaustion
+- No token is cached here, so nothing goes stale and no refresh timer runs per destination
+- The response is never buffered, so a large or long-lived one costs a socket rather than memory
 
 ## Monitoring & Observability
 

@@ -20,15 +20,25 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 /**
- * Forward an HTTP request to a target URL with JWT injection.
+ * Forward an HTTP request to a target URL, with the credential's header.
  * Streams both request and response using pipe().
+ *
+ * `authorization` is a complete header VALUE, not a token: it is what
+ * `IAuthProvider.authorizationHeader()` answers, `Bearer <token>` and all.
+ * Composing `Bearer` here as well would send `Bearer Bearer <token>`.
+ *
+ * `requestBody` is for a caller that has already read the request: the SSE path
+ * parses the JSON-RPC body because an error envelope has to echo its `id`, and
+ * a stream read once cannot be piped. The RESPONSE still streams either way,
+ * which is the direction that carries an event stream.
  */
 export async function forwardRequest(
   clientReq: http.IncomingMessage,
   clientRes: http.ServerResponse,
   targetBaseUrl: string,
-  jwtToken: string,
+  authorization: string | null,
   defaultHeaders?: Record<string, string>,
+  requestBody?: Buffer,
 ): Promise<void> {
   const targetUrl = new URL(clientReq.url || '/', targetBaseUrl);
 
@@ -51,9 +61,18 @@ export async function forwardRequest(
     }
   }
 
-  // Inject JWT
-  if (jwtToken) {
-    forwardedHeaders.authorization = `Bearer ${jwtToken}`;
+  // The credential's header, verbatim.
+  //
+  // `null` means this credential is not a header at all — a certificate
+  // authenticates through TLS and has none — and must reach the target as an
+  // ABSENT header rather than an empty one, which is a different claim.
+  //
+  // `''` is treated the same way. The contract calls the empty string a legal
+  // header value, but the provider that answers it here returns it for "no
+  // token", not for "an empty Authorization" — and that is also what this
+  // function did before it carried header values.
+  if (authorization) {
+    forwardedHeaders.authorization = authorization;
   }
 
   // Set correct host for target
@@ -86,6 +105,13 @@ export async function forwardRequest(
   });
 
   return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
     const proxyReq = transport.request(options, (proxyRes) => {
       // Forward status code
       const statusCode = proxyRes.statusCode || 502;
@@ -107,7 +133,19 @@ export async function forwardRequest(
 
       clientRes.writeHead(statusCode, responseHeaders);
       proxyRes.pipe(clientRes);
-      proxyRes.on('end', resolve);
+      proxyRes.on('end', finish);
+    });
+
+    // The client going away has to take the upstream with it.
+    //
+    // A stop destroys the CLIENT socket — `closeAllConnections()` — and nothing
+    // here destroyed the other one, so an abandoned event stream left a live
+    // connection to the target: a released port reported while a socket was
+    // still held, accumulating across repeated start/stop. It also left this
+    // promise pending forever, since `proxyRes` never ends.
+    clientRes.on('close', () => {
+      if (!settled) proxyReq.destroy();
+      finish();
     });
 
     proxyReq.on('error', (err) => {
@@ -120,10 +158,15 @@ export async function forwardRequest(
         clientRes.writeHead(502, { 'Content-Type': 'application/json' });
         clientRes.end(JSON.stringify({ error: `Proxy error: ${err.message}` }));
       }
-      resolve();
+      finish();
     });
 
-    // Pipe client request body to backend
-    clientReq.pipe(proxyReq);
+    // Pipe client request body to backend — or write what the caller already
+    // read off it, since a spent stream pipes nothing.
+    if (requestBody === undefined) {
+      clientReq.pipe(proxyReq);
+    } else {
+      proxyReq.end(requestBody);
+    }
   });
 }

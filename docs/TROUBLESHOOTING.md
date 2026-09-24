@@ -152,41 +152,24 @@ be provided on the command line (or in a config file):
 mcp-abap-adt-proxy --transport=stdio --btp=btp-cloud
 ```
 
-#### Error: "Circuit breaker is open"
+#### ~~Error: "Circuit breaker is open"~~ — cannot happen since 4.0.0
 
-**Symptoms:**
-- Requests rejected immediately
-- Error: "Service temporarily unavailable"
+The circuit breaker was removed together with the buffered forward it guarded. A
+target that keeps failing now fails visibly on every request instead of being
+short-circuited, so there is no state to reset and nothing to tune.
+`circuitBreakerThreshold` and `circuitBreakerTimeout` are still accepted in
+configuration and do nothing.
 
-**Causes:**
-- Too many failures to cloud-llm-hub
-- Service is down or unreachable
+What to look at instead when requests keep failing:
 
-**Solutions:**
-
-1. **Check cloud-llm-hub status:**
-```bash
-curl https://cloud-llm-hub.example.com/health
-```
-
-2. **Reset circuit breaker:**
-```bash
-# Restart proxy server (circuit breaker resets on restart)
-# Or wait for timeout period (default: 60 seconds)
-```
-
-3. **Adjust circuit breaker settings:**
-```json
-{
-  "circuitBreakerThreshold": 10,
-  "circuitBreakerTimeout": 120000
-}
-```
-
-4. **Check network connectivity:**
+1. **Check network connectivity:**
 ```bash
 ping cloud-llm-hub.example.com
 ```
+
+2. **Check the retry log.** Token acquisition is retried on failures that can get
+   better; each attempt logs `RETRY_ATTEMPT`, and the final failure logs
+   `CREDENTIAL_HEADER_ERROR` with the reason.
 
 #### Error: "Failed to get JWT token from auth-broker"
 
@@ -437,13 +420,11 @@ Look for logs like:
 [DEBUG] Routing decision made: { strategy: "proxy", destination: "sk" }
 ```
 
-### Monitor Circuit Breaker
+### ~~Monitor Circuit Breaker~~ — removed in 4.0.0
 
-Look for logs like:
-```
-[WARN] Circuit breaker opened due to failures: { failures: 5, threshold: 5 }
-[INFO] Circuit breaker closed after successful request
-```
+There is no breaker to monitor. What is worth watching instead is
+`RETRY_ATTEMPT`, logged while a token is being acquired, and
+`CREDENTIAL_HEADER_ERROR` when it could not be.
 
 ### Check Connection Cache
 

@@ -14,12 +14,11 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from 'node:http';
-import {
-  HEADER_BTP_DESTINATION,
-} from '@mcp-abap-adt/interfaces';
+import { HEADER_BTP_DESTINATION } from '@mcp-abap-adt/interfaces-network';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { createProxyRequestHandler } from './proxy/requestHandler.js';
 import { forwardRequest } from './proxy/reverseProxy.js';
 import {
   loadConfig,
@@ -107,6 +106,33 @@ export class McpAbapAdtProxyServer {
   private config: ReturnType<typeof loadConfig>;
   private httpServer?: HttpServer;
   private btpProxy?: BtpProxy;
+
+  private builtProxyHandler?: ReturnType<typeof createProxyRequestHandler>;
+
+  /**
+   * The request path, shared with the MCP mode. Here an authentication failure
+   * is fatal: the process exits so whatever started it can start it again with
+   * a credential that works.
+   *
+   * Built on first use rather than as a field initializer, because `config` is
+   * assigned in the constructor and a field initializer runs before that.
+   */
+  private get proxyHandler(): ReturnType<typeof createProxyRequestHandler> {
+    if (!this.builtProxyHandler) {
+      this.builtProxyHandler = createProxyRequestHandler({
+        config: this.config,
+        proxy: async () => {
+          if (!this.btpProxy) {
+            this.btpProxy = await createBtpProxy(this.config);
+          }
+          return this.btpProxy;
+        },
+        onAuthFailure: (error, destination) =>
+          this.fatalAuthFailure(error, destination, 'request'),
+      });
+    }
+    return this.builtProxyHandler;
+  }
   private authExiting = false;
 
   constructor(transportConfig?: TransportConfig, configPath?: string) {
@@ -266,44 +292,12 @@ Authorization source: BTP destination "${this.config.btpDestination}"`;
         remoteAddress: req.socket.remoteAddress,
       });
 
-      // Intercept and analyze request (headers only, body is piped through)
-      const configOverrides = {
-        btpDestination: this.config.btpDestination,
-        targetUrl: this.config.targetUrl,
-      };
-
-      const intercepted = interceptRequest(req, undefined, configOverrides, {
-        skipHeaderValidation: true,
-      });
-
-      // Check routing decision
-      if (intercepted.routingDecision.strategy === RoutingStrategy.UNKNOWN) {
-        logger?.error('Routing decision failed', {
-          type: 'ROUTING_DECISION_FAILED',
-          reason: intercepted.routingDecision.reason,
-        });
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: intercepted.routingDecision.reason,
-          }),
-        );
-        return;
-      }
-
-      // Forward request via reverse proxy
-      logger?.info('=== PROXYING REQUEST ===', {
-        type: 'PROXY_REQUEST_START',
-        btpDestination: intercepted.routingDecision.btpDestination,
-      });
-
       try {
-        await this.handleProxyRequest(intercepted, req, res);
+        await this.proxyHandler(req, res);
       } catch (error) {
         logger?.error('Failed to process request', {
           type: 'REQUEST_PROCESS_ERROR',
           error: error instanceof Error ? error.message : String(error),
-          strategy: intercepted.routingDecision.strategy,
         });
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -347,72 +341,6 @@ Authorization source: ${authSourceObj}`;
 
 
 
-  /**
-   * Handle proxy request - get JWT token and forward transparently via reverse proxy
-   */
-  private async handleProxyRequest(
-    intercepted: ReturnType<typeof interceptRequest>,
-    req: IncomingMessage,
-    res: ServerResponse,
-  ): Promise<void> {
-    const destination = intercepted.routingDecision.btpDestination;
-
-    if (!destination) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'No BTP destination specified' }));
-      return;
-    }
-
-    // Ensure proxy is initialized
-    if (!this.btpProxy) {
-      this.btpProxy = await createBtpProxy(this.config);
-    }
-
-    // Authentication is separated from forwarding: an auth failure is fatal
-    // (the proxy exits so it can be restarted), while a downstream/forward error
-    // is returned to the client without killing the proxy.
-    let jwtToken: string;
-    try {
-      // Get JWT token (cached, auto-refresh)
-      jwtToken = await this.btpProxy.getJwtToken(destination);
-    } catch (authError) {
-      logger?.error('Proxy request failed: authentication error', {
-        type: 'PROXY_REQUEST_AUTH_ERROR',
-        destination,
-        error: authError instanceof Error ? authError.message : String(authError),
-      });
-      if (!res.headersSent) {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Authentication failed' }));
-      }
-      await this.fatalAuthFailure(authError, destination, 'request');
-      return;
-    }
-
-    try {
-      // Get target URL
-      const targetUrl =
-        intercepted.routingDecision.targetUrl ||
-        (await this.btpProxy.getTargetUrl(destination));
-
-      // Forward request transparently (inject default headers from config)
-      await forwardRequest(req, res, targetUrl, jwtToken, this.config.defaultHeaders);
-    } catch (error) {
-      logger?.error('Proxy request failed', {
-        type: 'PROXY_REQUEST_ERROR',
-        destination,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (!res.headersSent) {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: error instanceof Error ? error.message : 'Proxy error',
-          }),
-        );
-      }
-    }
-  }
 
   /**
    * Start SSE server
@@ -597,14 +525,15 @@ Authorization source: ${authSourceObj}`;
 
         // Read request body
         let body: unknown;
+        let rawBody: Buffer | undefined;
         try {
           const chunks: Buffer[] = [];
           for await (const chunk of req) {
             chunks.push(chunk);
           }
           if (chunks.length > 0) {
-            const bodyString = Buffer.concat(chunks).toString('utf-8');
-            body = JSON.parse(bodyString);
+            rawBody = Buffer.concat(chunks);
+            body = JSON.parse(rawBody.toString('utf-8'));
           }
         } catch (error) {
           logger?.error('Failed to parse SSE POST request body', {
@@ -654,25 +583,44 @@ Authorization source: ${authSourceObj}`;
 
 
 
-        // Handle proxy request via BtpProxy (JSON-RPC mode for SSE)
+        // Forward through the same transparent pipe the other path uses.
+        //
+        // This used to rebuild the request by hand and carry it over axios,
+        // which buffered the response and rewrapped it as a JSON-RPC envelope.
+        // The body above was already read — the JSON-RPC `id` in it is what the
+        // error envelopes below have to echo — so it is handed over rather than
+        // piped. The response still streams, which is the direction that
+        // carries an event stream.
         try {
           if (!this.btpProxy) {
             this.btpProxy = await createBtpProxy(this.config);
           }
 
-          const proxyResponse = await this.btpProxy.proxyRequest(
-            {
-              method: intercepted.method,
-              url: intercepted.url,
-              data: body,
-              id: getBodyId(body) as string | number | null,
-            },
-            intercepted.routingDecision,
-            intercepted.headers,
-          );
+          const destination =
+            intercepted.routingDecision.btpDestination ??
+            this.config.btpDestination;
+          if (!destination) {
+            throw new Error('No BTP destination for this request');
+          }
 
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(proxyResponse));
+          const authorization =
+            await this.btpProxy.getAuthorizationHeader(destination);
+          const targetUrl =
+            intercepted.routingDecision.targetUrl ||
+            (await this.btpProxy.getTargetUrl(destination));
+
+          await forwardRequest(
+            req,
+            res,
+            targetUrl,
+            authorization,
+            this.config.defaultHeaders,
+            // The bytes as they arrived, not the parse re-serialised: the
+            // client's `content-length` is forwarded unchanged, and a
+            // re-serialised body differs from it by whatever whitespace the
+            // sender used.
+            rawBody,
+          );
         } catch (error) {
           logger?.error('Failed to process SSE POST request', {
             type: 'SSE_POST_PROCESS_ERROR',

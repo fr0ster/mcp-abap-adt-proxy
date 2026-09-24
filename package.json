@@ -19,7 +19,8 @@
     "dev": "npx @modelcontextprotocol/inspector node ./dist/index.js",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "prepublishOnly": "npm run build",
-    "test-destination": "npx tsx tools/test-destination.ts"
+    "test-destination": "npx tsx tools/test-destination.ts",
+    "start:mcp": "node ./bin/mcp-abap-adt-proxy-mcp.js"
   },
   "keywords": [
     "abap",
@@ -62,12 +63,15 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@mcp-abap-adt/auth-broker": "^1.0.8",
-    "@mcp-abap-adt/auth-providers": "^2.0.0",
-    "@mcp-abap-adt/auth-stores": "^1.0.4",
-    "@mcp-abap-adt/header-validator": "^0.1.8",
-    "@mcp-abap-adt/interfaces": "^7.0.0",
-    "@mcp-abap-adt/logger": "^0.1.4",
+    "@mcp-abap-adt/auth-broker": "^2.2.0",
+    "@mcp-abap-adt/auth-providers": "^2.2.2",
+    "@mcp-abap-adt/auth-stores": "^1.2.0",
+    "@mcp-abap-adt/connection": "^9.2.0",
+    "@mcp-abap-adt/header-validator": "^0.3.0",
+    "@mcp-abap-adt/interfaces-auth": "^1.2.0",
+    "@mcp-abap-adt/interfaces-auth-sap": "^1.0.0",
+    "@mcp-abap-adt/interfaces-network": "^2.0.0",
+    "@mcp-abap-adt/logger": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "axios": "^1.15.1",
     "dotenv": "^17.4.2",
@@ -86,6 +90,7 @@
     "CHANGELOG.md"
   ],
   "bin": {
-    "mcp-abap-adt-proxy": "./bin/mcp-abap-adt-proxy.js"
+    "mcp-abap-adt-proxy": "./bin/mcp-abap-adt-proxy.js",
+    "mcp-abap-adt-proxy-mcp": "./bin/mcp-abap-adt-proxy-mcp.js"
   }
 }

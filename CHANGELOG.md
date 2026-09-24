@@ -7,6 +7,163 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The proxy stops re-implementing the broker, and there is one forwarding path
+instead of two.** No configuration changes and no new flags; what changes is
+what the proxy holds while it runs and how an SSE response reaches the client.
+
+### Changed
+
+- **BREAKING** — `@mcp-abap-adt/interfaces` is no longer a dependency.
+  The contracts now come from the packages they live in, and
+  `@mcp-abap-adt/connection` arrives for the credential:
+
+  ```
+  @mcp-abap-adt/interfaces           ^7.0.0 → removed
+  @mcp-abap-adt/interfaces-network     (new) → ^2.0.0   every HTTP header constant
+  @mcp-abap-adt/interfaces-auth        (new) → ^1.2.0   ITokenRefresher
+  @mcp-abap-adt/interfaces-auth-sap    (new) → ^1.0.0   IAuthorizationConfig
+  @mcp-abap-adt/connection             (new) → ^9.2.0   TokenAuthProvider
+  @mcp-abap-adt/auth-broker          ^1.0.8 → ^2.2.0   (a major)
+  @mcp-abap-adt/auth-providers       ^2.0.0 → ^2.2.2
+  @mcp-abap-adt/auth-stores          ^1.0.4 → ^1.2.0
+  @mcp-abap-adt/header-validator     ^0.1.8 → ^0.3.0
+  @mcp-abap-adt/logger               ^0.1.4 → ^0.4.0
+  ```
+
+  `interfaces-adt` was taken and then dropped: the contracts moved twice while
+  this release was being written, and after the second move nothing here imports
+  anything from it. The old umbrella name is 376 deprecated re-exports; a
+  consumer importing contract types through this package's tree now installs the
+  package it names.
+
+  **Copies of the deprecated umbrella left in the tree: 6 → 0.** The last two
+  were declared by `auth-broker` and `header-validator`; both have since moved
+  onto the split packages themselves, so taking their latest removed the final
+  two. Every contract package now resolves to exactly one copy, except
+  `interfaces-utils`, which appears six times at the same version — a consequence
+  of this repository's `install-strategy=nested`, not of version skew.
+
+- **BREAKING** — `BtpProxy.getJwtToken()` is replaced by
+  `getAuthorizationHeader()`, which answers a complete header VALUE
+  (`Bearer <token>`) or `null` where a credential is not a header at all.
+  `proxyRequest()`, `buildProxyRequest()` and the `ProxyRequest` / `ProxyResponse`
+  types are gone with the axios path they served.
+
+- `forwardRequest()` takes an `Authorization` header value rather than a bare
+  token, and optionally a body a caller has already read off the request.
+- `forwardRequest()` destroys the upstream connection when the client goes away.
+  It did not, so an abandoned event stream left a live connection to the target
+  after the client socket was gone — a released port reported while a socket was
+  still held, accumulating across repeated start/stop.
+
+### Added
+
+- **A second command, `mcp-abap-adt-proxy-mcp`.** It speaks MCP over stdio and
+  its tools start and stop proxies: `proxy_start`, `proxy_stop`,
+  `proxy_status`. A client that wants to BE proxied still uses
+  `mcp-abap-adt-proxy`; this one is for a client that wants to MANAGE proxies,
+  and the two are kept apart so every plain proxy does not carry a management
+  surface it never uses.
+
+  **It works from the proxy configs already on disk** —
+  `~/.config/mcp-abap-adt/proxy/<name>.yaml`, the same files
+  `mcp-abap-adt-proxy --config` takes. `proxy_configs` lists them and
+  `proxy_start` takes one by name, so starting a proxy is choosing a name
+  rather than assembling settings, and credentials stay in the config behind
+  `${VAR}` interpolation instead of travelling through a tool call.
+
+  The config NAME is the unit, not the destination: several configs commonly
+  name the same `btpDestination` and differ in target URL and headers, so a
+  destination cannot identify one.
+
+  Each proxy takes a **free port**, and the port written in the config is
+  deliberately ignored — four of the configs in a real directory say 3001, so
+  honouring it is precisely the collision this mode exists to end.
+  `proxy_start` returns the URL actually bound.
+  `proxy_stop` frees the port and releases the credential; it never touches a
+  proxy another session started, which `proxy_status` shows and marks as such.
+
+  Every proxy runs inside the management process, and closing the session — or
+  `SIGINT`, or `SIGTERM` — stops all of them. A spawned child would be orphaned
+  by any signal the parent did not forward and would go on holding its HTTP and
+  OAuth callback ports, which is the same reason `bin/mcp-abap-adt-proxy.js`
+  has always loaded the server in-process.
+
+  A proxy nobody has used for 30 minutes (`idleTimeoutMs`) stops itself. It is
+  a backstop for a client that finished and forgot, not a substitute for
+  `proxy_stop` — which the tool descriptions say, and say again beside the URL.
+  The countdown runs only while nothing is in flight, so an open SSE connection
+  is never called idle however quiet it is.
+
+  Records under `runtime/` carry the machine's boot time, because a pid is
+  unique only within a boot: after a restart the same number can belong to an
+  unrelated live process, and a record would then be reported as another
+  session's proxy forever. They are written to a temporary name and renamed, so
+  a concurrent reader sees a whole record or no file, never a truncated one.
+
+- `src/lib/stores.ts` now holds the whole path convention: four folders under
+  one relocatable base — `service-keys/`, `sessions/`, `proxy/` and the new
+  `runtime/` — through `storeBaseDir()` and `storeDir()`. `proxy/` and
+  `runtime/` had each grown a private copy of the platform logic in the module
+  that used them, which is three places for one convention to drift.
+
+  `storeDir()` deliberately has no working-directory fallback, unlike the
+  search path `getPlatformPaths()` returns: a runtime record written beside
+  wherever a client happened to be launched from is a record the next session
+  will not find.
+
+- **The SSE transport imposes no headers of its own.** The deleted axios path set
+  `Accept: application/json, application/x-ndjson, text/event-stream` and
+  `Content-Type: application/json` on every request and forwarded none of the
+  client's. The proxy is transparent and answers for the authorization header
+  only, so the client's headers now go through as sent. A target that needs a
+  particular `Accept` gets it from that proxy's `defaultHeaders`, where it is
+  visible in the config rather than hidden in the proxy.
+- **The upstream path is the client's path.** The old SSE path had three
+  branches: an explicit `targetUrl` meant base + the client's path; a service-key
+  URL already containing `/mcp` was used as-is with the client's path DISCARDED;
+  anything else got `/mcp/stream/http` appended. Now it is always base + the
+  client's path. Configs that set `targetUrl` — which is the documented way and
+  what every config in practice does — are unaffected; a config relying on the
+  service key's own URL should set `targetUrl` explicitly.
+- The SSE transport forwards through the same transparent pipe as every other
+  transport. It used to rebuild the request by hand, carry it over axios, buffer
+  the answer and rewrap it as a JSON-RPC envelope — so an SSE response now
+  streams rather than arriving whole. Error envelopes still echo the JSON-RPC
+  `id`, which is why the body is still read before forwarding; the bytes handed
+  on are the ones that arrived, so `content-length` stays true.
+
+### Removed
+
+- **The circuit breaker.** It only ever guarded the buffered axios forward that
+  this release deletes, and the streaming path has nowhere to put one without
+  buffering the response again — which is the thing being fixed.
+  `circuitBreakerThreshold` and `circuitBreakerTimeout` are still accepted so
+  existing configs load unchanged, and are now documented as inert.
+  `MCP_PROXY_CIRCUIT_BREAKER_THRESHOLD` likewise.
+
+
+- The token cache, its TTL, the JWT `exp` decoder, and the proactive-refresh
+  timer per destination. The broker caches and knows expiry, and
+  `authorizationHeader()` renews behind the call — the timer was a `setTimeout`
+  per destination, alive for the life of the process, topping up a cache that
+  duplicated the broker.
+- `src/proxy/cloudLlmHubProxy.ts`, whose entire contents were `// DELETED`.
+- `src/proxy/btpProxy.ts` goes from 1248 lines to 490.
+
+### Documentation
+
+- `docs/MIGRATION-4.0.md` (new): what a consumer does about each breaking change,
+  and which of them do not apply to them. Per the repository's release rule, a
+  breaking release owes one.
+
+- `docs/API.md` described `CloudLlmHubProxy.proxyRequest()` and an import path
+  for a file containing one comment. It now documents the facade and the pipe.
+- `docs/ARCHITECTURE.md` and `CLAUDE.md` described a proxy client that caches
+  tokens for 30 minutes, and pointed at `cloudLlmHubProxy.ts` for it.
+- `CLAUDE.md` pointed test instructions at `cloudLlmHubProxy.test.ts`, which has
+  not existed for some time.
+
 ## [3.0.0] - 2026-09-03
 
 ### Licence

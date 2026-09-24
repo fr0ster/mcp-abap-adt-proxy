@@ -44,6 +44,9 @@ npm run start:http
 # Start server (SSE transport)
 npm run start:sse
 
+# Start the management mode (stdio MCP server that starts/stops proxies)
+npm run start:mcp
+
 # Run with MCP Inspector for debugging
 npm run dev
 
@@ -66,15 +69,41 @@ MCP Client → Proxy (intercepts request) → Header Analysis →
 - **src/index.ts** - Main server class (`McpAbapAdtProxyServer`) supporting stdio, HTTP, and SSE transports
 - **src/router/headerAnalyzer.ts** - Extracts routing info from `x-sap-destination` and `x-target-url` headers; returns a `RoutingDecision` with strategy (PROXY, UNKNOWN)
 - **src/router/requestInterceptor.ts** - Intercepts incoming HTTP requests, calls `analyzeHeaders()`, extracts session ID
-- **src/proxy/cloudLlmHubProxy.ts** - Handles proxying with BTP/XSUAA auth injection, retry logic with exponential backoff, circuit breaker, and token caching (30-min TTL)
+- **bin/mcp-abap-adt-proxy-mcp.js** + **src/mcp/** - the management mode: a stdio MCP server whose tools (`proxy_start` / `proxy_stop` / `proxy_status`) start and stop proxies. `supervisor.ts` owns the listeners, which run IN THIS PROCESS for the same reason the launcher does not spawn; `registry.ts` is the cross-session view, pruning records whose process has died; `ports.ts` binds port 0 so two sessions never collide; `tools.ts` holds the tool definitions and the shutdown reminder the client is told three times
+- **src/proxy/requestHandler.ts** - the one request path, shared by both commands. What an AUTHENTICATION failure means is a parameter: fatal in the standalone proxy, answered-and-survived in the MCP mode, where exiting would take the client's session down
+- **src/proxy/credentials.ts** - `DestinationCredentials`: destination → the credential it authenticates with (`TokenAuthProvider` over the broker's `ITokenRefresher`) and the base URL from its service key. One of each per destination; no token cache, no refresh timer — the credential is asked per request and renews behind that call
+- **src/proxy/btpProxy.ts** - `BtpProxy`: a facade over the above. `getAuthorizationHeader(destination)` (retried, since a refusal is not always an answer) and `getTargetUrl(destination)`, plus broker construction. **No circuit breaker** — it only ever guarded the buffered axios forward, and the streaming path has nowhere to put one without buffering the response again
+- **src/proxy/reverseProxy.ts** - `forwardRequest()`: the single transparent pipe. Takes a complete `Authorization` header VALUE (or `null`), streams the response, and can send a body a caller already read off the request
 - **src/lib/config.ts** - Configuration loading from YAML/JSON config files or env vars + CLI params. With `--config`, CLI flags override matching values from the file (file is the baseline; `defaultHeaders` merge per key)
 - **src/lib/errorHandler.ts** - Retry logic (`retryWithBackoff()`) and circuit breaker (opens after threshold failures, resets after timeout)
 - **src/lib/transportConfig.ts** - Transport type detection: explicit `--transport` flag → `MCP_TRANSPORT` env var → auto-detect (stdio if not TTY, else streamable-http)
-- **src/lib/stores.ts** - Platform-specific auth store paths (Windows vs Unix) for service key files
+- **src/lib/stores.ts** - THE path convention, in one place. Four folders under one base (`~/.config/mcp-abap-adt/`, Windows `Documents\mcp-abap-adt\`), relocatable with `AUTH_BROKER_PATH`: `service-keys/`, `sessions/`, `proxy/` (ready proxy configs, the files `--config` takes), `runtime/` (a record per live proxy). Two shapes, and the difference matters: `getPlatformPaths()` is a SEARCH path ending in `process.cwd()`, for finding a key wherever it is; `storeDir()` is THE directory, with no cwd fallback, because a runtime record written beside wherever a client was launched from is one the next session will not find
 
-### BTP Authentication in `buildProxyRequest()`
+### BTP Authentication
 
-If `x-sap-destination` or `--btp` is present, the proxy gets a JWT from `btpAuthBroker` (ClientCredentials grant) and injects `Authorization: Bearer <token>`. Auth brokers are cached per destination for reuse across requests.
+If `x-sap-destination` or `--btp` is present, the proxy asks the destination's credential for an `Authorization` header and puts it on the forwarded request as it stands. Brokers and credentials are cached per destination; tokens are not — `TokenAuthProvider.authorizationHeader()` is asked on every request and renews behind that call, so a cache here would serve the stale token and hide the renewal the broker exists to do.
+
+`authorizationHeader()` answers a complete header value (`Bearer <token>`), or `null` where a credential is not a header at all. `null` must reach the target as an ABSENT header, never an empty one.
+
+**There is one forwarding path.** Every transport — stdio, streamable-http, SSE — goes through `forwardRequest()`. The SSE path reads the request body first, because the JSON-RPC `id` is what its error envelopes echo, and hands those exact bytes over rather than piping a spent stream.
+
+### What the proxy is responsible for, header-wise
+
+**The proxy is transparent and answers for the authorization header only.** That
+is the rule, and it decides questions that otherwise get decided by accident:
+
+- The client's headers go through verbatim. Hop-by-hop headers are stripped and
+  `host` is set, because HTTP requires it, not because the proxy has an opinion.
+- The client's `Authorization` is replaced with the destination's. That is the
+  one header the proxy owns.
+- `defaultHeaders` is the USER's injection, configured per proxy — not the proxy
+  deciding something on the user's behalf. Client headers win over it.
+- Nothing else is invented. The deleted axios path used to impose
+  `Accept: application/json, application/x-ndjson, text/event-stream` and
+  `Content-Type: application/json` on every forwarded request and drop the
+  client's headers entirely. It no longer does, and should not be made to again:
+  a target that needs a particular `Accept` gets it from that proxy's
+  `defaultHeaders`, where it is the user's choice and visible in their config.
 
 ### Routing Strategies
 
@@ -89,9 +118,14 @@ This package uses sibling packages from the `@mcp-abap-adt` monorepo:
 - `@mcp-abap-adt/auth-broker` - Authentication broker for JWT tokens
 - `@mcp-abap-adt/auth-providers` - Token providers (ClientCredentials)
 - `@mcp-abap-adt/auth-stores` - Service key storage
-- `@mcp-abap-adt/interfaces` - Shared TypeScript interfaces
+- `@mcp-abap-adt/connection` - `TokenAuthProvider`, the shared credential
+- `@mcp-abap-adt/interfaces-network` - every HTTP header constant, `x-sap-*` included
+- `@mcp-abap-adt/interfaces-auth` - `ITokenRefresher`
+- `@mcp-abap-adt/interfaces-auth-sap` - `IAuthorizationConfig`
 - `@mcp-abap-adt/header-validator` - Header validation utilities
 - `@mcp-abap-adt/logger` - Logging utility
+
+NOT `@mcp-abap-adt/interfaces`: that name is now an umbrella of deprecated re-exports, and this package does not depend on it. Several siblings above still do, so the tree carries copies of it — they are theirs, not ours.
 
 ## Code Style
 
@@ -112,7 +146,7 @@ Jest uses `moduleNameMapper` (`'^(\\.{1,2}/.*)\\.js$': '$1'`) to handle ESM `.js
 npm test
 
 # Run specific test file
-npx jest src/__tests__/proxy/cloudLlmHubProxy.test.ts
+npx jest src/__tests__/proxy/credentials.test.ts
 
 # Run with coverage
 npx jest --coverage

@@ -26,12 +26,68 @@ import {
  *    - Windows: %USERPROFILE%\Documents\mcp-abap-adt\{subfolder}
  * 3. Current working directory (process.cwd())
  *
- * @param subfolder Subfolder name ('service-keys' or 'sessions')
+ * @param subfolder One of the four folders; see {@link StoreFolder}
  * @returns Array of resolved absolute paths
  */
-export function getPlatformPaths(
-  subfolder?: 'service-keys' | 'sessions',
-): string[] {
+/**
+ * The four folders the toolchain keeps under one base.
+ *
+ * `service-keys/` and `sessions/` are the auth broker's. `proxy/` holds one
+ * ready config per proxy — the files `--config` takes. `runtime/` holds a
+ * record per live proxy, so one session can see another's.
+ */
+export const STORE_FOLDERS = [
+  'service-keys',
+  'sessions',
+  'proxy',
+  'runtime',
+] as const;
+
+export type StoreFolder = (typeof STORE_FOLDERS)[number];
+
+/**
+ * THE base directory — one answer, not a search path.
+ *
+ * `AUTH_BROKER_PATH` relocates it, so all four folders move together; when it
+ * lists several, the first is the one written to. Unlike
+ * {@link getPlatformPaths}, this never falls back to the working directory: a
+ * file written beside wherever a client happened to be launched from is a file
+ * the next session will not find.
+ */
+export function storeBaseDir(): string {
+  const envPath = process.env.AUTH_BROKER_PATH;
+  if (envPath) {
+    // Not `/[:;]/`: on Windows that splits `C:\store` into `C`, which then
+    // resolves against the working directory. The delimiter is chosen from
+    // `process.platform` rather than taken from `path.delimiter`, which is bound
+    // to the host at module load and so cannot be exercised for the other one.
+    const first = envPath
+      .split(process.platform === 'win32' ? ';' : ':')
+      .map((p) => p.trim())
+      .find((p) => p.length > 0);
+    if (first) {
+      const resolved = path.resolve(first);
+      // Pointed at one of the folders rather than the base — a plausible
+      // mistake that `getPlatformPaths` already tolerates, so this must too.
+      // Otherwise runtime records land in `.../service-keys/runtime`.
+      return STORE_FOLDERS.includes(path.basename(resolved) as StoreFolder)
+        ? path.dirname(resolved)
+        : resolved;
+    }
+  }
+
+  const homeDir = os.homedir();
+  return process.platform === 'win32'
+    ? path.join(homeDir, 'Documents', 'mcp-abap-adt')
+    : path.join(homeDir, '.config', 'mcp-abap-adt');
+}
+
+/** THE directory for one of the four folders. */
+export function storeDir(folder: StoreFolder): string {
+  return path.join(storeBaseDir(), folder);
+}
+
+export function getPlatformPaths(subfolder?: StoreFolder): string[] {
   const paths: string[] = [];
   const isWindows = process.platform === 'win32';
 

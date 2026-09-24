@@ -13,9 +13,10 @@ Enable local MCP clients to connect to remote MCP servers with automatic JWT tok
 
 ## Features
 
-- ✅ **JWT Token Management** - Automatic token retrieval, caching, and refresh via auth-broker
+- ✅ **One shared credential** - the token is the auth-broker's business: it caches, knows expiry and renews behind the call. The proxy holds no token of its own
 - ✅ **Service Key Based** - MCP server URL is obtained from service key for BTP destination
-- ✅ **Error Handling** - Retry logic, circuit breaker, and comprehensive error handling
+- ✅ **Transparent forwarding** - the client's headers go through as sent; the proxy answers for the `Authorization` header and nothing else
+- ✅ **Error Handling** - token acquisition is retried with exponential backoff when the failure can get better; clear messages when it cannot
 - ✅ **Multiple Transport Modes** - HTTP, SSE, and stdio support
 - ✅ **Configuration Flexibility** - Environment variables, config files, or defaults
 
@@ -39,6 +40,58 @@ mcp-abap-adt-proxy --btp=ai
 # Enable file-based session storage (persists tokens to disk)
 mcp-abap-adt-proxy --btp=ai --unsafe
 ```
+
+## Two commands
+
+The package installs two binaries, for two different jobs.
+
+| Command | What it is for |
+|---|---|
+| `mcp-abap-adt-proxy` | **Be** a proxy. A client points at it and its requests are authenticated and forwarded. |
+| `mcp-abap-adt-proxy-mcp` | **Manage** proxies. Speaks MCP over stdio; its tools start and stop proxies on demand. |
+
+### The management mode
+
+Register it like any other MCP server:
+
+```json
+{
+  "mcpServers": {
+    "abap-proxy": { "command": "mcp-abap-adt-proxy-mcp" }
+  }
+}
+```
+
+It works from the proxy configs you already keep:
+
+```
+~/.config/mcp-abap-adt/proxy/<name>.yaml     (Windows: Documents\mcp-abap-adt\proxy\)
+```
+
+These are the same files `mcp-abap-adt-proxy --config <file>` takes. Starting a
+proxy is therefore **choosing a name**, not assembling settings — and
+credentials stay in the config, resolved through `${VAR}` interpolation, rather
+than travelling through a tool call.
+
+| Tool | What it does |
+|---|---|
+| `proxy_configs` | Lists the configs available, by the name `proxy_start` takes. Call it first — the names cannot be guessed. |
+| `proxy_start` | Starts a proxy from one of those configs and returns the URL it bound. The **port is not taken from the config**: a free one is bound instead. |
+| `proxy_stop` | Stops a proxy this session started, freeing its port and releasing its credential. Proxies started by other sessions are never touched. |
+| `proxy_status` | Lists this session's proxies and any others on this machine. Records whose process has died are pruned when read, so it cannot report a ghost. |
+
+**The config name is the unit, not the destination.** Several configs commonly
+name the same `btpDestination` and differ in target URL and headers — a
+destination cannot tell them apart.
+
+**Every proxy runs inside the management process.** Closing the session — or
+`SIGINT`, or `SIGTERM` — stops all of them and frees their ports. This is
+deliberate: a spawned child would be orphaned by any signal the parent did not
+forward and would go on holding its HTTP and OAuth callback ports.
+
+A proxy nobody has used for 30 minutes stops itself. That is a backstop for a
+client that finished and forgot, not a substitute for `proxy_stop` — which is
+why the tool descriptions say so, and say it again beside the URL.
 
 ### Configuration
 
@@ -156,6 +209,8 @@ The proxy uses BTP/XSUAA authentication:
 
 ## Documentation
 
+- 🚚 **[Migration to 4.0](./docs/MIGRATION-4.0.md)** — the contracts leave the umbrella, an SSE response streams and carries your headers, `getJwtToken()` is replaced, the circuit breaker is gone
+
 - **[Client Setup Guide](./docs/CLIENT_SETUP.md)** - Step-by-step setup for Cline and GitHub Copilot
 - **[Configuration Guide](./docs/CONFIGURATION.md)** - Complete configuration reference
 - **[YAML Configuration Guide](./docs/YAML_CONFIG.md)** - Using YAML/JSON configuration files
@@ -221,7 +276,6 @@ Create `mcp-proxy-config.json`:
   "httpPort": 3001,
   "logLevel": "info",
   "maxRetries": 3,
-  "circuitBreakerThreshold": 5,
   "unsafe": false
 }
 ```
@@ -234,10 +288,9 @@ See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 
 ## Error Handling & Resilience
 
-- **Retry Logic** - Exponential backoff for failed requests
-- **Circuit Breaker** - Prevents cascading failures
-- **Token Refresh** - Automatic token refresh on expiration
-- **Connection Pooling** - Efficient resource management
+- **Retry Logic** - exponential backoff while getting a token, for failures that can get better (5xx, network). A missing service key is not one of them and fails at once, with a message naming the file to create
+- **Token Refresh** - handled by the credential, which is asked per request and renews behind the call
+- **No circuit breaker** - it guarded the buffered forward that 4.0.0 removed. The forwarding path now streams, and there is nowhere to put one without buffering the response again. `circuitBreakerThreshold` and `circuitBreakerTimeout` are still accepted so existing configs load, and do nothing
 - **Request Timeouts** - Configurable timeout handling
 
 ## Requirements
