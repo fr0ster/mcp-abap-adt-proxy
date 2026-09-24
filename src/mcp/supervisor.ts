@@ -13,6 +13,21 @@ import { type InstanceRecord, InstanceRegistry } from './registry.js';
 /** Thirty minutes with no forwarded request. */
 export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * How long a stop waits for requests in flight before cutting them.
+ *
+ * `server.close()` alone is not enough and cannot be: it waits for ACTIVE
+ * connections, and a response that streams never becomes inactive. Measured on
+ * Node 26.7.0, the close callback had not fired 1500ms after a single open
+ * event stream. Waiting forever would mean `proxy_stop` never returning and —
+ * because the shutdown path awaits the same call — SIGINT, SIGTERM and stdin
+ * close all hanging with the port still held, which is precisely the
+ * orphaned-port failure running in-process was meant to prevent.
+ *
+ * So an ordinary request gets this long to finish, and then the socket goes.
+ */
+export const DEFAULT_STOP_GRACE_MS = 2000;
+
 export interface StartOptions {
   /**
    * The config's name, as it is filed in the proxy config directory. This is
@@ -29,6 +44,8 @@ export interface StartOptions {
   config: ProxyConfig;
   /** `0` turns the backstop off. */
   idleTimeoutMs?: number;
+  /** How long a stop waits for requests in flight. See DEFAULT_STOP_GRACE_MS. */
+  stopGraceMs?: number;
 }
 
 export interface StartedInstance {
@@ -48,6 +65,7 @@ interface Owned extends StartedInstance {
   idle?: NodeJS.Timeout;
   /** Kept so a request can re-arm the countdown with the same length. */
   idleTimeoutMs: number;
+  stopGraceMs: number;
 }
 
 export interface SupervisorOptions {
@@ -67,8 +85,9 @@ export interface SupervisorOptions {
  * it. In-process, a listener dies when the stdio session dies and its port
  * goes with it.
  *
- * Everything here is about letting go. A stopped instance closes its server,
- * clears its idle timer and deletes its record, in that order; a session that
+ * Everything here is about letting go. A stopped instance clears its idle
+ * timer, closes its listener, releases its credential and deletes its record,
+ * in that order; a session that
  * ends stops all of them; and an instance nobody has used for a while stops
  * itself, because an agent that finished and forgot is the case this mode has
  * to survive.
@@ -125,6 +144,7 @@ export class ProxySupervisor {
       server,
       facade,
       idleTimeoutMs,
+      stopGraceMs: options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS,
     };
     this.owned.set(instanceId, started);
     this.registry.record({
@@ -160,16 +180,36 @@ export class ProxySupervisor {
     const stopped: StartedInstance[] = [];
     for (const target of targets) {
       if (target.idle) clearTimeout(target.idle);
-      await new Promise<void>((resolve) =>
-        target.server.close(() => resolve()),
-      );
+      await this.closeListener(target);
+
       // The port is half of it. The broker behind the credential holds cached
-      // service-key lookups and, when it was built for a browser login, a
-      // callback server — letting go of the listener and keeping those would be
-      // releasing the visible resource and holding the rest.
-      (target.facade as { dispose?: () => void }).dispose?.();
+      // service-key lookups, so letting go of the listener and keeping those
+      // would be releasing the visible resource and holding the rest.
+      //
+      // Guarded, and so is forgetting the record: a credential that throws on
+      // the way out used to abort this loop between closing the server and
+      // deleting the record, leaving both the instance and its file behind —
+      // and rejecting on top of it, which from the idle timer means an
+      // unhandled rejection and a dead MCP session.
+      try {
+        (target.facade as { dispose?: () => void }).dispose?.();
+      } catch (error) {
+        logger?.error('A credential threw while being released', {
+          type: 'MCP_MODE_DISPOSE_FAILED',
+          instanceId: target.instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       this.owned.delete(target.instanceId);
-      this.registry.forget(target.port);
+      try {
+        this.registry.forget(target.port);
+      } catch (error) {
+        logger?.error('Could not delete the instance record', {
+          type: 'MCP_MODE_FORGET_FAILED',
+          port: target.port,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       stopped.push(this.describe(target));
       logger?.info('Proxy stopped by the MCP mode', {
         type: 'MCP_MODE_PROXY_STOPPED',
@@ -196,12 +236,49 @@ export class ProxySupervisor {
       );
   }
 
+  /**
+   * Close the listener and make sure the port is actually free afterwards.
+   *
+   * Idle keep-alive sockets go immediately — they are holding the port for
+   * nothing. Anything still carrying a request gets `stopGraceMs`, and then
+   * goes too, because a stream will not end on its own and the caller asked
+   * for this port back.
+   */
+  private async closeListener(target: Owned): Promise<void> {
+    const closed = new Promise<void>((resolve) =>
+      target.server.close(() => resolve()),
+    );
+    target.server.closeIdleConnections?.();
+
+    let forced: NodeJS.Timeout | undefined;
+    const grace = new Promise<void>((resolve) => {
+      forced = setTimeout(() => {
+        logger?.info('Cutting requests still in flight to free the port', {
+          type: 'MCP_MODE_STOP_FORCED',
+          instanceId: target.instanceId,
+          port: target.port,
+          stopGraceMs: target.stopGraceMs,
+        });
+        target.server.closeAllConnections?.();
+        resolve();
+      }, target.stopGraceMs);
+      forced.unref?.();
+    });
+
+    await Promise.race([closed, grace]);
+    if (forced) clearTimeout(forced);
+    // After closeAllConnections the close callback fires; wait for it so the
+    // port is demonstrably free when this returns rather than probably free.
+    await closed;
+  }
+
   private describe(owned: Owned): StartedInstance {
     const {
       server: _server,
       idle: _idle,
       facade: _facade,
       idleTimeoutMs: _idleTimeoutMs,
+      stopGraceMs: _stopGraceMs,
       ...rest
     } = owned;
     return rest;
@@ -218,7 +295,16 @@ export class ProxySupervisor {
         instanceId,
         idleTimeoutMs: ms,
       });
-      void this.stop(instanceId);
+      // Caught, not floated: `stop()` can reject, and an unhandled rejection
+      // from a timer ends the process — taking the client's MCP session with a
+      // proxy that merely sat unused.
+      void this.stop(instanceId).catch((error) => {
+        logger?.error('Failed to stop an idle proxy', {
+          type: 'MCP_MODE_IDLE_STOP_FAILED',
+          instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }, ms);
     timer.unref?.();
     return timer;

@@ -120,7 +120,10 @@ describe('config file env interpolation', () => {
     const cfg = writeConfig('btpDestination: btp\nenvFile: secrets.env\n');
     fs.writeFileSync(path.join(dir, 'secrets.env'), '');
     process.argv = ['node', 'proxy', '--config', cfg];
-    const config = loadConfig() as Record<string, unknown>;
+    // Through `unknown`: the assertion is that a key the TYPE does not have is
+    // absent at RUNTIME, and TypeScript is right that the two shapes do not
+    // overlap — which is the point being checked.
+    const config = loadConfig() as unknown as Record<string, unknown>;
     expect(config.envFile).toBeUndefined();
   });
 });

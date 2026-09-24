@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
-import { logger } from '../lib/logger.js';
 import { createBtpProxy } from '../proxy/btpProxy.js';
+import { createShutdown } from './shutdown.js';
 import { ProxySupervisor } from './supervisor.js';
 import { createProxyTools, SHUTDOWN_REMINDER } from './tools.js';
 
@@ -72,39 +72,28 @@ export function createMcpModeServer(config: ProxyConfig): {
  * Every way this process can end stops the proxies first. That is the whole
  * point of running them in this process: a listener that outlives the session
  * that asked for it is a port nobody remembers holding.
+ *
+ * The ordering, the run-once guard and the deadline live in `createShutdown`,
+ * where they are tested. They were inline here, and the exit sat in a
+ * `.finally()` after an unbounded await — so anything that hung below produced
+ * exactly the process this design exists to avoid.
  */
 export async function runMcpMode(
   config: ProxyConfig = loadConfig(),
 ): Promise<void> {
   const { server, supervisor } = createMcpModeServer(config);
 
-  let closing = false;
-  const closeDown = async (why: string) => {
-    if (closing) return;
-    closing = true;
-    logger?.info('MCP mode shutting down', { type: 'MCP_MODE_SHUTDOWN', why });
-    const stopped = await supervisor.stop();
-    if (stopped.length > 0) {
-      logger?.info('Released proxies on shutdown', {
-        type: 'MCP_MODE_SHUTDOWN_RELEASED',
-        count: stopped.length,
-        ports: stopped.map((s) => s.port),
-      });
-    }
-    await server.close().catch(() => {
-      /* already gone */
-    });
-  };
+  const shutdown = createShutdown({
+    supervisor,
+    closeServer: () => server.close(),
+    exit: (code) => process.exit(code),
+  });
 
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.on(signal, () => {
-      void closeDown(signal).finally(() => process.exit(0));
-    });
+    process.on(signal, () => void shutdown(signal));
   }
   // The client hanging up is the ordinary case, not an exceptional one.
-  process.stdin.on('close', () => {
-    void closeDown('stdin closed').finally(() => process.exit(0));
-  });
+  process.stdin.on('close', () => void shutdown('stdin closed'));
 
   await server.connect(new StdioServerTransport());
 }

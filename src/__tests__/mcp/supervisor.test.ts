@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type Server } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,6 +52,39 @@ function portIsFree(port: number): Promise<boolean> {
     probe.once('error', () => resolve(false));
     probe.once('listening', () => probe.close(() => resolve(true)));
     probe.listen(port, '127.0.0.1');
+  });
+}
+
+/** A backend that starts a response and never finishes it — an event stream. */
+async function neverEndingBackend(): Promise<{ url: string; close: () => void }> {
+  const open: import('node:http').ServerResponse[] = [];
+  const backend = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.write('data: first\n\n');
+    open.push(res);
+  });
+  await new Promise<void>((r) => backend.listen(0, '127.0.0.1', r));
+  const address = backend.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: () => {
+      for (const res of open) res.end();
+      backend.close();
+    },
+  };
+}
+
+/** Open a request through the proxy and resolve on its first byte. */
+function firstByteThrough(port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { host: '127.0.0.1', port, path: '/sse', method: 'GET',
+        headers: { 'x-sap-destination': 'D1' } },
+      (res) => res.once('data', () => resolve()),
+    );
+    req.on('error', reject);
+    req.end();
   });
 }
 
@@ -155,6 +188,65 @@ describe('ProxySupervisor', () => {
     // The backstop for an agent that finished and forgot: a proxy holds a port
     // and live credentials for as long as it runs.
     expect(supervisor.mine()).toEqual([]);
+    expect(await portIsFree(started.port)).toBe(true);
+  });
+
+  // The failure this caught: `server.close()` waits for ACTIVE connections, and
+  // a stream never becomes inactive. Measured on Node 26.7.0 — the close
+  // callback had not fired after 1500ms. So `proxy_stop` never returned, and
+  // because the shutdown path awaits the same call, SIGINT, SIGTERM and stdin
+  // close all hung with the port still held. That is exactly the orphaned-port
+  // failure running in-process was meant to prevent, reached from the other end.
+  it('gives the port back even while a response is still streaming', async () => {
+    const backend = await neverEndingBackend();
+    const streaming = new ProxySupervisor({
+      registry: new InstanceRegistry(dir, () => true),
+      proxyFor: async () =>
+        ({
+          getAuthorizationHeader: async () => 'Bearer t',
+          getTargetUrl: async () => backend.url,
+        }) as never,
+    });
+    try {
+      const started = await streaming.start({
+        name: 'cfg-D1',
+        config: cfg('D1'),
+        stopGraceMs: 50,
+      });
+      await firstByteThrough(started.port);
+
+      const stopped = await Promise.race([
+        streaming.stop(started.instanceId),
+        new Promise<'HUNG'>((r) => setTimeout(() => r('HUNG'), 3000)),
+      ]);
+
+      expect(stopped).not.toBe('HUNG');
+      expect(await portIsFree(started.port)).toBe(true);
+    } finally {
+      backend.close();
+      await streaming.stop();
+    }
+  });
+
+  it('keeps going when a credential throws on dispose, rather than leaving the record behind', async () => {
+    const throwing = new ProxySupervisor({
+      registry: new InstanceRegistry(dir, () => true),
+      proxyFor: async () =>
+        ({
+          ...facade,
+          dispose: () => {
+            throw new Error('broker refused to let go');
+          },
+        }) as never,
+    });
+
+    const started = await throwing.start({ name: 'cfg-D1', config: cfg('D1') });
+    await expect(throwing.stop(started.instanceId)).resolves.toHaveLength(1);
+
+    // A throw between closing the server and forgetting the record used to
+    // leave both the instance and its file behind, and reject on top of it.
+    expect(throwing.mine()).toEqual([]);
+    expect(new InstanceRegistry(dir, () => true).live()).toEqual([]);
     expect(await portIsFree(started.port)).toBe(true);
   });
 

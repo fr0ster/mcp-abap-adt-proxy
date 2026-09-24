@@ -4,22 +4,7 @@ import {
     browserCallbackStrategy,
     ClientCredentialsProvider,
 } from '@mcp-abap-adt/auth-providers';
-import {
-    BtpProxy,
-    type ProxyRequest,
-    type ProxyResponse,
-    shouldWriteStderr,
-} from '../../proxy/btpProxy';
-import { RoutingStrategy } from '../../router/headerAnalyzer';
-
-// Mock types
-type MockAxiosInstance = {
-    request: jest.Mock;
-    interceptors: {
-        request: { use: jest.Mock };
-        response: { use: jest.Mock };
-    };
-};
+import { BtpProxy, shouldWriteStderr } from '../../proxy/btpProxy';
 
 // Mock AuthBroker singleton
 const mockAuthBrokerInstance = {
