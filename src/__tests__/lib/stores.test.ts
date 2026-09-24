@@ -78,6 +78,24 @@ describe('storeDir', () => {
     expect(storeBaseDir()).toBe(path.resolve('/tmp/first'));
   });
 
+  it('uses the platform delimiter, so a Windows drive letter survives', () => {
+    setPlatform('win32');
+    process.env.AUTH_BROKER_PATH = 'C:\\store';
+
+    // Splitting on /[:;]/ turned `C:\store` into `C`, resolved against cwd.
+    expect(storeBaseDir()).toBe(path.resolve('C:\\store'));
+  });
+
+  it('takes the parent when AUTH_BROKER_PATH points at one of the folders', () => {
+    process.env.AUTH_BROKER_PATH = '/tmp/relocated/service-keys';
+
+    // The search path already tolerates this, so the single-directory answer
+    // must too: otherwise records land in `.../service-keys/runtime`.
+    expect(storeDir('runtime')).toBe(
+      path.join(path.resolve('/tmp/relocated'), 'runtime'),
+    );
+  });
+
   it('never answers with the working directory', () => {
     delete process.env.AUTH_BROKER_PATH;
 

@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InstanceRegistry } from '../../mcp/registry.js';
+import { bootedAt, InstanceRegistry } from '../../mcp/registry.js';
 import { ProxySupervisor } from '../../mcp/supervisor.js';
 import { createProxyTools } from '../../mcp/tools.js';
 
@@ -157,6 +157,7 @@ describe('the proxy tools', () => {
       destination: 'THEIRS',
       config: 'theirs',
       startedAt: new Date().toISOString(),
+      bootedAt: bootedAt(),
     });
     await textOf('proxy_start', { config: 'nvcr_d24' });
 

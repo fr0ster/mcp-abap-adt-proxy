@@ -8,7 +8,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listProxyConfigs, resolveProxyConfig } from '../../mcp/configs.js';
@@ -69,6 +75,15 @@ describe('listProxyConfigs', () => {
     // that is sitting right there.
     expect(listProxyConfigs(dir).map((c) => c.name)).toEqual(['broken']);
     expect(listProxyConfigs(dir)[0].destination).toBeUndefined();
+  });
+
+  it('steps over a broken symlink instead of failing the whole listing', () => {
+    write('real.yaml');
+    symlinkSync(join(dir, 'gone.yaml'), join(dir, 'dangling.yaml'));
+
+    // `statSync` follows the link and throws. One bad entry must not cost the
+    // caller every config in the directory.
+    expect(listProxyConfigs(dir).map((c) => c.name)).toEqual(['real']);
   });
 
   it('reports nothing when the directory does not exist', () => {

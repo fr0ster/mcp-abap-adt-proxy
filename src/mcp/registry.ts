@@ -4,9 +4,11 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { storeDir } from '../lib/stores.js';
 
@@ -21,7 +23,31 @@ export interface InstanceRecord {
   /** Which proxy config was started. */
   config: string;
   startedAt: string;
+  /**
+   * When the machine this was written on last booted.
+   *
+   * A pid is only unique within a boot. After a restart the same number can
+   * belong to an unrelated live process, and `process.kill(pid, 0)` then says
+   * "alive" forever — a record that outlives its writer permanently, reported by
+   * `proxy_status` as another session's proxy with no way to clear it but
+   * deleting the file by hand.
+   */
+  bootedAt: number;
 }
+
+/**
+ * When this machine booted, to the nearest millisecond it can manage.
+ *
+ * `os.uptime()` is seconds since boot on every platform, so this drifts by a few
+ * milliseconds between calls — which is why records are compared with a
+ * tolerance rather than for equality.
+ */
+export function bootedAt(): number {
+  return Math.round(Date.now() - os.uptime() * 1000);
+}
+
+/** How far apart two readings of the boot time may be and still mean one boot. */
+const BOOT_TOLERANCE_MS = 5000;
 
 /** Does this process still exist? */
 export type IsAlive = (pid: number) => boolean;
@@ -68,7 +94,13 @@ export class InstanceRegistry {
 
   record(entry: InstanceRecord): void {
     mkdirSync(this.dir, { recursive: true });
-    writeFileSync(this.fileFor(entry.port), JSON.stringify(entry, null, 2));
+    // Written beside the target and renamed over it. `writeFileSync` truncates
+    // first, so a reader arriving mid-write sees a partial file; a rename is
+    // atomic, so it sees either the whole record or no file.
+    const file = this.fileFor(entry.port);
+    const partial = `${file}.tmp-${process.pid}`;
+    writeFileSync(partial, JSON.stringify(entry, null, 2));
+    renameSync(partial, file);
   }
 
   /** Drop this process's record for a port. Missing is not an error. */
@@ -95,7 +127,16 @@ export class InstanceRegistry {
       }
 
       if (typeof record?.pid !== 'number') continue;
-      if (this.isAlive(record.pid)) {
+
+      // A pid means nothing across a reboot, so a record from an earlier boot is
+      // gone whatever its pid now answers. A record with no boot time at all was
+      // written by an older version and cannot be judged, which is the same
+      // answer.
+      const sameBoot =
+        typeof record.bootedAt === 'number' &&
+        Math.abs(record.bootedAt - bootedAt()) <= BOOT_TOLERANCE_MS;
+
+      if (sameBoot && this.isAlive(record.pid)) {
         records.push(record);
       } else {
         rmSync(file, { force: true });

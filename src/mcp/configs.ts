@@ -40,7 +40,13 @@ export function listProxyConfigs(
     const file = path.join(dir, name);
     const extension = path.extname(name).toLowerCase();
     if (!EXTENSIONS.includes(extension)) continue;
-    if (!statSync(file).isFile()) continue;
+    try {
+      // `statSync` follows symlinks and throws on a dangling one, or on a file
+      // removed between the readdir and here. One bad entry costs that entry.
+      if (!statSync(file).isFile()) continue;
+    } catch {
+      continue;
+    }
 
     const entry: ProxyConfigEntry = {
       name: path.basename(name, path.extname(name)),

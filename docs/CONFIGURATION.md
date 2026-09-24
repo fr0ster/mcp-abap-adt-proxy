@@ -236,7 +236,7 @@ One setting exists only here:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `idleTimeoutMs` (a `proxy_start` argument) | `1800000` (30 min) | Stops a proxy after this long with no forwarded request. `0` disables it. A backstop for a client that finished and forgot, not a substitute for `proxy_stop` |
+| `idleTimeoutMs` (a `proxy_start` argument) | `1800000` (30 min) | Stops a proxy after this long with **nothing in flight**. The countdown runs only while no request is being carried, so an open SSE connection — quiet or not — is never called idle. `0` disables it. A backstop for a client that finished and forgot, not a substitute for `proxy_stop` |
 
 ## Troubleshooting
 

@@ -8,7 +8,7 @@ import {
   createProxyRequestHandler,
 } from '../proxy/requestHandler.js';
 import { listenOnFreePort } from './ports.js';
-import { type InstanceRecord, InstanceRegistry } from './registry.js';
+import { bootedAt, type InstanceRecord, InstanceRegistry } from './registry.js';
 
 /** Thirty minutes with no forwarded request. */
 export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -63,9 +63,17 @@ interface Owned extends StartedInstance {
   /** Released on stop, alongside the port. */
   facade: CredentialFacade;
   idle?: NodeJS.Timeout;
-  /** Kept so a request can re-arm the countdown with the same length. */
+  /** Kept so the countdown can be re-armed with the same length. */
   idleTimeoutMs: number;
   stopGraceMs: number;
+  /**
+   * Requests currently being carried. The idle countdown runs only at zero.
+   *
+   * Counting from the START of a request instead made a single long-lived
+   * stream — the ordinary shape for MCP — look idle, so a session that was
+   * actively connected was stopped on a schedule.
+   */
+  inFlight: number;
 }
 
 export interface SupervisorOptions {
@@ -134,7 +142,8 @@ export class ProxySupervisor {
     });
 
     const server = createServer((req, res) => {
-      this.touch(instanceId);
+      this.requestStarted(instanceId);
+      res.on('close', () => this.requestFinished(instanceId));
       handle(req, res).catch((error) => {
         logger?.error('Proxy request failed inside the MCP mode', {
           type: 'MCP_MODE_REQUEST_ERROR',
@@ -159,6 +168,7 @@ export class ProxySupervisor {
       facade,
       idleTimeoutMs,
       stopGraceMs: options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS,
+      inFlight: 0,
     };
     this.owned.set(instanceId, started);
     this.registry.record({
@@ -168,6 +178,7 @@ export class ProxySupervisor {
       destination: started.destination,
       config: started.name,
       startedAt: started.startedAt,
+      bootedAt: bootedAt(),
     });
 
     if (idleTimeoutMs > 0) {
@@ -239,15 +250,17 @@ export class ProxySupervisor {
     return [...this.owned.values()].map((owned) => this.describe(owned));
   }
 
-  /** Live proxies started by other sessions. Dead claims are pruned on read. */
+  /**
+   * Live proxies started by other sessions. Dead claims are pruned on read.
+   *
+   * Anything bearing this process's pid is OURS, owned or not. A record we wrote
+   * and no longer own is an orphan of our own making — `forget()` failed, or a
+   * second supervisor shares the directory — and reporting it as "another
+   * session's, not yours to stop" would be actively misleading about the one
+   * thing the caller would act on.
+   */
   others(): InstanceRecord[] {
-    return this.registry
-      .live()
-      .filter(
-        (record) =>
-          record.pid !== process.pid ||
-          ![...this.owned.values()].some((o) => o.port === record.port),
-      );
+    return this.registry.live().filter((record) => record.pid !== process.pid);
   }
 
   /**
@@ -293,6 +306,7 @@ export class ProxySupervisor {
       facade: _facade,
       idleTimeoutMs: _idleTimeoutMs,
       stopGraceMs: _stopGraceMs,
+      inFlight: _inFlight,
       ...rest
     } = owned;
     return rest;
@@ -324,10 +338,31 @@ export class ProxySupervisor {
     return timer;
   }
 
-  private touch(instanceId: string): void {
+  /**
+   * A request arrived: stop counting down until it is done.
+   *
+   * Clearing the handle as well as the timer is what closes the leak the old
+   * `touch()` had — it replaced `owned.idle` while `stop()` already held the
+   * previous handle, so the replacement was never cleared and later fired
+   * against an instance that had gone.
+   */
+  private requestStarted(instanceId: string): void {
     const owned = this.owned.get(instanceId);
-    if (!owned?.idle) return;
-    clearTimeout(owned.idle);
-    owned.idle = this.armIdle(instanceId, owned.idleTimeoutMs);
+    if (!owned) return;
+    owned.inFlight += 1;
+    if (owned.idle) {
+      clearTimeout(owned.idle);
+      owned.idle = undefined;
+    }
+  }
+
+  /** The last one finished: start counting down again. */
+  private requestFinished(instanceId: string): void {
+    const owned = this.owned.get(instanceId);
+    if (!owned) return;
+    owned.inFlight = Math.max(0, owned.inFlight - 1);
+    if (owned.inFlight === 0 && !owned.idle && owned.idleTimeoutMs > 0) {
+      owned.idle = this.armIdle(instanceId, owned.idleTimeoutMs);
+    }
   }
 }

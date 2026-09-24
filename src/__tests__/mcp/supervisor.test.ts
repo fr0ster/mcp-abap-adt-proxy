@@ -13,7 +13,7 @@ import { createServer, request as httpRequest, type Server } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InstanceRegistry } from '../../mcp/registry.js';
+import { bootedAt, InstanceRegistry } from '../../mcp/registry.js';
 import { ProxySupervisor } from '../../mcp/supervisor.js';
 
 let dir: string;
@@ -303,6 +303,67 @@ describe('ProxySupervisor', () => {
     expect(await portIsFree(started.port)).toBe(true);
   });
 
+  it('does not call an open stream idle', async () => {
+    const backend = await neverEndingBackend();
+    const streaming = new ProxySupervisor({
+      registry: new InstanceRegistry(dir, () => true),
+      proxyFor: async () =>
+        ({
+          getAuthorizationHeader: async () => 'Bearer t',
+          getTargetUrl: async () => backend.url,
+        }) as never,
+    });
+    try {
+      const started = await streaming.start({
+        name: 'cfg-D1',
+        config: cfg('D1'),
+        idleTimeoutMs: 40,
+        stopGraceMs: 20,
+      });
+      await firstByteThrough(started.port);
+
+      await new Promise((r) => setTimeout(r, 180));
+
+      // An SSE connection that is open but quiet is the ordinary MCP state —
+      // a client waiting for server events. Counting it idle and stopping it
+      // would end a working session on a schedule.
+      expect(streaming.mine()).toHaveLength(1);
+    } finally {
+      backend.close();
+      await streaming.stop();
+    }
+  });
+
+  it('starts counting again once the last request is done', async () => {
+    const backend = await neverEndingBackend();
+    const streaming = new ProxySupervisor({
+      registry: new InstanceRegistry(dir, () => true),
+      proxyFor: async () =>
+        ({
+          getAuthorizationHeader: async () => 'Bearer t',
+          getTargetUrl: async () => backend.url,
+        }) as never,
+    });
+    try {
+      const started = await streaming.start({
+        name: 'cfg-D1',
+        config: cfg('D1'),
+        idleTimeoutMs: 60,
+        stopGraceMs: 20,
+      });
+      await firstByteThrough(started.port);
+      expect(streaming.mine()).toHaveLength(1);
+
+      backend.close(); // ends the response, so nothing is in flight any more
+      await new Promise((r) => setTimeout(r, 300));
+
+      expect(streaming.mine()).toEqual([]);
+    } finally {
+      backend.close();
+      await streaming.stop();
+    }
+  });
+
   it('releases the credential it was given when the instance stops', async () => {
     let disposed = 0;
     const own = new ProxySupervisor({
@@ -339,6 +400,7 @@ describe('ProxySupervisor', () => {
       destination: 'THEIRS',
       config: 'theirs',
       startedAt: new Date().toISOString(),
+      bootedAt: bootedAt(),
     });
 
     await supervisor.start({ name: 'cfg-D1', config: cfg('D1') });

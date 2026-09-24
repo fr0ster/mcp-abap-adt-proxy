@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { InstanceRegistry } from '../../mcp/registry.js';
+import { bootedAt, InstanceRegistry } from '../../mcp/registry.js';
 
 let dir: string;
 
@@ -25,6 +25,7 @@ afterEach(() => {
 
 const entry = (over: Partial<Record<string, unknown>> = {}) => ({
   pid: process.pid,
+  bootedAt: bootedAt(),
   port: 4001,
   url: 'http://127.0.0.1:4001',
   destination: 'D1',
@@ -78,6 +79,47 @@ describe('InstanceRegistry', () => {
     writeFileSync(join(dir, 'garbage.json'), 'not json at all');
 
     expect(registry.live().map((r) => r.port)).toEqual([4001]);
+  });
+
+  it('prunes a record written before this boot, whose pid now belongs to someone else', () => {
+    const registry = new InstanceRegistry(dir, () => true);
+    // A pid is only unique within a boot. After a restart the number can belong
+    // to an unrelated live process, and `process.kill(pid, 0)` says "alive"
+    // forever — a ghost with no way to clear it but deleting the file by hand.
+    writeFileSync(
+      join(dir, '4242-4001.json'),
+      JSON.stringify({ ...entry(), pid: 4242, bootedAt: 1 }),
+    );
+
+    expect(registry.live()).toEqual([]);
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+
+  it('keeps a record from this boot', () => {
+    const registry = new InstanceRegistry(dir, () => true);
+
+    registry.record(entry() as never);
+
+    expect(registry.live()).toHaveLength(1);
+  });
+
+  it('prunes a record with no boot time at all, being from an older version', () => {
+    const registry = new InstanceRegistry(dir, () => true);
+    const { bootedAt: _drop, ...old } = { ...entry(), bootedAt: undefined };
+    writeFileSync(join(dir, '1-4001.json'), JSON.stringify(old));
+
+    expect(registry.live()).toEqual([]);
+  });
+
+  it('leaves no half-written file for a reader to trip over', () => {
+    const registry = new InstanceRegistry(dir, () => true);
+
+    registry.record(entry() as never);
+
+    // Written to a temp name and renamed: a reader either sees the whole record
+    // or no file, never a truncated one.
+    expect(readdirSync(dir).filter((f) => f.endsWith('.json'))).toHaveLength(1);
+    expect(readdirSync(dir).filter((f) => !f.endsWith('.json'))).toEqual([]);
   });
 
   it('reports nothing, rather than throwing, when the directory does not exist yet', () => {

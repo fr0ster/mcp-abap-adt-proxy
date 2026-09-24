@@ -81,6 +81,14 @@ what the proxy holds while it runs and how an SSE response reaches the client.
   A proxy nobody has used for 30 minutes (`idleTimeoutMs`) stops itself. It is
   a backstop for a client that finished and forgot, not a substitute for
   `proxy_stop` — which the tool descriptions say, and say again beside the URL.
+  The countdown runs only while nothing is in flight, so an open SSE connection
+  is never called idle however quiet it is.
+
+  Records under `runtime/` carry the machine's boot time, because a pid is
+  unique only within a boot: after a restart the same number can belong to an
+  unrelated live process, and a record would then be reported as another
+  session's proxy forever. They are written to a temporary name and renamed, so
+  a concurrent reader sees a whole record or no file, never a truncated one.
 
 - `src/lib/stores.ts` now holds the whole path convention: four folders under
   one relocatable base — `service-keys/`, `sessions/`, `proxy/` and the new

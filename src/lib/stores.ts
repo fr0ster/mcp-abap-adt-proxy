@@ -36,7 +36,14 @@ import {
  * ready config per proxy — the files `--config` takes. `runtime/` holds a
  * record per live proxy, so one session can see another's.
  */
-export type StoreFolder = 'service-keys' | 'sessions' | 'proxy' | 'runtime';
+export const STORE_FOLDERS = [
+  'service-keys',
+  'sessions',
+  'proxy',
+  'runtime',
+] as const;
+
+export type StoreFolder = (typeof STORE_FOLDERS)[number];
 
 /**
  * THE base directory — one answer, not a search path.
@@ -50,11 +57,23 @@ export type StoreFolder = 'service-keys' | 'sessions' | 'proxy' | 'runtime';
 export function storeBaseDir(): string {
   const envPath = process.env.AUTH_BROKER_PATH;
   if (envPath) {
+    // Not `/[:;]/`: on Windows that splits `C:\store` into `C`, which then
+    // resolves against the working directory. The delimiter is chosen from
+    // `process.platform` rather than taken from `path.delimiter`, which is bound
+    // to the host at module load and so cannot be exercised for the other one.
     const first = envPath
-      .split(/[:;]/)
+      .split(process.platform === 'win32' ? ';' : ':')
       .map((p) => p.trim())
       .find((p) => p.length > 0);
-    if (first) return path.resolve(first);
+    if (first) {
+      const resolved = path.resolve(first);
+      // Pointed at one of the folders rather than the base — a plausible
+      // mistake that `getPlatformPaths` already tolerates, so this must too.
+      // Otherwise runtime records land in `.../service-keys/runtime`.
+      return STORE_FOLDERS.includes(path.basename(resolved) as StoreFolder)
+        ? path.dirname(resolved)
+        : resolved;
+    }
   }
 
   const homeDir = os.homedir();
