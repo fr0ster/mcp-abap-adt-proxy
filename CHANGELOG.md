@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-09-26
+
 **The proxy moves onto the new auth family, and its tree holds one copy of each
 contract package.** `npm ls` shows exactly one version each of
 `interfaces-auth` (2.1.0), `interfaces-auth-sap` (1.0.1), `interfaces-network`
