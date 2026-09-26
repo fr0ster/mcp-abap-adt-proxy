@@ -57,6 +57,16 @@ contract package.** `npm ls` shows exactly one version each of
 
 ### Fixed
 
+- **An unreadable service key is reported as what it is.** The stores answer a
+  missing file with `null` and throw only when the file is there and wrong —
+  not valid JSON, not readable. The proxy answered every such throw as "service
+  key not found", with advice to create a file that already existed. The
+  store's error now reaches the caller as raised, naming the file; only `null`
+  means missing. Found in review.
+- **`getAuthorizationHeader` passes the failure on as the same object.** It
+  wrapped it in a new `Error` with the same message, so `instanceof` on the
+  caller's side saw a plain `Error`, whatever the provider or store raised.
+
 - **A missing service key is reported as one again.** The proxy recognised it
   by the `.env` / `mcp.env` wording of auth-broker 2's message, which 3.0 no
   longer produces — it would have said only that the session lacks a

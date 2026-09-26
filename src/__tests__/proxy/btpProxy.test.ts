@@ -316,6 +316,33 @@ describe('BtpProxy', () => {
             expect(jest.mocked(AuthBroker)).toHaveBeenCalledTimes(1);
         });
 
+        it('reports an unreadable service key as the store raised it, not as a missing one', async () => {
+            // The stores answer a missing file with null and throw only when
+            // the file is there and wrong. Answering "Invalid JSON" as "not
+            // found" sent users to create a file that already existed.
+            const unreadable = new Error(
+                'Invalid JSON in file "D1.json": Invalid JSON in file "D1.json"',
+            );
+            (mockPlatformStores.serviceKeyStore.getAuthorizationConfig as any).mockRejectedValue(
+                unreadable,
+            );
+            const failing = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',
+                logLevel: 'info', maxRetries: 3, retryDelay: 1,
+            } as any);
+
+            const failure = await failing
+                .getAuthorizationHeader('D1')
+                .catch((error: unknown) => error);
+
+            expect(failure).toBe(unreadable);
+            expect(failure).not.toBeInstanceOf(ServiceKeyNotFoundError);
+            // Not retried either: a broken file does not mend itself.
+            expect(
+                mockPlatformStores.serviceKeyStore.getAuthorizationConfig,
+            ).toHaveBeenCalledTimes(1);
+        });
+
         it('seeds the session serviceUrl with a configured targetUrl, and nothing else', async () => {
             const withTarget = new BtpProxy(mockAuthBroker, {
                 httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',

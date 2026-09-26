@@ -76,39 +76,19 @@ const loggerAdapter: ILogger = {
 
 import { type RetryOptions, retryWithBackoff } from '../lib/errorHandler.js';
 
-/**
- * A store read answered as absent when it fails, as auth-broker reads them: a
- * store signals a missing file by throwing, and absence is what the callers
- * here decide on. Logged, so an unreadable key is not mistaken for a missing
- * one without a trace.
- */
-async function readOrNull<T>(
-  what: string,
-  read: () => Promise<T | null>,
-): Promise<T | null> {
-  try {
-    return await read();
-  } catch (error) {
-    logger?.warn(`Failed to read ${what}`, {
-      type: 'BTP_STORE_READ_ERROR',
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
 async function requireCredentials(
   destination: string,
   serviceKeyStore: IServiceKeyStore,
   sessionStore: ISessionStore,
 ): Promise<void> {
+  // A store answers a missing file with null. Anything it throws — a key
+  // that is not valid JSON, a file it may not read — is a different problem
+  // with a different fix, and reaches the caller as the store raised it,
+  // naming the file; answering it as "not found" sent users to create a file
+  // that was already there.
   const found =
-    (await readOrNull(`service key for ${destination}`, () =>
-      serviceKeyStore.getAuthorizationConfig(destination),
-    )) ??
-    (await readOrNull(`session credentials for ${destination}`, () =>
-      sessionStore.getAuthorizationConfig(destination),
-    ));
+    (await serviceKeyStore.getAuthorizationConfig(destination)) ??
+    (await sessionStore.getAuthorizationConfig(destination));
   if (!found) {
     throw new ServiceKeyNotFoundError(destination);
   }
@@ -311,9 +291,7 @@ export class BtpProxy {
     if (!targetUrl) {
       return;
     }
-    const current = await readOrNull(`session for ${destination}`, () =>
-      sessionStore.getConnectionConfig(destination),
-    );
+    const current = await sessionStore.getConnectionConfig(destination);
     if (current?.serviceUrl === targetUrl) {
       return;
     }
@@ -377,7 +355,7 @@ export class BtpProxy {
       if (shouldWriteStderr()) {
         process.stderr.write(`[MCP Proxy] ✗ ${message}\n`);
       }
-      throw new Error(message, { cause: error });
+      throw error;
     }
   }
 
