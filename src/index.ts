@@ -27,6 +27,7 @@ import {
   loadRawConfigFile,
   extractTransportFields,
 } from './lib/config.js';
+import { classifyAuthFailure } from './lib/authFailure.js';
 import { logger } from './lib/logger.js';
 import { getPlatformPaths } from './lib/stores.js';
 import {
@@ -52,49 +53,6 @@ function getBodyId(body: unknown): unknown {
     return (body as { id: unknown }).id;
   }
   return null;
-}
-
-type AuthFailureCategory =
-  | 'timeout'
-  | 'credentials'
-  | 'service-key'
-  | 'network'
-  | 'other';
-
-/**
- * Classify an authentication failure into a human-readable reason so the proxy
- * can report *why* it is exiting (timeout vs bad credentials vs network ...).
- */
-function classifyAuthFailure(error: unknown): {
-  category: AuthFailureCategory;
-  reason: string;
-} {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (/timeout/i.test(msg)) {
-    return {
-      category: 'timeout',
-      reason: 'the login URL was not completed in time',
-    };
-  }
-  if (/service key|missing required fields/i.test(msg)) {
-    return {
-      category: 'service-key',
-      reason: 'service key missing or incomplete',
-    };
-  }
-  if (/invalid_client|unauthorized|\b401\b|invalid credentials/i.test(msg)) {
-    return {
-      category: 'credentials',
-      reason: 'invalid credentials — UAA rejected the client',
-    };
-  }
-  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network|ENETUNREACH/i.test(msg)) {
-    return {
-      category: 'network',
-      reason: 'network error reaching the authentication server',
-    };
-  }
-  return { category: 'other', reason: msg };
 }
 
 /**

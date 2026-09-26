@@ -5,20 +5,21 @@
  * with JWT token from auth-broker (XSUAA/BTP)
  */
 
-import { AuthBroker, type ILogger } from '@mcp-abap-adt/auth-broker';
+import {
+  AuthBroker,
+  type ILogger,
+  type IServiceKeyStore,
+  type ISessionStore,
+  type TokenProviderFactory,
+} from '@mcp-abap-adt/auth-broker';
 import {
   AuthorizationCodeProvider,
-  type AuthorizationCodeProviderConfig,
   browserCallbackStrategy,
 } from '@mcp-abap-adt/auth-providers';
-import type { IAuthorizationConfig } from '@mcp-abap-adt/interfaces-auth-sap';
+import { ServiceKeyNotFoundError } from '../lib/authFailure.js';
 import { loadConfig, type ProxyConfig } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
-import {
-  getPlatformPaths,
-  getPlatformStores,
-  storeDir,
-} from '../lib/stores.js';
+import { getPlatformStores } from '../lib/stores.js';
 import { DestinationCredentials } from './credentials.js';
 
 /**
@@ -74,6 +75,61 @@ const loggerAdapter: ILogger = {
 };
 
 import { type RetryOptions, retryWithBackoff } from '../lib/errorHandler.js';
+import { TargetUrlSessionStore } from './targetUrlSessionStore.js';
+
+async function requireCredentials(
+  destination: string,
+  serviceKeyStore: IServiceKeyStore,
+  sessionStore: ISessionStore,
+): Promise<void> {
+  // A store answers a missing file with null. Anything it throws — a key
+  // that is not valid JSON, a file it may not read — is a different problem
+  // with a different fix, and reaches the caller as the store raised it,
+  // naming the file; answering it as "not found" sent users to create a file
+  // that was already there.
+  const found =
+    (await serviceKeyStore.getAuthorizationConfig(destination)) ??
+    (await sessionStore.getAuthorizationConfig(destination));
+  if (!found) {
+    throw new ServiceKeyNotFoundError(destination);
+  }
+}
+
+/**
+ * The provider auth-broker builds per destination: an
+ * `AuthorizationCodeProvider` seeded with what the stores hold — the UAA
+ * credentials with the stored refresh token, and the stored access token — so
+ * a session that is still valid, or can be refreshed, needs no browser.
+ *
+ * How the login is conducted is the provider's authorization strategy; the
+ * broker has no say in it any more (its `browser` argument is gone).
+ */
+export function authorizationCodeProviderFactory(
+  config: Partial<ProxyConfig>,
+): TokenProviderFactory {
+  return (destination, authConfig, connConfig) => {
+    if (!authConfig) {
+      throw new ServiceKeyNotFoundError(destination);
+    }
+    return new AuthorizationCodeProvider({
+      authorization: browserCallbackStrategy({
+        browser: config.browser,
+        port: config.browserAuthPort || DEFAULT_BROWSER_AUTH_PORT,
+        timeoutMs: INTERACTIVE_LOGIN_TIMEOUT_MS,
+      }),
+      // Pass a logger so the callback strategy can surface the "Open this
+      // URL" prompt in 'none'/'headless' mode. Without it, the callback
+      // server gets a null logger and silently drops the authorization URL.
+      logger: loggerAdapter,
+      uaaUrl: authConfig.uaaUrl,
+      clientId: authConfig.uaaClientId,
+      clientSecret: authConfig.uaaClientSecret,
+      refreshToken: authConfig.refreshToken,
+      // An empty string is how a session seeded without a token says "none".
+      accessToken: connConfig.authorizationToken || undefined,
+    });
+  };
+}
 
 /**
  * Check if error messages should be written to stderr
@@ -174,7 +230,6 @@ export class BtpProxy {
    */
   private async getOrCreateBtpAuthBroker(
     destination?: string,
-    targetUrl?: string,
   ): Promise<AuthBroker> {
     // If no destination, use default broker
     if (!destination) {
@@ -182,9 +237,9 @@ export class BtpProxy {
     }
 
     // Check if broker exists in map
-    let broker = this.btpAuthBrokers.get(destination);
-    if (broker) {
-      return broker;
+    const existing = this.btpAuthBrokers.get(destination);
+    if (existing) {
+      return existing;
     }
 
     // Create new broker for this destination
@@ -197,167 +252,30 @@ export class BtpProxy {
       this.unsafe,
     );
 
-    // We must manually load the credentials because AuthorizationCodeProvider validates them in constructor
-    let authConfig: IAuthorizationConfig | null = null;
-    try {
-      // Try service key store first
-      if (serviceKeyStore) {
-        authConfig = await serviceKeyStore.getAuthorizationConfig(destination);
-      }
-      // If not found, try session store (though less likely for initial setup)
-      if (!authConfig) {
-        authConfig = await sessionStore.getAuthorizationConfig(destination);
-      }
-    } catch (error) {
-      logger?.warn('Failed to load auth config for provider initialization', {
-        error: error instanceof Error ? error.message : String(error),
-        destination,
-      });
-    }
+    // auth-broker reports a missing service key only as a missing
+    // `serviceUrl` — and not at all once a targetUrl is seeded below — so the
+    // proxy asks the stores itself, before anything is written, and fails
+    // with its own error naming the file to create.
+    await requireCredentials(destination, serviceKeyStore, sessionStore);
 
-    if (!authConfig) {
-      const serviceKeyDir = getPlatformPaths('service-keys')[0];
-      logger?.error('Service key not found for destination', {
-        destination,
-        hint: `Ensure service key file "${destination}.json" exists in ${serviceKeyDir} (override the base dir with AUTH_BROKER_PATH)`,
-      });
-      // We cannot proceed without config, but we'll let it fail with a clear message
-      // Or we could throw here.
-      // If we don't provide config, provider will throw "Missing required fields".
-    }
+    // The broker is told the target URL through the store it reads, not by
+    // writing it into the session: that session may be the file mcp-auth
+    // writes, whose own URL must stay.
+    const targetUrl = this.config.targetUrl;
+    const brokerSessionStore = targetUrl
+      ? new TargetUrlSessionStore(sessionStore, targetUrl)
+      : sessionStore;
 
-    // Always use AuthorizationCodeProvider (enforced)
-    // Map IAuthorizationConfig (uaaClientId) to ProviderConfig (clientId)
-    // How the login is conducted is now a strategy the provider config
-    // carries under `authorization`; the callback port lives inside it.
-    //
-    // uaaUrl/clientId/clientSecret fall back to '' rather than being omitted
-    // when authConfig is missing: AuthorizationCodeProviderConfig declares
-    // them required, and the provider's own constructor already treats an
-    // empty string the same as absent, throwing its "Missing required
-    // fields" ValidationError — which is the clear failure this was always
-    // meant to produce.
-    const providerConfig: AuthorizationCodeProviderConfig = {
-      authorization: browserCallbackStrategy({
-        browser: this.config.browser,
-        port: this.config.browserAuthPort || DEFAULT_BROWSER_AUTH_PORT,
-        timeoutMs: INTERACTIVE_LOGIN_TIMEOUT_MS,
-      }),
-      // Pass a logger so the callback strategy can surface the "Open this
-      // URL" prompt in 'none'/'headless' mode. Without it, the callback
-      // server gets a null logger and silently drops the authorization URL.
-      logger: loggerAdapter,
-      uaaUrl: authConfig?.uaaUrl ?? '',
-      clientId: authConfig?.uaaClientId ?? '',
-      clientSecret: authConfig?.uaaClientSecret ?? '',
-    };
-
-    const tokenProvider = new AuthorizationCodeProvider(providerConfig);
-
-    broker = new AuthBroker(
+    const broker = new AuthBroker(
       {
         serviceKeyStore,
-        sessionStore,
-        tokenProvider,
+        sessionStore: brokerSessionStore,
+        provider: authorizationCodeProviderFactory(this.config),
       },
-      this.config.browser, // Pass configured browser (default: 'system')
-      logger,
+      loggerAdapter,
     );
 
     this.btpAuthBrokers.set(destination, broker);
-
-    return this.ensureSessionServiceUrl(broker, destination, targetUrl);
-  }
-
-  /**
-   * Helper to ensure valid serviceUrl in session if override provided
-   */
-  private async ensureSessionServiceUrl(
-    broker: AuthBroker,
-    destination: string,
-    targetUrl?: string,
-  ): Promise<AuthBroker> {
-    const activeTargetUrl = targetUrl || this.config.targetUrl;
-
-    if (!activeTargetUrl) {
-      return broker;
-    }
-
-    try {
-      // Check if current connection config exists
-      const currentConn = await broker.getConnectionConfig(destination);
-
-      // We need to ensure we have a valid session with BOTH serviceUrl AND auth config.
-      // Even if serviceUrl matches, the auth config might be missing from the session
-      // (which causes ClientCredentialsProvider to fail if initialized with empty config).
-
-      // Cast to any to access potentially private methods if interface restricted
-      // biome-ignore lint/suspicious/noExplicitAny: Accessing internal methods for safe injection
-      const brokerAny = broker as any;
-
-      let authConfig = await broker.getAuthorizationConfig(destination);
-      if (!authConfig) {
-        try {
-          if (
-            typeof brokerAny.getAuthorizationConfigFromServiceKey === 'function'
-          ) {
-            authConfig =
-              await brokerAny.getAuthorizationConfigFromServiceKey(destination);
-          }
-        } catch (e) {
-          logger?.debug('Could not find auth config for session update', {
-            error: String(e),
-          });
-        }
-      }
-
-      if (!authConfig) {
-        authConfig = {
-          uaaUrl: 'https://placeholder.authentication.sap.hana.ondemand.com',
-          uaaClientId: 'placeholder',
-          uaaClientSecret: 'placeholder',
-        } as any;
-        logger?.info('Using placeholder auth config for session injection', {
-          type: 'BTP_SESSION_PLACEHOLDER',
-          destination,
-          targetUrl: activeTargetUrl,
-        });
-      }
-
-      if (authConfig) {
-        const newConn = {
-          ...(currentConn || {}),
-          serviceUrl: activeTargetUrl,
-          authType: 'jwt' as any,
-          // Map XSUAA keys to ClientCredentialsProvider keys
-          clientId: authConfig.uaaClientId,
-          clientSecret: authConfig.uaaClientSecret,
-          uaaUrl: authConfig.uaaUrl,
-        };
-
-        if (typeof brokerAny.saveTokenToSession === 'function') {
-          await brokerAny.saveTokenToSession(destination, newConn, authConfig);
-          logger?.info('Injected targetUrl and auth config into BTP session', {
-            type: 'BTP_SESSION_INJECTION',
-            destination,
-            url: activeTargetUrl,
-            hasClientId: !!newConn.clientId,
-          });
-        } else {
-          logger?.error('saveTokenToSession is not a function on broker', {
-            type: 'BTP_SESSION_METHOD_MISSING',
-            keys: Object.keys(brokerAny),
-          });
-        }
-      }
-    } catch (error) {
-      logger?.error('Failed to inject targetUrl into session', {
-        type: 'BTP_SESSION_INJECTION_ERROR',
-        destination,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
     return broker;
   }
 
@@ -396,7 +314,10 @@ export class BtpProxy {
         return credential.authorizationHeader();
       }, retryOptions);
     } catch (error) {
-      const message = this.explainAuthFailure(error, destination);
+      // Passed on as it stands: auth-broker 3 no longer rewords a provider's
+      // failure, and a missing service key is already this proxy's own
+      // ServiceKeyNotFoundError, which names the file to create.
+      const message = error instanceof Error ? error.message : String(error);
       logger?.error('Failed to get an authorization header', {
         type: 'CREDENTIAL_HEADER_ERROR',
         destination,
@@ -405,39 +326,8 @@ export class BtpProxy {
       if (shouldWriteStderr()) {
         process.stderr.write(`[MCP Proxy] ✗ ${message}\n`);
       }
-      throw new Error(message);
+      throw error;
     }
-  }
-
-  /**
-   * Turn the broker's failure into one that names what this proxy needs.
-   *
-   * The broker speaks of `.env` and `mcp.env` because it can be fed either way.
-   * This proxy only ever reads service keys, so passing that message through
-   * told the most common failure — a missing key — to go and create a file that
-   * would be ignored.
-   */
-  private explainAuthFailure(error: unknown, destination: string): string {
-    const original = error instanceof Error ? error.message : String(error);
-    if (!original.includes('.env') && !original.includes('mcp.env')) {
-      return original;
-    }
-
-    const searched = original.match(/Searched in:\s*([\s\S]*?)(?:\n\n|$)/);
-    const paths = searched
-      ? searched[1]
-          .trim()
-          .split('\n')
-          .map((p) => p.trim().replace(/^-\s*/, ''))
-          .filter(Boolean)
-      : [storeDir('service-keys')];
-
-    return [
-      `Service key file not found for destination "${destination}".`,
-      `Please create service key file: ${destination}.json`,
-      'Searched in:',
-      ...paths.map((p) => `  - ${p}`),
-    ].join('\n');
   }
 
   public dispose(): void {
@@ -478,29 +368,8 @@ export class BtpProxy {
       {
         serviceKeyStore,
         sessionStore,
-        tokenProvider: new AuthorizationCodeProvider({
-          uaaUrl: 'https://placeholder.authentication.sap.hana.ondemand.com',
-          clientId: 'placeholder',
-          clientSecret: 'placeholder',
-          authorization: browserCallbackStrategy({
-            browser: loadedConfig.browser,
-            // This call site never had its own fallback: it passed
-            // `redirectPort` straight through and relied on
-            // auth-providers@1.2.0 defaulting an omitted value to 3001
-            // internally — which is this proxy's own default `httpPort`
-            // (src/lib/config.ts). An omitted `browserAuthPort` therefore
-            // told the callback server to bind the port the proxy already
-            // listens on, failing every such login with "Port 3001 is
-            // already in use". Both call sites now share the one documented
-            // default instead of leaving this one to an invisible, colliding
-            // number.
-            port: loadedConfig.browserAuthPort || DEFAULT_BROWSER_AUTH_PORT,
-            timeoutMs: INTERACTIVE_LOGIN_TIMEOUT_MS,
-          }),
-          logger: loggerAdapter,
-        }),
+        provider: authorizationCodeProviderFactory(loadedConfig),
       },
-      'none',
       loggerAdapter,
     );
 

@@ -171,16 +171,30 @@ ping cloud-llm-hub.example.com
    better; each attempt logs `RETRY_ATTEMPT`, and the final failure logs
    `CREDENTIAL_HEADER_ERROR` with the reason.
 
-#### Error: "Failed to get JWT token from auth-broker"
+#### Error: "Service key file not found for destination …" (or another token failure)
 
 **Symptoms:**
-- Proxy requests fail
-- Error about JWT token
+- Proxy requests fail, or the standalone proxy exits at startup
+- `CREDENTIAL_HEADER_ERROR` in the log
 
 **Causes:**
-- Service key not found
-- Invalid service key
-- AuthBroker configuration issue
+- Service key not found. The proxy checks for it itself before asking the
+  auth-broker, and says so in these words:
+  ```
+  Service key file not found for destination "sk".
+  Please create service key file: sk.json
+  Searched in:
+    - /home/you/.config/mcp-abap-adt/service-keys
+  ```
+- Invalid or incomplete service key — auth-providers' `ValidationError`, naming
+  the missing fields
+- A browser login that did not complete — auth-providers' `BrowserAuthError`
+  (timeout, the identity provider's refusal, a busy callback port, a browser
+  that would not open)
+
+Since the move to auth-broker 3, the provider's own error reaches the log as
+it was raised; the broker no longer rewraps it into
+`Token provider … error for <destination>`.
 
 **Solutions:**
 
@@ -215,9 +229,9 @@ export AUTH_BROKER_PATH="/custom/path"
 # Sessions will be resolved from /custom/path/sessions
 ```
 
-4. **Test authentication manually:**
+4. **Test authentication manually** — through the proxy's own path:
 ```bash
-npx sap-abap-auth auth -k sk.json
+npm run test-destination -- sk
 ```
 
 ### 3. Routing Issues
@@ -359,16 +373,16 @@ export LOG_LEVEL=debug
 
 **Solutions:**
 
-1. **Token refresh is automatic:**
-   - Proxy detects token expiration
-   - Automatically refreshes token
-   - Retries request with new token
+1. **Token renewal is the credential's, not the proxy's:**
+   - The proxy keeps no token cache; it asks the destination's credential for
+     a header on every request
+   - The auth-broker's provider renews an expired token with the refresh token,
+     or runs the browser login when there is none or it is refused
+   - A 401 from the target is passed back to the client; the proxy does not
+     retry the request
 
-2. **Check token cache:**
-```bash
-# Tokens are cached for 30 minutes
-# On 401/403 the proxy automatically clears the cache and retries with a fresh token
-```
+2. **With `--unsafe`**, the session file holds the service URL, the token and
+   the refresh token — not the client secret, which stays in the service key.
 
 3. **Verify service key:**
 ```bash
@@ -438,8 +452,8 @@ Look for logs like:
 
 Look for logs like:
 ```
-[DEBUG] Retrieved JWT token from auth-broker
-[DEBUG] Using cached JWT token
+[DEBUG] Asking the credential for a header
+[INFO] [AuthBroker] Token saved for sk
 ```
 
 ## Getting Help

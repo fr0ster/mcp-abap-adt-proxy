@@ -181,7 +181,7 @@ export const loggerPackageLogger: ILogger = new PackageLoggerImpl('LOGGER');
  *
  * @example
  * const logger = getPackageLogger('AUTH_BROKER');
- * const broker = new AuthBroker(stores, 'none', logger);
+ * const broker = new AuthBroker({ ...stores, provider }, logger);
  */
 export function getPackageLogger(packageName: string): ILogger {
   const packageNameUpper = packageName.toUpperCase();
