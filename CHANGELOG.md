@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The proxy moves onto the new auth family, and its tree holds one copy of each
+contract package.** `npm ls` shows exactly one version each of
+`interfaces-auth` (2.1.0), `interfaces-auth-sap` (1.0.1), `interfaces-network`
+(2.0.0), `auth-providers` (4.2.0) and `auth-stores` (1.2.3).
+
+### Changed
+
+- **BREAKING: Node.js 22 or 24** — `engines: "^22 || ^24"` (was `>=18.2.0`).
+  `@mcp-abap-adt/auth-providers` 3.0.0 requires it, following the versions SAP
+  BTP's Cloud Foundry Node.js buildpack offers.
+
+  **Migrating:** run the proxy on Node 22 or 24. Nothing in its configuration
+  or CLI changed.
+- **`@mcp-abap-adt/auth-broker` `^3.0.0`** (was `^2.2.0`, a major).
+  `BtpProxy` builds its brokers the new way —
+  `new AuthBroker({ serviceKeyStore, sessionStore, provider }, logger)` — with
+  a provider *factory*, so the broker seeds each destination's
+  `AuthorizationCodeProvider` with the refresh token and the access token the
+  session stored. The login is still a browser callback on `browserAuthPort`
+  (default 3333) with a five-minute window; `--browser none` / `headless` still
+  prints the URL instead of opening a browser.
+- **`@mcp-abap-adt/auth-providers` `^4.2.0`** (was `^2.2.2`). The SAML changes
+  of 3.x and 4.x do not reach this package, which builds only
+  `AuthorizationCodeProvider`. A failed browser login is now
+  `BrowserAuthError` (a plain `Error` before).
+- `@mcp-abap-adt/interfaces-auth` `^2.1.0` (was `^1.2.0`),
+  `@mcp-abap-adt/interfaces-auth-sap` `^1.0.1`, `@mcp-abap-adt/auth-stores`
+  `^1.2.3`, `@mcp-abap-adt/header-validator` `^0.3.1`,
+  `@mcp-abap-adt/connection` `^9.3.0` — the releases that accept
+  `interfaces-auth` 2, so none of them carries a private copy of it. None
+  changes an API this package uses.
+- **With `--unsafe`, the session file no longer holds the client secret.**
+  auth-broker 3 writes the token and the refresh token only, and the proxy no
+  longer writes UAA credentials into the session either: with a `targetUrl`
+  it used to put the service key's client ID and secret there — or
+  `placeholder` credentials when it could not find them — through a private
+  broker method. It now writes the `serviceUrl` alone, through the session
+  store's public `setConnectionConfig`. The secret stays in the service key.
+- **Auth failures reach the log as the provider raised them.** auth-broker 3
+  no longer rewraps them into `Token provider … error for <destination>`. The
+  reason the standalone proxy prints before exiting is now chosen by error
+  class and `code` through the whole `cause` chain (`ServiceKeyNotFoundError`
+  and `ValidationError` → service key, `ECONNREFUSED` and kin → network), and
+  by message only where nothing typed says more (a login timeout, a UAA
+  refusal).
+
+### Fixed
+
+- **A missing service key is reported as one again.** The proxy recognised it
+  by the `.env` / `mcp.env` wording of auth-broker 2's message, which 3.0 no
+  longer produces — it would have said only that the session lacks a
+  `serviceUrl`. The proxy now checks the stores itself before building a
+  broker and raises its own `ServiceKeyNotFoundError`, with the same
+  "Service key file not found for destination … Please create service key
+  file: <destination>.json" message as before. It is still not retried.
+- **`npm run test-destination` works.** It imported `XsuaaTokenProvider` and
+  `BtpTokenProvider`, removed from auth-providers long ago, and printed the
+  first 50 characters of the token. It now goes through `BtpProxy` itself and
+  prints the header's length only:
+  `npm run test-destination -- <destination> [--target-url <url>]`.
+
 ## [4.2.0] - 2026-09-24
 
 ### Added

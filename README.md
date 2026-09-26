@@ -283,7 +283,7 @@ Create `mcp-proxy-config.json`:
 
 **Session Storage:**
 - `unsafe: false` (default) - Session data stored in-memory (secure, lost on restart)
-- `unsafe: true` - Session data persisted to disk (tokens saved under the session store path)
+- `unsafe: true` - Session data persisted to disk (tokens saved under the session store path): the service URL, the token and the refresh token. The client secret is not copied there; it stays in the service key
 
 See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 
@@ -296,7 +296,7 @@ See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 
 ## Requirements
 
-- Node.js >= 18.0.0
+- Node.js 22 or 24 (`engines: "^22 || ^24"`, required by `@mcp-abap-adt/auth-providers`)
 - npm >= 9.0.0
 
 ## Testing Tools
@@ -304,7 +304,7 @@ See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 Verify a BTP destination's service key and token retrieval:
 
 ```bash
-npm run test-destination
+npm run test-destination -- <destination>
 ```
 
 See [tools/README.md](./tools/README.md) for the available scripts.

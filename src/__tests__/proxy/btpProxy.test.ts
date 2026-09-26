@@ -1,9 +1,11 @@
 import { jest } from '@jest/globals';
 import { AuthBroker } from '@mcp-abap-adt/auth-broker';
 import {
+    AuthorizationCodeProvider,
     browserCallbackStrategy,
     ClientCredentialsProvider,
 } from '@mcp-abap-adt/auth-providers';
+import { ServiceKeyNotFoundError } from '../../lib/authFailure';
 import { BtpProxy, shouldWriteStderr } from '../../proxy/btpProxy';
 
 // Mock AuthBroker singleton
@@ -48,21 +50,43 @@ jest.mock('../../lib/config', () => ({
     }),
 }));
 
+// The stores every broker the proxy builds is given. Referenced lazily from
+// the factory below, because jest.mock is hoisted above this declaration.
+const SERVICE_KEY_AUTH = {
+    uaaUrl: 'https://uaa.example.com',
+    uaaClientId: 'clientid',
+    uaaClientSecret: 'secret',
+};
+const mockPlatformStores = {
+    serviceKeyStore: {
+        getAuthorizationConfig: jest.fn(),
+        getConnectionConfig: jest.fn(),
+    },
+    sessionStore: {
+        getAuthorizationConfig: jest.fn(),
+        getConnectionConfig: jest.fn(),
+        setConnectionConfig: jest.fn(),
+    },
+};
+
 jest.mock('../../lib/stores', () => ({
     getPlatformPaths: jest.fn().mockReturnValue(['/mock/service-keys']),
-    getPlatformStores: jest.fn().mockReturnValue(
-        Promise.resolve({
-            serviceKeyStore: {
-                getAuthorizationConfig: jest.fn(),
-                getConnectionConfig: jest.fn(),
-            },
-            sessionStore: {
-                saveSession: jest.fn(),
-                getAuthorizationConfig: jest.fn(),
-            },
-        }),
-    ),
+    getPlatformStores: jest.fn(() => Promise.resolve(mockPlatformStores)),
 }));
+
+/**
+ * The provider factory the most recently built AuthBroker was given. The
+ * proxy passes a factory, not an instance, so the broker can seed it from the
+ * stores; calling it here is how a test sees what the proxy would build.
+ */
+function lastProviderFactory() {
+    const calls = jest.mocked(AuthBroker).mock.calls;
+    const provider = calls[calls.length - 1][0].provider;
+    if (typeof provider !== 'function') {
+        throw new Error('expected the proxy to pass a provider factory');
+    }
+    return provider;
+}
 
 
 // Reference to the mocked strategy builder, so tests can assert what it was
@@ -95,6 +119,7 @@ describe('BtpProxy', () => {
             getServiceKey: jest.fn(),
         };
         mockSessionStore = {
+            loadSession: jest.fn(),
             saveSession: jest.fn(),
             getAuthorizationConfig: jest.fn(),
             getConnectionConfig: jest.fn(),
@@ -102,14 +127,18 @@ describe('BtpProxy', () => {
             setConnectionConfig: jest.fn(),
         };
 
-        mockAuthBroker = new AuthBroker(
-            {
-                serviceKeyStore: mockServiceKeyStore,
-                sessionStore: mockSessionStore,
-                tokenProvider: mockTokenProvider,
-            },
-            'none',
+        // A destination has a service key unless a test says otherwise.
+        (mockPlatformStores.serviceKeyStore.getAuthorizationConfig as any).mockResolvedValue(
+            SERVICE_KEY_AUTH,
         );
+        (mockPlatformStores.sessionStore.getAuthorizationConfig as any).mockResolvedValue(null);
+        (mockPlatformStores.sessionStore.getConnectionConfig as any).mockResolvedValue(null);
+
+        mockAuthBroker = new AuthBroker({
+            serviceKeyStore: mockServiceKeyStore,
+            sessionStore: mockSessionStore,
+            provider: mockTokenProvider,
+        });
 
         // Mock getToken
         mockAuthBroker.getToken = (jest.fn() as any).mockResolvedValue('mock-jwt-token');
@@ -264,23 +293,64 @@ describe('BtpProxy', () => {
         });
 
         it('says what to create when the service key is missing', async () => {
-            (mockAuthBroker as any).createTokenRefresher = jest.fn(() => ({
-                getToken: async () => {
-                    throw new Error(
-                        'No credentials found in .env or mcp.env\nSearched in:\n  - /somewhere/sessions',
-                    );
-                },
-                refreshToken: async () => 'fresh',
-            }));
+            (mockPlatformStores.serviceKeyStore.getAuthorizationConfig as any).mockResolvedValue(
+                null,
+            );
+            const failing = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',
+                logLevel: 'info', maxRetries: 3, retryDelay: 1,
+            } as any);
 
-            // The broker talks about .env files. This proxy does not use them,
-            // so the message it passed through named a file nobody should create.
-            await expect(btpProxy.getAuthorizationHeader('D1')).rejects.toThrow(
+            // auth-broker 3 would only say the session lacks a serviceUrl, so
+            // the proxy asks the stores itself and names the file to create.
+            const failure = failing.getAuthorizationHeader('D1');
+            await expect(failure).rejects.toThrow(
                 /Service key file not found for destination "D1"/,
             );
-            await expect(btpProxy.getAuthorizationHeader('D1')).rejects.toThrow(
-                /D1\.json/,
+            await expect(failure).rejects.toThrow(/D1\.json/);
+            await expect(failure).rejects.toThrow(/\/mock\/service-keys/);
+            // Asked once: a missing key is not retried, and no broker is built.
+            expect(
+                mockPlatformStores.serviceKeyStore.getAuthorizationConfig,
+            ).toHaveBeenCalledTimes(1);
+            expect(jest.mocked(AuthBroker)).toHaveBeenCalledTimes(1);
+        });
+
+        it('seeds the session serviceUrl with a configured targetUrl, and nothing else', async () => {
+            const withTarget = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',
+                logLevel: 'info', targetUrl: 'https://target.example.com',
+            } as any);
+
+            await withTarget.getAuthorizationHeader('D1');
+
+            // Only the url: no placeholder credentials and no client secret
+            // are written into the session any more.
+            expect(mockPlatformStores.sessionStore.setConnectionConfig).toHaveBeenCalledWith(
+                'D1',
+                { serviceUrl: 'https://target.example.com' },
             );
+        });
+
+        it('leaves the session alone when it already names the targetUrl', async () => {
+            (mockPlatformStores.sessionStore.getConnectionConfig as any).mockResolvedValue({
+                serviceUrl: 'https://target.example.com',
+                authorizationToken: 'stored',
+            });
+            const withTarget = new BtpProxy(mockAuthBroker, {
+                httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',
+                logLevel: 'info', targetUrl: 'https://target.example.com',
+            } as any);
+
+            await withTarget.getAuthorizationHeader('D1');
+
+            expect(mockPlatformStores.sessionStore.setConnectionConfig).not.toHaveBeenCalled();
+        });
+
+        it('writes nothing into the session without a targetUrl', async () => {
+            await btpProxy.getAuthorizationHeader('D1');
+
+            expect(mockPlatformStores.sessionStore.setConnectionConfig).not.toHaveBeenCalled();
         });
 
         it('takes the target url from the service key', async () => {
@@ -329,23 +399,67 @@ describe('BtpProxy', () => {
             } as any);
 
             await proxyWithPort.getAuthorizationHeader('configured-port-dest');
+            // The broker builds the provider on its first token request; the
+            // mocked broker does not, so the test calls the factory itself.
+            lastProviderFactory()('configured-port-dest', SERVICE_KEY_AUTH, {});
 
             expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
                 expect.objectContaining({ browser: 'chrome', port: 9999 }),
+            );
+        });
+
+        it('seeds the provider with the stored refresh token and access token', async () => {
+            await btpProxy.getAuthorizationHeader('seeded-dest');
+
+            lastProviderFactory()(
+                'seeded-dest',
+                { ...SERVICE_KEY_AUTH, refreshToken: 'stored-refresh' },
+                { serviceUrl: 'https://x.example.com', authorizationToken: 'stored-access' },
+            );
+
+            expect(jest.mocked(AuthorizationCodeProvider)).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    uaaUrl: 'https://uaa.example.com',
+                    clientId: 'clientid',
+                    clientSecret: 'secret',
+                    refreshToken: 'stored-refresh',
+                    accessToken: 'stored-access',
+                }),
+            );
+        });
+
+        it('treats a session seeded without a token as having none', async () => {
+            await btpProxy.getAuthorizationHeader('empty-token-dest');
+
+            lastProviderFactory()('empty-token-dest', SERVICE_KEY_AUTH, {
+                serviceUrl: 'https://x.example.com',
+                authorizationToken: '',
+            });
+
+            expect(jest.mocked(AuthorizationCodeProvider)).toHaveBeenCalledWith(
+                expect.objectContaining({ accessToken: undefined }),
+            );
+        });
+
+        it('refuses to build a provider without credentials, naming the file', async () => {
+            await btpProxy.getAuthorizationHeader('no-creds-dest');
+
+            expect(() => lastProviderFactory()('no-creds-dest', null, {})).toThrow(
+                ServiceKeyNotFoundError,
             );
         });
     });
 
 
     describe('BtpProxy.create() default (no-destination) broker', () => {
-        // This is the placeholder-credential broker used only when no
-        // destination is configured. It cannot complete a real login, but it
-        // still builds an authorization strategy at construction time, and
-        // that strategy's port must not silently collide with the proxy's
+        // This is the broker used only when no destination is given. It gets
+        // the same provider factory as a per-destination one, and the
+        // authorization strategy the factory builds has a port that must not silently collide with the proxy's
         // own default httpPort (3001) — see the "Fixed" entry in CHANGELOG.md
         // for 2.0.0.
         it('builds it with the documented default port when browserAuthPort is not set', async () => {
             await BtpProxy.create();
+            lastProviderFactory()('D', SERVICE_KEY_AUTH, {});
 
             expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
                 expect.objectContaining({ port: 3333 }),
@@ -357,6 +471,7 @@ describe('BtpProxy', () => {
                 browser: 'firefox',
                 browserAuthPort: 9999,
             } as any);
+            lastProviderFactory()('D', SERVICE_KEY_AUTH, {});
 
             expect(mockBrowserCallbackStrategy).toHaveBeenCalledWith(
                 expect.objectContaining({ browser: 'firefox', port: 9999 }),
