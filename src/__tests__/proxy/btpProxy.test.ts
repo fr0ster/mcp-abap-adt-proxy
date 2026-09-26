@@ -6,6 +6,7 @@ import {
     ClientCredentialsProvider,
 } from '@mcp-abap-adt/auth-providers';
 import { ServiceKeyNotFoundError } from '../../lib/authFailure';
+import { TargetUrlSessionStore } from '../../proxy/targetUrlSessionStore';
 import { BtpProxy, shouldWriteStderr } from '../../proxy/btpProxy';
 
 // Mock AuthBroker singleton
@@ -343,7 +344,7 @@ describe('BtpProxy', () => {
             ).toHaveBeenCalledTimes(1);
         });
 
-        it('seeds the session serviceUrl with a configured targetUrl, and nothing else', async () => {
+        it('tells the broker a configured targetUrl through its store, writing nothing', async () => {
             const withTarget = new BtpProxy(mockAuthBroker, {
                 httpPort: 3001, ssePort: 3002, httpHost: '0.0.0.0', sseHost: '0.0.0.0',
                 logLevel: 'info', targetUrl: 'https://target.example.com',
@@ -351,12 +352,10 @@ describe('BtpProxy', () => {
 
             await withTarget.getAuthorizationHeader('D1');
 
-            // Only the url: no placeholder credentials and no client secret
-            // are written into the session any more.
-            expect(mockPlatformStores.sessionStore.setConnectionConfig).toHaveBeenCalledWith(
-                'D1',
-                { serviceUrl: 'https://target.example.com' },
-            );
+            // The session may be the file mcp-auth writes; its own URL stays.
+            expect(mockPlatformStores.sessionStore.setConnectionConfig).not.toHaveBeenCalled();
+            const brokerConfig = jest.mocked(AuthBroker).mock.calls.at(-1)?.[0];
+            expect(brokerConfig?.sessionStore).toBeInstanceOf(TargetUrlSessionStore);
         });
 
         it('leaves the session alone when it already names the targetUrl', async () => {

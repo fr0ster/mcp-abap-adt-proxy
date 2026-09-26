@@ -45,8 +45,18 @@ contract package.** `npm ls` shows exactly one version each of
   longer writes UAA credentials into the session either: with a `targetUrl`
   it used to put the service key's client ID and secret there — or
   `placeholder` credentials when it could not find them — through a private
-  broker method. It now writes the `serviceUrl` alone, through the session
-  store's public `setConnectionConfig`. The secret stays in the service key.
+  broker method. The secret stays in the service key.
+- **With `--unsafe`, the session file keeps its own URL.** The proxy also used
+  to write its `targetUrl` into the destination's session before building the
+  broker, so the broker could resolve a `serviceUrl` an XSUAA service key does
+  not carry. That session is the file `mcp-auth` writes too
+  (`~/.config/mcp-abap-adt/sessions/<destination>.env`), and its `SAP_URL`
+  was replaced by the MCP server's URL. The broker now reads the target URL
+  through `TargetUrlSessionStore`, a wrapper around the session store: reads
+  answer the target URL, writes keep the URL the session already holds, and
+  only a session that does not exist yet is created with the target URL.
+  Measured on the real `AbapSessionStore`: after a token write the file's
+  `SAP_URL` is unchanged.
 - **Auth failures reach the log as the provider raised them.** auth-broker 3
   no longer rewraps them into `Token provider … error for <destination>`. The
   reason the standalone proxy prints before exiting is now chosen by error

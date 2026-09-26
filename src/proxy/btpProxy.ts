@@ -75,6 +75,7 @@ const loggerAdapter: ILogger = {
 };
 
 import { type RetryOptions, retryWithBackoff } from '../lib/errorHandler.js';
+import { TargetUrlSessionStore } from './targetUrlSessionStore.js';
 
 async function requireCredentials(
   destination: string,
@@ -256,12 +257,19 @@ export class BtpProxy {
     // proxy asks the stores itself, before anything is written, and fails
     // with its own error naming the file to create.
     await requireCredentials(destination, serviceKeyStore, sessionStore);
-    await this.seedSessionServiceUrl(destination, sessionStore);
+
+    // The broker is told the target URL through the store it reads, not by
+    // writing it into the session: that session may be the file mcp-auth
+    // writes, whose own URL must stay.
+    const targetUrl = this.config.targetUrl;
+    const brokerSessionStore = targetUrl
+      ? new TargetUrlSessionStore(sessionStore, targetUrl)
+      : sessionStore;
 
     const broker = new AuthBroker(
       {
         serviceKeyStore,
-        sessionStore,
+        sessionStore: brokerSessionStore,
         provider: authorizationCodeProviderFactory(this.config),
       },
       loggerAdapter,
@@ -269,43 +277,6 @@ export class BtpProxy {
 
     this.btpAuthBrokers.set(destination, broker);
     return broker;
-  }
-
-  /**
-   * Put a configured `targetUrl` into the destination's session as its
-   * `serviceUrl`.
-   *
-   * auth-broker 3 refuses a destination whose session and service key both
-   * lack a `serviceUrl`, and an XSUAA service key for a BTP-hosted MCP server
-   * usually carries none: the target URL is what the proxy is told instead.
-   * Only `serviceUrl` is written, through the session store's public
-   * `setConnectionConfig` — no placeholder credentials and no client secret,
-   * which the broker reads from the service key and no longer copies into
-   * the session.
-   */
-  private async seedSessionServiceUrl(
-    destination: string,
-    sessionStore: ISessionStore,
-  ): Promise<void> {
-    const targetUrl = this.config.targetUrl;
-    if (!targetUrl) {
-      return;
-    }
-    const current = await sessionStore.getConnectionConfig(destination);
-    if (current?.serviceUrl === targetUrl) {
-      return;
-    }
-    await sessionStore.setConnectionConfig(destination, {
-      serviceUrl: targetUrl,
-    });
-    logger?.debug(
-      'Seeded the session serviceUrl with the configured targetUrl',
-      {
-        type: 'BTP_SESSION_SERVICE_URL',
-        destination,
-        url: targetUrl,
-      },
-    );
   }
 
   /**
