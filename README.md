@@ -296,7 +296,7 @@ See [Configuration Guide](./docs/CONFIGURATION.md) for complete options.
 
 ## Requirements
 
-- Node.js 22 or 24 (`engines: "^22 || ^24"`, required by `@mcp-abap-adt/auth-providers`)
+- Node.js 22, 24 or 26 (`engines: "^22 || ^24 || ^26"`, as `@mcp-abap-adt/auth-providers`)
 - npm >= 9.0.0
 
 ## Testing Tools

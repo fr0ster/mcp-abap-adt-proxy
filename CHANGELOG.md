@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-09-27
+
+### Changed
+
+- **Node.js 26 is supported**: `engines` is `"^22 || ^24 || ^26"`. Under Node 26 npm skipped every release whose `engines` did not admit it and installed the newest one that did — silently an older major, for this package one without the restriction. Measured: `npm i -g @mcp-abap-adt/proxy` on Node 26.7.0 installed 4.2.0 while 5.0.1 was `latest`. CI now tests 22, 24 and 26 — it tested 18 and 20, which `engines` did not admit — and the release build runs on 22 (it was 18).
+
 ## [5.0.1] - 2026-09-27
 
 ### Dependencies
