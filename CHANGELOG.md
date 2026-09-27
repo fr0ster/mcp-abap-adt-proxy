@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-09-27
+
 ### Dependencies
 
 - `@mcp-abap-adt/connection` `^9.4.0` (was `^9.3.0`), `@mcp-abap-adt/auth-stores`
