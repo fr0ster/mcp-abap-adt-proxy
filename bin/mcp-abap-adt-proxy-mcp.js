@@ -17,8 +17,11 @@ const fs = require('fs');
 function parseArgs() {
   const args = process.argv.slice(2);
   return {
-    help: args.includes('--help') || args.includes('-h'),
-    version: args.includes('--version') || args.includes('-v'),
+    help: args[0] === 'help' || args.includes('--help') || args.includes('-h'),
+    version:
+      args[0] === 'version' ||
+      args.includes('--version') ||
+      args.includes('-v'),
   };
 }
 

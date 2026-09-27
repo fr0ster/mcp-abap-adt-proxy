@@ -22,6 +22,10 @@ function parseArgs() {
     version: false,
   };
 
+  // `help` and `version` as the command, like every CLI in the family.
+  if (args[0] === 'help') result.help = true;
+  if (args[0] === 'version') result.version = true;
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--help' || arg === '-h') {

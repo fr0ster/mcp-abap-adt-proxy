@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.3] - 2026-09-27
+
+### Added
+
+- **`help` and `version` as commands** for `mcp-abap-adt-proxy` and `mcp-abap-adt-proxy-mcp`: `help` / `--help` / `-h` and `version` / `--version` / `-v` — the same set in every CLI of the family, each answering before anything starts or connects. `mcp-abap-adt-proxy help` / `version` started the proxy and stopped on a missing `--btp`; the `-mcp` bin printed nothing.
+
 ## [5.0.2] - 2026-09-27
 
 ### Changed
