@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Dependencies
+
+- `@mcp-abap-adt/connection` `^9.4.0` (was `^9.3.0`), `@mcp-abap-adt/auth-stores`
+  `^1.2.4` (was `^1.2.3`), `@mcp-abap-adt/auth-broker` `^3.0.1` (was `^3.0.0`).
+  The proxy takes only `TokenAuthProvider` from the connector, so its session
+  changes (only stateful requests carry the ABAP context; `sap-rfc-lite` 0.2.0
+  for RFC) do not change what the proxy does. auth-stores 1.2.4 reports a session
+  file it cannot read as an error instead of answering it as no session, and the
+  broker passes that error through.
+
 ## [5.0.0] - 2026-09-26
 
 **The proxy moves onto the new auth family, and its tree holds one copy of each
